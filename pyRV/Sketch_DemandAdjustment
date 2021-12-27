@@ -1,0 +1,8 @@
+For adjustment, 
+ZD = problem.products.ZD
+h = results.moments
+H = n^(-1}*(ZD'*xi_by_theta_jacobian) 
+WD = results.updated_W
+
+hi = ZD.*results.xi
+
