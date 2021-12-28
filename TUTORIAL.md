@@ -1,4 +1,4 @@
-## Install
+# Install
 First, you will need to download and install python, which you can do from this [link](https://www.python.org/).
 
 Then you will need to install four python packages: 
@@ -16,10 +16,10 @@ pip3 install numpy
 Finally, you should download the folder pyRV_folder.  
 
 
-## Running the code
+# Running the code
 First open python3 (pyRV has been developed for releases of python 3.6 and later) in either terminal or command prompt
 
-### Import python packages
+## Import python packages
 Then you import the necessary packages:
 
 ````
@@ -39,7 +39,7 @@ sys.path.append(pyRV_path)
 import pyRV
 ````
 
-### Load the main dataset
+## Load the main dataset
 In this tutorial, we are going to use the Nevo (2000) fake cereal data which is provided in both the pyblp and pyRV packages.  pyblp has excellent [documentation](https://pyblp.readthedocs.io/en/stable/index.html) including a thorough tutorial for estimating demand on this dataset which can be found [here](https://pyblp.readthedocs.io/en/stable/_notebooks/tutorial/nevo.html).   
 
 First you load the main dataset, which we refer to as `product_data`:
@@ -48,7 +48,7 @@ First you load the main dataset, which we refer to as `product_data`:
 product_data = pd.read_csv(pyblp.data.NEVO_PRODUCTS_LOCATION)
 ````
 
-### Estimate demand with pyblp
+## Estimate demand with pyblp
 Next, you extimate demand using pyblp.  
 
 ````
@@ -138,10 +138,10 @@ Beta Estimates (Robust SEs in Parentheses):
 ===============
 ````
 
-### Test Models of Conduct with pyRV
+## Test Models of Conduct with pyRV
 pyRV follows a similar structure to pyblp.  First, you set up the testing problem, then you run the test.  
 
-#### Setting Up Testing Problem
+### Setting Up Testing Problem
 Here is an example of the code to set up the testing problem for a simple example where we will test two models: (1) manufacturers set retail prices according to bertrand vs (2) maunfactureres set retail prices according to monopoly (i.e., perfect collusion).  We set up the testing problem with `pyRV.problem` and we store this as a variable `testing_problem`:
 ````
 testing_problem = pyRV.Problem(
@@ -216,7 +216,7 @@ The third table `Models` specifies the models being tested where each model is a
 * Firm id - Upstream: same as Firm id - Downstream but for wholesale price or quantity behavior
 * VI id = name of dummy variable indicating whether retailer and manufacturer are vertically integrated.
 
-#### Running the Testing Procedure
+### Running the Testing Procedure
 Now that the problem is set up, we can run the test, which we do with the following code
 ````
 testing_results = testing_problem.solve(
