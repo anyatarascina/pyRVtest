@@ -144,3 +144,38 @@ Beta Estimates (Robust SEs in Parentheses):
 ````
 
 ### Test Models of Conduct with pyRV
+pyRV follows a similar structure to pyblp.  First, you set up the testing problem, then you run the test.  Here is an example of the code to set up the testing problem for a simple example where we will test two models: (1) manufacturers set retail prices according to bertrand vs (2) maunfactureres set retail prices according to monopoly (i.e., perfect collusion).  We set up the testing problem with `pyRV.problem` and we store this as a variable `testing_problem`:
+````
+testing_problem = pyRV.Problem(
+    cost_formulation = (
+            pyRV.Formulation('0 + sugar', absorb = 'C(firm_ids)' )
+        ),
+    instrument_formulation = (
+            pyRV.Formulation('0 + demand_instruments0 + demand_instruments1')
+        ), 
+    model_formulations = (
+            pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids'),
+            pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids')
+       ),       
+    product_data = product_data,
+    demand_results = pyblp_results
+        )
+````
+pyRV.problem takes the following imputs:
+* `cost_formulation`: list of the variables for observed product characteristics.  In this example, we have defined the cost formulation as
+````
+pyRV.Formulation('0 + sugar', absorb = 'C(firm_ids)' )
+````
+Here, `0` means no constant.  To use a constant, one would replace `0` with `1`.  We are also including the variable `sugar` as an observed cost shifter.  Finally `absorb = 'C(firm_ids)'` specifies that we are including firm fixed effects which will be absorbed using [PYHDFE](https://github.com/jeffgortmaker/pyhdfe), a companion package to pyblp developed by Jeff Gortmaker and Anya Tarascina.
+* `instrument_formulation`
+* `model_formulations`
+* `product_data`
+* `demand_results`
+
+
+````
+testing_results = testing_problem.solve(
+    demand_adjustment = 'no',
+    se_type = 'unadjusted'
+    )
+````
