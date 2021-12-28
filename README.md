@@ -218,6 +218,8 @@ The third table `Models` specifies the models being tested where each model is a
 * Firm id - Upstream: same as Firm id - Downstream but for wholesale price or quantity behavior
 * VI id = name of dummy variable indicating whether retailer and manufacturer are vertically integrated.
 
+
+Now that the problem is set up, we can run the test, which we do with the following code
 ````
 testing_results = testing_problem.solve(
     demand_adjustment = 'no',
@@ -225,6 +227,8 @@ testing_results = testing_problem.solve(
     )
 ````
 
-
+Given that we define the variable `testing_problem` as pyRV.problem, we must write `testing_problem.solve` in the first line.  There are two user specified options in running the test:
+* demand_adjustment: 'no' indicates that the user does not want to adjust standard errors to account for two-step estimation with demand.  'yes' indicates standard errors should be adjusted to account for demand estimation.
+* se_type: 'unadjusted' means no clustering. 'clustered' indicated that all standard errors should be clustered.  In this case, a variable called `clustering_ids` which indicates the cluster to which each group belongs needs to appear in the `product_data`. See example below.
 
 Library of Models
