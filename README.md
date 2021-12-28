@@ -236,7 +236,7 @@ Given that we define the variable `testing_problem` as pyRV.problem, we must wri
 
 Both of these adjustments are implemented according to the formulas in Appendix C of Duarte, Magnolfi, Solvsten, and Sullivan (2021).
 
-
+This block of code to solve the testing problem returns the following output:
 
 ````
 Testing Results - Instruments z0:
@@ -259,5 +259,7 @@ F-stat critical values...
 ......50% max power:  10.4                                                        
 =====================================================================
 ````
+
+This table first reports the pairwise RV test statistic given the specified adjustments to the standard errors.  Then the pairwise F-statistics are reported, again with the specified adjustments to the standard errors.  Finally, the p-values associated with the model confidence set are reported.  Details on the model confidence set procedure are found in Section 6 of Duarte, Magnolfi, Solvsten, and Sullivan (2021) which adapts the procedure in Hansen, Lunde, and Naison () to the setting of testing firm conduct.
 
 Library of Models
