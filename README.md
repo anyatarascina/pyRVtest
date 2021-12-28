@@ -14,7 +14,9 @@ Then you will need to install four python packages:
 
 These can be installed by running the pip3 install command in either terminal (Mac) or Command Prompt (Windows).  For example, to install numpy, run the following:
 
-    pip3 install numpy
+````
+pip3 install numpy
+````
 
 Finally, you should download the folder pyRV_folder.  
 
@@ -25,66 +27,76 @@ First open python3 (pyRV has been developed for releases of python 3.6 and later
 ### Import python packages
 Then you import the necessary packages:
 
-        import numpy as np
-        import pandas as pd
-        import pyblp
-        import sys
+````
+import numpy as np
+import pandas as pd
+import pyblp
+import sys
+````
+
+
 
 To import pyRV, you specify the path on your computer for the pyRV_folder you downloaded
 
-        pyRV_path = '<user specified path>/pyRV_folder'
-        sys.path.append(pyRV_path)
-        import pyRV
+````
+pyRV_path = '<user specified path>/pyRV_folder'
+sys.path.append(pyRV_path)
+import pyRV
+````
 
 ### Load the main dataset
 In this tutorial, we are going to use the Nevo (2000) fake cereal data which is provided in both the pyblp and pyRV packages.  pyblp has excellent [documentation](https://pyblp.readthedocs.io/en/stable/index.html) including a thorough tutorial for estimating demand on this dataset which can be found [here](https://pyblp.readthedocs.io/en/stable/_notebooks/tutorial/nevo.html).   
 
 First you load the main dataset, which we refer to as `product_data`:
 
-        product_data = pd.read_csv(pyblp.data.NEVO_PRODUCTS_LOCATION)
+````
+product_data = pd.read_csv(pyblp.data.NEVO_PRODUCTS_LOCATION)
+````
 
 ### Estimate demand with pyblp
 Next, you extimate demand using pyblp.  
 
-        pyblp_problem = pyblp.Problem(
-            product_formulations = (
-                pyblp.Formulation('0 + prices ', absorb = 'C(product_ids)' ),
-                pyblp.Formulation('1 + prices + sugar + mushy'),
-                ),
-            agent_formulation = pyblp.Formulation('0 + income + income_squared + age + child'), 
-            product_data = product_data,
-            agent_data = pd.read_csv(pyblp.data.NEVO_AGENTS_LOCATION)
-            )
+````
+pyblp_problem = pyblp.Problem(
+    product_formulations = (
+        pyblp.Formulation('0 + prices ', absorb = 'C(product_ids)' ),
+        pyblp.Formulation('1 + prices + sugar + mushy'),
+        ),
+    agent_formulation = pyblp.Formulation('0 + income + income_squared + age + child'), 
+    product_data = product_data,
+    agent_data = pd.read_csv(pyblp.data.NEVO_AGENTS_LOCATION)
+    )
 
 
-        pyblp_results = pyblp_problem.solve(
-            sigma = np.diag([0.3302, 2.4526, 0.0163, 0.2441]), 
-            pi = [[5.4819,0, 0.2037 ,0 ],[15.8935,-1.2000, 0 ,2.6342 ],[-0.2506,0, 0.0511 ,0 ],[1.2650,0, -0.8091 ,0 ]  ],
-            method = '1s', 
-            optimization = pyblp.Optimization('bfgs',{'gtol':1e-5})  
-            )
+pyblp_results = pyblp_problem.solve(
+    sigma = np.diag([0.3302, 2.4526, 0.0163, 0.2441]), 
+    pi = [[5.4819,0, 0.2037 ,0 ],[15.8935,-1.2000, 0 ,2.6342 ],[-0.2506,0, 0.0511 ,0 ],[1.2650,0, -0.8091 ,0 ]  ],
+    method = '1s', 
+    optimization = pyblp.Optimization('bfgs',{'gtol':1e-5})  
+    )
+````
 
 In this example the linear characteristics in consumer preferences are price and product fixed effects.  Nonlinear characteristics with random coefficients include a constant, `price`, `sugar`, and `mushy`.  For these variables, we are going to estimate both the variance of the random coefficient as well as demographic interactions for `income`, `income_squared`, `age`, and `child`. `price`, `sugar`, and `mushy` are variables in the `product_data`.  Draws of `income`, `income_squared`, `age`, and `child` are in the agent data.  More info can be found [here](https://pyblp.readthedocs.io/en/stable/_api/pyblp.Problem.html)
 
 The first 9 lines of code set up the demand estimation problem.  Running them yeilds output which summarize the dimensions of the problem (see [here](https://pyblp.readthedocs.io/en/stable/_api/pyblp.Problem.html)) for description of each variable.  Also reported are the Formulations, i.e., the linear characteristics, non-linear characteristics for which we are estimating either variances or demographic interactions, and a list of the demographics being used.
 
+````
+Dimensions:
+=================================================
+ T    N     F    I     K1    K2    D    MD    ED 
+---  ----  ---  ----  ----  ----  ---  ----  ----
+94   2256   5   1880   1     4     4    20    1  
+=================================================
 
-        Dimensions:
-        =================================================
-         T    N     F    I     K1    K2    D    MD    ED 
-        ---  ----  ---  ----  ----  ----  ---  ----  ----
-        94   2256   5   1880   1     4     4    20    1  
-        =================================================
-
-        Formulations:
-        ===================================================================
-               Column Indices:           0           1           2      3  
-        -----------------------------  ------  --------------  -----  -----
-        X1: Linear Characteristics     prices                              
-        X2: Nonlinear Characteristics    1         prices      sugar  mushy
-            d: Demographics            income  income_squared   age   child
-        ===================================================================
-
+Formulations:
+===================================================================
+       Column Indices:           0           1           2      3  
+-----------------------------  ------  --------------  -----  -----
+ X1: Linear Characteristics    prices                              
+X2: Nonlinear Characteristics    1         prices      sugar  mushy
+       d: Demographics         income  income_squared   age   child
+===================================================================
+````
 
 The second block of code actually runs the estimation. It output includes information on computation as well as tables witrh the parameter estimates. A full list of post-estimation output which can be queried is found [here](https://pyblp.readthedocs.io/en/stable/_api/pyblp.ProblemResults.html).
 
