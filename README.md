@@ -21,11 +21,8 @@ pip3 install numpy
 Finally, you should download the folder pyRV_folder.  
 
 
-## Running the code
-First open python3 (pyRV has been developed for releases of python 3.6 and later) in either terminal or command prompt
-
-### Import python packages
-Then you import the necessary packages:
+## Import python packages
+First open python3 (pyRV has been developed for releases of python 3.6 and later) in either terminal or command prompt.  Then you import the necessary packages:
 
 ````
 import numpy as np
@@ -43,3 +40,6 @@ pyRV_path = '<user specified path>/pyRV_folder'
 sys.path.append(pyRV_path)
 import pyRV
 ````
+## Running the code
+
+For a detailed tutorial about how to set up and run the code, see tutorial.md
