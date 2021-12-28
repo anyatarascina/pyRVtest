@@ -22,6 +22,7 @@ Finally, you should download the folder pyRV_folder.
 ## Running the code
 First open python3 (pyRV has been developed for releases of python 3.6 and later) in either terminal or command prompt
 
+### Imposting the packages including pyRV
 Then you import the necessary packages:
 
         import numpy as np
@@ -34,3 +35,29 @@ To import pyRV, you specify the path on your computer for the pyRV_folder you do
         pyRV_path = '<user specified path>/pyRV_folder'
         sys.path.append(pyRV_path)
         import pyRV
+
+### Load the main dataset
+Load the main dataset, which we refer to as `product_data`:
+
+        product_data = pd.read_csv(pyblp.data.NEVO_PRODUCTS_LOCATION)
+
+### Estimate demand with pyblp
+Next, you extimate demand using pyblp.  An excellent step-by-step tutorial for doing so can be found [here](https://pyblp.readthedocs.io/en/stable/index.html). Both pyblp and pyRV come with the Nevo (2000) fake cereal dataset.  For example, to estimate demand with pyblp, one would run the following code:
+
+        pyblp_problem = pyblp.Problem(
+            product_formulations = (
+                pyblp.Formulation('0 + prices ', absorb = 'C(product_ids)' ),
+                pyblp.Formulation('1 + prices + sugar + mushy'),
+                ),
+            agent_formulation = pyblp.Formulation('0 + income + income_squared + age + child'), 
+            product_data = product_data,
+            agent_data = pd.read_csv(pyblp.data.NEVO_AGENTS_LOCATION)
+            )
+
+
+        pyblp_results = pyblp_problem.solve(
+            sigma = np.diag([0.3302, 2.4526, 0.0163, 0.2441]), 
+            pi = [[5.4819,0, 0.2037 ,0 ],[15.8935,-1.2000, 0 ,2.6342 ],[-0.2506,0, 0.0511 ,0 ],[1.2650,0, -0.8091 ,0 ]  ],
+            method = '1s', 
+            optimization = pyblp.Optimization('bfgs',{'gtol':1e-5})  
+            )
