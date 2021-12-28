@@ -277,6 +277,40 @@ In the above code, we stored `testing_problem.solve()` as the variable `testing_
 testing_results.markups
 ````
 
+## Example with more than two models and more than one instrument set
+Here we consider a more complicated example to illustrate more of the features of pyRV.  Here, we are going to test six models: the five models vertical models of condict considered in DMSS + a model where manufacturers choose retail quantites.  We are also going to adjust all standard errors to account for two-step estimation coming from demand, as well as cluster standard errors at the market level.  To implement these adjustments, we need to add two variables to the product data:
 
+````
+product_data["clustering_ids"] = product_data.market_ids
+product_data["vi_ids"] = 1*(product_data.brand_ids==4)
+````
+
+
+````
+testing_problem = pyRV.Problem(
+    cost_formulation = (
+        pyRV.Formulation('1 + sugar', absorb = 'C(firm_ids) + C(quarter)' )
+        ),
+    instrument_formulation = (
+        pyRV.Formulation('0 + demand_instruments0 + demand_instruments1'),
+        pyRV.Formulation('0 + demand_instruments2 + demand_instruments3 + demand_instruments4'),
+        pyRV.Formulation('0 + demand_instruments5')
+        ), 
+    model_formulations = (
+        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids'),
+        pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
+        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='bertrand',  ownership_upstream='firm_ids'),
+        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='bertrand',  ownership_upstream='firm_ids',vertical_integration='vertical_ids'),
+        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='monopoly',  ownership_upstream='firm_ids'),
+        ),       
+    product_data = product_data,
+    demand_results = pyblp_results
+    )
+
+testing_results_none = testing_problem.solve(
+    demand_adjustment = 'yes', 
+    se_type = 'clustered'
+    )
+````
 Library of Models
 
