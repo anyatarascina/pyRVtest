@@ -171,6 +171,53 @@ pyRV.problem takes the following imputs:
 * `demand_results`: set to `pyblp_results` which is the name of the variable defining pyblp.solve in the pyblp code above
 
 
+
+Running the `pyRV.problem` block of code yeilds the following output:
+````
+Dimensions:
+=============================
+ T    N     L    M    EC   K0
+---  ----  ---  ---  ----  --
+94   2256   1    2    1    2 
+=============================
+
+Formulations:
+==========================================================
+Column Indices:            0                    1         
+----------------  -------------------  -------------------
+w: Marginal Cost         sugar                            
+z0: Instruments   demand_instruments0  demand_instruments1
+==========================================================
+
+Models:
+========================================
+                         0         1    
+--------------------  --------  --------
+ Model - Downstream   monopoly  bertrand
+  Model - Upstream      None      None  
+Firm id - Downstream  monopoly  firm_ids
+ Firm id - Upstream     None      None  
+       VI ind           None      None  
+========================================
+
+````
+The first table `Dimensions` reports the following statistics:
+* T = number of markets
+* N = number of observations
+* L = number of instrument sets (each specified by an instrument formulation)
+* M = number of models (each specified by a model formulation)
+* EC = number of excluded observed cost shifers (not counting fixed effects)
+* K0 = number of instruments in the first instrument set (with more than one instrument formulation, additional columns K1, K2, .. K(L-1) would be reported)
+
+The second table `Formulations` reports the variables specified as observed cost shifers and excluded instruments. The first row indicates that sugar is the only included observed cost shifter (ignoring the fixed effects).  The second row indicates that `demand_instruments0` and `demand_instruments1` are the excluded instrunments for testing each model.
+
+The third table `Models` specifies the models being tested where each model is a column in the table
+* Model-Downsream reports the name of the model governing how retail prices are set (current options are bertrand, cournot, monopoly)
+* Model-Upstream reports the name of the model governing how wholesale prices are set (current options are bertrand, cournot, monopoly).   In this example, we are ignoring upstream behavior and assuming manufacturers set retail prices directly as in Nevo (2001). 
+* Firm id - Downstream: the variable in `product_data` used to make the ownership martix for setting retail conduct (prices or quantities).  If monopoly is specified as Model-Downstream, then Firm id - Downstream will default to monopoly and the ownership martrix in each market will be a matrix of ones.  
+* Firm id - Upstream: same as Firm id - Downstream but for wholesale price or quantity behavior
+* VI id = name of dummy variable indicating whether retailer and manufacturer are vertically integrated.
+
 ````
 testing_results = testing_problem.solve(
     demand_adjustment = 'no',
