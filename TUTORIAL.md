@@ -271,7 +271,11 @@ The testing procedure also stores additional output which the user can access af
 * `TRV`: array of pariwise RV test statistics for each instrument set and each pair of models
 * `F`: array of pariwise F-statistics for each instrument set and each pair of models
 * `MCS_pvalues`: array of MCS p-values for each instrument set and each model
-In the above code, we stored `testing_problem.solve()` as the variable `testing_results`, you can access i.e., the markups, py typing `testing_results.markups`.
+
+In the above code, we stored `testing_problem.solve()` as the variable `testing_results.  Thus, to access i.e., the markups, you type 
+````
+testing_results.markups
+````
 
 
 Library of Models
