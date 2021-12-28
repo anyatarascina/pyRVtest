@@ -42,4 +42,4 @@ import pyRV
 ````
 ## Running the code
 
-For a detailed tutorial about how to set up and run the code, see tutorial.md
+For a detailed tutorial about how to set up and run the code, see [tutorial.md](https://github.com/chrissullivanecon/pyRV/blob/main/TUTORIAL.md)
