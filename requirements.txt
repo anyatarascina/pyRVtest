@@ -1,0 +1,6 @@
+numpy>=1.17.0
+patsy>=0.5.1
+pyhdfe>=0.1.0
+scipy>=1.2.0
+sympy>=1.1.0
+pyblp>=0.12.0
