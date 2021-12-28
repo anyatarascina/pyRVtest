@@ -231,4 +231,29 @@ Given that we define the variable `testing_problem` as pyRV.problem, we must wri
 * demand_adjustment: 'no' indicates that the user does not want to adjust standard errors to account for two-step estimation with demand.  'yes' indicates standard errors should be adjusted to account for demand estimation.
 * se_type: 'unadjusted' means no clustering. 'clustered' indicated that all standard errors should be clustered.  In this case, a variable called `clustering_ids` which indicates the cluster to which each group belongs needs to appear in the `product_data`. See example below.
 
+
+
+
+````
+Testing Results - Instruments z0:
+=======================================================================
+  TRV:                |   F-stats:              |   MCS:               
+--------  ---  -----  |  ----------  ---  ----  |  ------  ------------
+ models    0     1    |    models     0    1    |  models  MCS p-values
+--------  ---  -----  |  ----------  ---  ----  |  ------  ------------
+   0      0.0  1.144  |      0       0.0  13.3  |    0        0.252    
+   1      0.0   0.0   |      1       0.0  0.0   |    1         1.0     
+=======================================================================
+F-stat critical values...                                                             
+... for worst-case size:                                                             
+......07.5% worst-case size:  0.0                                                        
+......10.0% worst-case size:  0.0                                                        
+......12.5% worst-case size:  0.0                                                        
+... for maximal power:                                                             
+......95% max power:  18.9                                                        
+......75% max power:  13.2                                                        
+......50% max power:  10.4                                                        
+=====================================================================
+````
+
 Library of Models
