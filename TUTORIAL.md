@@ -258,7 +258,21 @@ F-stat critical values...
 This table first reports the pairwise RV test statistic given the specified adjustments to the standard errors.  Then the pairwise F-statistics are reported, again with the specified adjustments to the standard errors.  Finally, the p-values associated with the model confidence set are reported.  Details on the model confidence set procedure are found in Section 6 of Duarte, Magnolfi, Solvsten, and Sullivan (2021) which adapts the procedure in Hansen, Lunde, and Naison () to the setting of testing firm conduct.  Beneath the table are the appropriate critical values from Table 1 of DMSS given the number of instruments the researcher is using.  The researcher can compare her pariwise F-statistics to these critical values.  Here, we are using two instruments, so there are no size distortions above 2.5%.  However, for a target maximal power of 95%, the F-statistic of 13.3 is less than the critical value of 18.9, so the instruments are weak for power.
 
 
-The testing procedure also stores additional output which the user can access:
+The testing procedure also stores additional output which the user can access after running the testing code:
+* `markups`: array of the total markups implied by each model (sum of retail and wholesale markups)
+* `markups_downstream`: array of the retail markups implied by each model
+* `markups_upstream`: array of the manufacturer markups implied by each model of double marginalization
+* `taus`: array of coefficients from regressing implied marginal costs for each model on observed cost shifters
+* `mc`: array of implied marginal costs for each model
+* `g`: array of moments for each model and each instrument set of conduct between implied residualized cost unobservable and the instruments
+* `Q` array of lack of fit given by GMM objective function with 2SLS weight matrix for each set of instruments and each model
+* `RV_num`: array of numerators of pariwise RV test statistics for each instrument set and each pair of models
+* `RV_denom`: array of denominators of pariwise RV test statistics for each instrument set and each pair of models
+* `TRV`: array of pariwise RV test statistics for each instrument set and each pair of models
+* `F`: array of pariwise F-statistics for each instrument set and each pair of models
+* `MCS_pvalues`: array of MCS p-values for each instrument set and each model
+In the above code, we stored `testing_problem.solve()` as the variable `testing_results`, you can access i.e., the markups, py typing `testing_results.markups`.
+
 
 Library of Models
 
