@@ -144,7 +144,10 @@ Beta Estimates (Robust SEs in Parentheses):
 ````
 
 ### Test Models of Conduct with pyRV
-pyRV follows a similar structure to pyblp.  First, you set up the testing problem, then you run the test.  Here is an example of the code to set up the testing problem for a simple example where we will test two models: (1) manufacturers set retail prices according to bertrand vs (2) maunfactureres set retail prices according to monopoly (i.e., perfect collusion).  We set up the testing problem with `pyRV.problem` and we store this as a variable `testing_problem`:
+pyRV follows a similar structure to pyblp.  First, you set up the testing problem, then you run the test.  
+
+#### Setting Up Testing Problem
+Here is an example of the code to set up the testing problem for a simple example where we will test two models: (1) manufacturers set retail prices according to bertrand vs (2) maunfactureres set retail prices according to monopoly (i.e., perfect collusion).  We set up the testing problem with `pyRV.problem` and we store this as a variable `testing_problem`:
 ````
 testing_problem = pyRV.Problem(
     cost_formulation = (
@@ -218,7 +221,7 @@ The third table `Models` specifies the models being tested where each model is a
 * Firm id - Upstream: same as Firm id - Downstream but for wholesale price or quantity behavior
 * VI id = name of dummy variable indicating whether retailer and manufacturer are vertically integrated.
 
-
+#### Running the Testing Procedure
 Now that the problem is set up, we can run the test, which we do with the following code
 ````
 testing_results = testing_problem.solve(
