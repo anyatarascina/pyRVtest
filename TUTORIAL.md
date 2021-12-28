@@ -278,18 +278,20 @@ testing_results.markups
 ````
 
 ## Example with more than two models and more than one instrument set
-Here we consider a more complicated example to illustrate more of the features of pyRV.  Here, we are going to test six models: the five models vertical models of condict considered in DMSS + a model where manufacturers choose retail quantites.  We are also going to adjust all standard errors to account for two-step estimation coming from demand, as well as cluster standard errors at the market level.  To implement these adjustments, we need to add two variables to the product data:
+Here we consider a more complicated example to illustrate more of the features of pyRV.  Here, we are going to test five models of vertical conduct: (1) manufacturers set monopoly retail prices, (2) manufacturers set bertrand retail prices, (3) manufactuers set Cournot retail quantities, (4) manufacturers set bertrand wholsale prices and retailers set monopoly retail prices, (5) manufacturers set monopoly wholesale prices and retailers set monopoly retail prices.  We are also going to adjust all standard errors to account for two-step estimation coming from demand, as well as cluster standard errors at the market level.  To implement these adjustments, we need to add a variable to the `product_data` called `clustering_ids`:
 
 ````
 product_data["clustering_ids"] = product_data.market_ids
-product_data["vi_ids"] = 1*(product_data.brand_ids==4)
+````
+
+Now we can run the code to set up the testing problem (which we will now call `testing_problem_new`) and then run the code to run the testing procedure (which we will call `testing_results_new`).
+
 ````
 
 
-````
-testing_problem = pyRV.Problem(
+testing_problem_new = pyRV.Problem(
     cost_formulation = (
-        pyRV.Formulation('1 + sugar', absorb = 'C(firm_ids) + C(quarter)' )
+        pyRV.Formulation('1 + sugar', absorb = 'C(firm_ids)' )
         ),
     instrument_formulation = (
         pyRV.Formulation('0 + demand_instruments0 + demand_instruments1'),
@@ -299,18 +301,123 @@ testing_problem = pyRV.Problem(
     model_formulations = (
         pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids'),
         pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
+        pyRV.ModelFormulation(model_downstream='cournot', ownership_downstream='firm_ids'),
         pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='bertrand',  ownership_upstream='firm_ids'),
-        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='bertrand',  ownership_upstream='firm_ids',vertical_integration='vertical_ids'),
-        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='monopoly',  ownership_upstream='firm_ids'),
+        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='monopoly',  ownership_upstream='firm_ids')
         ),       
     product_data = product_data,
     demand_results = pyblp_results
     )
 
-testing_results_none = testing_problem.solve(
+testing_results_new = testing_problem_new.solve(
     demand_adjustment = 'yes', 
     se_type = 'clustered'
     )
+
 ````
-Library of Models
+We get the following output from `testing_problem_new`:
+
+````
+
+Dimensions:
+=====================================
+ T    N     L    M    EC   K0  K1  K2
+---  ----  ---  ---  ----  --  --  --
+94   2256   3    5    1    2   3   1 
+=====================================
+
+Formulations:
+===============================================================================
+Column Indices:            0                    1                    2         
+----------------  -------------------  -------------------  -------------------
+w: Marginal Cost         sugar                                                 
+z0: Instruments   demand_instruments0  demand_instruments1                     
+z1: Instruments   demand_instruments2  demand_instruments3  demand_instruments4
+z2: Instruments   demand_instruments5                                          
+===============================================================================
+
+Models:
+======================================================================
+                         0         1         2         3         4    
+--------------------  --------  --------  --------  --------  --------
+ Model - Downstream   monopoly  bertrand  cournot   monopoly  monopoly
+  Model - Upstream      None      None      None    bertrand  monopoly
+Firm id - Downstream  monopoly  firm_ids  firm_ids  monopoly  monopoly
+ Firm id - Upstream     None      None      None    firm_ids  monopoly
+       VI ind           None      None      None      None      None  
+======================================================================
+````
+
+And we get the following output from `testing_results_new`:
+````
+Testing Results - Instruments z0:
+============================================================================================================
+  TRV:                                       |   F-stats:                            |   MCS:               
+--------  ---  -----  -----  ------  ------  |  ----------  ---  ---  ---  ---  ---  |  ------  ------------
+ models    0     1      2      3       4     |    models     0    1    2    3    4   |  models  MCS p-values
+--------  ---  -----  -----  ------  ------  |  ----------  ---  ---  ---  ---  ---  |  ------  ------------
+   0      0.0  0.231  0.286  -0.003  -0.491  |      0       0.0  0.4  0.3  0.0  0.0  |    0        0.973    
+   1      0.0   0.0   0.156  -0.013  -0.488  |      1       0.0  0.0  1.2  0.0  0.0  |    1        0.981    
+   2      0.0   0.0    0.0   -0.014  -0.492  |      2       0.0  0.0  0.0  0.0  0.0  |    2         1.0     
+   3      0.0   0.0    0.0    0.0    -0.222  |      3       0.0  0.0  0.0  0.0  0.0  |    3        0.988    
+   4      0.0   0.0    0.0    0.0     0.0    |      4       0.0  0.0  0.0  0.0  0.0  |    4        0.948    
+============================================================================================================
+F-stat critical values...                                                                                                  
+... for worst-case size:                                                                                                  
+......07.5% worst-case size:  0.0                                                                                             
+......10.0% worst-case size:  0.0                                                                                             
+......12.5% worst-case size:  0.0                                                                                             
+... for maximal power:                                                                                                  
+......95% max power:  18.9                                                                                             
+......75% max power:  13.2                                                                                             
+......50% max power:  10.4                                                                                             
+==========================================================================================================
+
+Testing Results - Instruments z1:
+===========================================================================================================
+  TRV:                                      |   F-stats:                            |   MCS:               
+--------  ---  ----  -----  ------  ------  |  ----------  ---  ---  ---  ---  ---  |  ------  ------------
+ models    0    1      2      3       4     |    models     0    1    2    3    4   |  models  MCS p-values
+--------  ---  ----  -----  ------  ------  |  ----------  ---  ---  ---  ---  ---  |  ------  ------------
+   0      0.0  0.02  0.102  -0.108  -0.587  |      0       0.0  0.5  0.4  0.0  0.1  |    0        0.919    
+   1      0.0  0.0   1.048  -0.095  -0.56   |      1       0.0  0.0  0.9  0.0  0.1  |    1        0.518    
+   2      0.0  0.0    0.0   -0.108  -0.566  |      2       0.0  0.0  0.0  0.0  0.1  |    2         1.0     
+   3      0.0  0.0    0.0    0.0    -0.71   |      3       0.0  0.0  0.0  0.0  0.4  |    3        0.978    
+   4      0.0  0.0    0.0    0.0     0.0    |      4       0.0  0.0  0.0  0.0  0.0  |    4         0.68    
+===========================================================================================================
+F-stat critical values...                                                                                                 
+... for worst-case size:                                                                                                 
+......07.5% worst-case size:  0.0                                                                                            
+......10.0% worst-case size:  0.0                                                                                            
+......12.5% worst-case size:  0.0                                                                                            
+... for maximal power:                                                                                                 
+......95% max power:  14.6                                                                                            
+......75% max power:  10.2                                                                                            
+......50% max power:  8.0                                                                                            
+=========================================================================================================
+
+Testing Results - Instruments z2:
+============================================================================================================
+  TRV:                                      |   F-stats:                             |   MCS:               
+--------  ---  -----  ------  -----  -----  |  ----------  ---  ---  ----  ---  ---  |  ------  ------------
+ models    0     1      2       3      4    |    models     0    1    2     3    4   |  models  MCS p-values
+--------  ---  -----  ------  -----  -----  |  ----------  ---  ---  ----  ---  ---  |  ------  ------------
+   0      0.0  -1.92  -2.269  0.208  0.544  |      0       0.0  7.8  7.2   0.2  1.1  |    0        0.716    
+   1      0.0   0.0   1.011   0.493  1.463  |      1       0.0  0.0  15.0  0.5  1.7  |    1        0.091    
+   2      0.0   0.0    0.0    0.464  1.23   |      2       0.0  0.0  0.0   0.4  1.6  |    2        0.044    
+   3      0.0   0.0    0.0     0.0   0.101  |      3       0.0  0.0  0.0   0.0  0.1  |    3         0.92    
+   4      0.0   0.0    0.0     0.0    0.0   |      4       0.0  0.0  0.0   0.0  0.0  |    4         1.0     
+============================================================================================================
+F-stat critical values...                                                                                                  
+... for worst-case size:                                                                                                  
+......07.5% worst-case size:  31.4                                                                                             
+......10.0% worst-case size:  14.5                                                                                             
+......12.5% worst-case size:  8.4                                                                                             
+... for maximal power:                                                                                                  
+......95% max power:  31.1                                                                                             
+......75% max power:  22.6                                                                                             
+......50% max power:  18.0                                                                                             
+==========================================================================================================
+````
+
 
