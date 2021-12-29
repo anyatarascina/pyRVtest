@@ -56,8 +56,6 @@ class ProblemEconomy(Economy):
         step_start_time = time.time()
 
         # validate settings
-        if method not in {'both', 'MCS', 'pairwise'}:
-            raise TypeError("method must be 'both', 'MCS', 'pairwise'.")
         if demand_adjustment not in {'yes', 'no'}:
             raise TypeError("demand_adjustment must be 'yes' or 'no'.")
         if se_type not in {'robust', 'unadjusted', 'clustered'}:
@@ -317,10 +315,10 @@ class ProblemEconomy(Economy):
                     psi[kk] = psi[kk] - (hi-np.transpose(h))@np.transpose(dmd_adj[kk])
 
             
-            if method == 'MCS' or method == 'both':
-                M_MCS = np.array(range(M))
-                all_combos = list(itertools.combinations(M_MCS, 2))
-                Var_MCS = np.zeros([np.shape(all_combos)[0],1])
+            
+            M_MCS = np.array(range(M))
+            all_combos = list(itertools.combinations(M_MCS, 2))
+            Var_MCS = np.zeros([np.shape(all_combos)[0],1])
 
 
 
@@ -350,30 +348,27 @@ class ProblemEconomy(Economy):
                                     VRV_22 = VRV_22 + 1/N*psi2_l.T@psi2_c
                                     VRV_12 = VRV_12 + 1/N*psi1_l.T@psi2_c    
                         sigma2 = 4*(g[jj].T@WM12@VRV_11@WM12@g[jj]+g[kk].T@WM12@VRV_22@WM12@g[kk]-2*g[jj].T@WM12@VRV_12@WM12@g[kk])
-                        if method == 'MCS' or method == 'both':
-                            COV_MCS[jj,kk] = g[jj].T@WM12@VRV_12@WM12@g[kk]
-                            COV_MCS[kk,jj] = COV_MCS[jj,kk]
-                            COV_MCS[kk,kk] = g[kk].T@WM12@VRV_22@WM12@g[kk]
-                            COV_MCS[jj,jj] = g[jj].T@WM12@VRV_11@WM12@g[jj] 
+                        
+                        COV_MCS[jj,kk] = g[jj].T@WM12@VRV_12@WM12@g[kk]
+                        COV_MCS[kk,jj] = COV_MCS[jj,kk]
+                        COV_MCS[kk,kk] = g[kk].T@WM12@VRV_22@WM12@g[kk]
+                        COV_MCS[jj,jj] = g[jj].T@WM12@VRV_11@WM12@g[jj] 
                         
                         RV_denom[jj,kk] = math.sqrt(sigma2)
-                        
-                       
-            if method == 'MCS' or method == 'both':
                 
-                Ncombos = np.shape(all_combos)[0]
-                Sigma_MCS = np.zeros([Ncombos,Ncombos])
-                for ii in range(Ncombos):
-                    tmp3 = all_combos[ii][0]
-                    tmp4 = all_combos[ii][1]
-                    
-                    Var_MCS[ii] = RV_denom[tmp3,tmp4]/2
-                    for jj in range(Ncombos):
-                        tmp1 = all_combos[jj][0]
-                        tmp2 = all_combos[jj][1]
-                        Sigma_MCS[jj,ii]  = COV_MCS[tmp1,tmp3]-COV_MCS[tmp2,tmp3]-COV_MCS[tmp1,tmp4]+COV_MCS[tmp2,tmp4]
+            Ncombos = np.shape(all_combos)[0]
+            Sigma_MCS = np.zeros([Ncombos,Ncombos])
+            for ii in range(Ncombos):
+                tmp3 = all_combos[ii][0]
+                tmp4 = all_combos[ii][1]
                 
-                Sigma_MCS = Sigma_MCS/(Var_MCS@Var_MCS.T)
+                Var_MCS[ii] = RV_denom[tmp3,tmp4]/2
+                for jj in range(Ncombos):
+                    tmp1 = all_combos[jj][0]
+                    tmp2 = all_combos[jj][1]
+                    Sigma_MCS[jj,ii]  = COV_MCS[tmp1,tmp3]-COV_MCS[tmp2,tmp3]-COV_MCS[tmp1,tmp4]+COV_MCS[tmp2,tmp4]
+            
+            Sigma_MCS = Sigma_MCS/(Var_MCS@Var_MCS.T)
                 
             # Compute the pairwise RV test statistic           
             TRV = np.zeros((M,M))
@@ -431,56 +426,56 @@ class ProblemEconomy(Economy):
             
             MCS_pvalues = np.ones([M,1])
 
-            if method == 'MCS' or method == 'both':
+            
                 
-                stop = 0
-                while stop == 0:
-                    if np.shape(M_MCS)[0] == 2:
-                        TRVmax = TRV[M_MCS[0],M_MCS[1]]
+            stop = 0
+            while stop == 0:
+                if np.shape(M_MCS)[0] == 2:
+                    TRVmax = TRV[M_MCS[0],M_MCS[1]]
 
-                        if np.sign(TRVmax)>= 0:
-                            em = M_MCS[0]
-                            TRVmax = -TRVmax
-                        else:
-                            em = M_MCS[1]
+                    if np.sign(TRVmax)>= 0:
+                        em = M_MCS[0]
+                        TRVmax = -TRVmax
+                    else:
+                        em = M_MCS[1]
 
-                        MCS_pvalues[em] = 2*norm.cdf(TRVmax)
+                    MCS_pvalues[em] = 2*norm.cdf(TRVmax)
 
-                        stop = 1
-                    else:      
+                    stop = 1
+                else:      
 
-                        combos = list(itertools.combinations(M_MCS, 2))
-                        tmp1 = []
-                        tmp2 = []
+                    combos = list(itertools.combinations(M_MCS, 2))
+                    tmp1 = []
+                    tmp2 = []
+                    
+                    Ncombos = np.shape(combos)[0]
+                    Sig_idx = np.empty(Ncombos, dtype=int)
+                    for ii in range(Ncombos):
+                        tmp1.append(combos[ii][0])
+                        tmp2.append(combos[ii][1])
+
+                        Sig_idx[ii] = all_combos.index(combos[ii])
                         
-                        Ncombos = np.shape(combos)[0]
-                        Sig_idx = np.empty(Ncombos, dtype=int)
-                        for ii in range(Ncombos):
-                            tmp1.append(combos[ii][0])
-                            tmp2.append(combos[ii][1])
 
-                            Sig_idx[ii] = all_combos.index(combos[ii])
-                            
+                    TRV_MCS = TRV[tmp1,tmp2]
+                    index = np.argmax(abs(TRV_MCS))
+                    TRVmax = TRV_MCS[index]
 
-                        TRV_MCS = TRV[tmp1,tmp2]
-                        index = np.argmax(abs(TRV_MCS))
-                        TRVmax = TRV_MCS[index]
+                    if np.sign(TRVmax)>= 0:
+                        em = tmp1[index]
+                    else:
+                        em = tmp2[index]
+                        TRVmax = -TRVmax
+                       
+                    mean = np.zeros([np.shape(combos)[0]]) 
+                    cov = Sigma_MCS[Sig_idx[:, None], Sig_idx]
+                    Ndraws = 99999
+                    simTRV = np.random.multivariate_normal(mean, cov, (Ndraws))
+                    maxsimTRV = np.amax(abs(simTRV),1)
 
-                        if np.sign(TRVmax)>= 0:
-                            em = tmp1[index]
-                        else:
-                            em = tmp2[index]
-                            TRVmax = -TRVmax
-                           
-                        mean = np.zeros([np.shape(combos)[0]]) 
-                        cov = Sigma_MCS[Sig_idx[:, None], Sig_idx]
-                        Ndraws = 99999
-                        simTRV = np.random.multivariate_normal(mean, cov, (Ndraws))
-                        maxsimTRV = np.amax(abs(simTRV),1)
+                    MCS_pvalues[em] = np.mean(maxsimTRV > TRVmax)
 
-                        MCS_pvalues[em] = np.mean(maxsimTRV > TRVmax)
-
-                        M_MCS = np.delete(M_MCS,np.where(M_MCS == em))
+                    M_MCS = np.delete(M_MCS,np.where(M_MCS == em))
 
 
             g_ALL[zz] = g

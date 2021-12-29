@@ -18,7 +18,7 @@ from ..utilities.algebra import (
     approximately_invert, approximately_solve, compute_condition_number, precisely_compute_eigenvalues, vech_to_full
 )
 from ..utilities.basics import (
-    Array, Bounds, Error, Mapping, RecArray, SolverStats, format_number, format_seconds, format_table, format_table_notes, generate_items,
+    Array, Bounds, Error, Mapping, RecArray, SolverStats, format_number, format_seconds, format_table, format_table_notes, format_table_notes_sub, generate_items,
     get_indices, output, output_progress, update_matrices
 )
 from ..utilities.statistics import (
@@ -324,7 +324,7 @@ class ProblemResults(Results):
         """Format economy information as a string."""
         out = ""
         for zz in range(len(self.TRV)):
-            tmp =  "\n\n".join([self._format_RVstats(zz),self._format_Fstats_notes(zz)])
+            tmp =  "\n\n".join([self._format_Fstats_notes(zz)])
             out = "\n\n".join([out,tmp])    
         return out
     def _format_RVstats(self, zz: int) -> str:
@@ -366,7 +366,7 @@ class ProblemResults(Results):
         cv_p50 = float(tmp[ind])
         
         cvs: List[List[str]] = []
-        cvs.append(['Effective F-stat critical values...'])
+        cvs.append(['F-stat critical values...'])
         cvs.append(['... for worst-case size:'])
         cvs.append(['......07.5% worst-case size:'] + [str(cv_s075)])                                  
         cvs.append(['......10.0% worst-case size:'] + [str(cv_s10)])   
@@ -377,18 +377,16 @@ class ProblemResults(Results):
         cvs.append(['......50% max power:'] + [str(cv_p50)])                                          
                                            
                                                       
-                                         
-
         # construct the data
 
         data: List[List[str]] = []
         for kk in range(len(self.markups)):
-            data.append([str(kk)] + [round(self.F[zz][kk,i],1) for i in range(len(self.markups))] + [str(round(self.MCS_pvalues[zz][kk][0],3))])
+            data.append([str(kk)] + [round(self.TRV[zz][kk,i],3) for i in range(len(self.markups))] + [str(kk)] +  [round(self.F[zz][kk,i],1) for i in range(len(self.markups))] + [str(kk)] + [str(round(self.MCS_pvalues[zz][kk][0],3))])
         
         # construct the header
-        header = [" "] + [f" {i} " for i in range(len(self.markups))] + ["MCS p-values"]
-
-        return format_table_notes(header, *data, title="Effective F-statistics + MCS p-values - Instruments {0}".format(zz), notes = cvs)    
+        header =  [" TRV: "] + [f"  " for i in range(len(self.markups))]+ [" F-stats: "] + [f"  " for i in range(len(self.markups))] + [" MCS: "] + [" "]
+        subheader = [" models "] + [f" {i} " for i in range(len(self.markups))]+ [" models "] + [f" {i} " for i in range(len(self.markups))] + ["models"] +  ["MCS p-values"] 
+        return format_table_notes_sub(header, subheader, *data, title="Testing Results - Instruments z{0}".format(zz), notes = cvs, line_indices =[len(self.markups),2*len(self.markups)+1])    
 
     # def __str__(self) -> str:
     # """Format problem results as a string."""
