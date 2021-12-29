@@ -1,3 +1,21 @@
+This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan. It largely adapts the PyBLP source code (copyright Jeff Gortmaker and Christopher Conlon) to do so.
+
+For a full list of references, see the references in [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss).
+
+# Overview
+In this tutorial, we are going to use the [Nevo (2000)](#nevo) fake cereal data which is provided in both the PyBLP and pyRV packages.  PyBLP has excellent [documentation](https://pyblp.readthedocs.io/en/stable/index.html) including a thorough tutorial for estimating demand on this dataset which can be found [here](https://pyblp.readthedocs.io/en/stable/_notebooks/tutorial/nevo.html).   
+
+Note that the data are originally designed to illustrate demand estimation. Thus, the following caveats should be kept in mind:
+* The application in this tutorial only serves the purpose to illustrate how pyRV works. The results we show should not be used to infer conduct or any other economic feature about the cereal industry.
+* To test conduct, a researcher generally needs data on both cost shifters, and strong excluded instruments. As the data was designed to perform demand estimation, it does not necessarily have the features that are desirable to test conduct in applications. 
+* Hence, the specifications that we use below, including the specification of firm cost and the candidate conducts models, are just shown for illustrative purposes and may not be appropriate for the economic context of the cereal industry.
+
+The tutorial proceeds in the following steps:
+* Install Python, pyRV and the appropriate packages
+* Load the data
+* Perform demand estimation with PyBLP
+* Test conduct with pyRV
+
 # Install
 First, you will need to download and install python, which you can do from this [link](https://www.python.org/).
 
@@ -19,7 +37,7 @@ Finally, you should download the folder pyRV_folder.
 # Running the code
 First open python3 (pyRV has been developed for releases of python 3.6 and later) in either terminal or command prompt
 
-## Import python packages
+## Import Python packages
 Then you import the necessary packages:
 
 ````
@@ -40,7 +58,6 @@ import pyRV
 ````
 
 ## Load the main dataset
-In this tutorial, we are going to use the [Nevo (2000)](#nevo) fake cereal data which is provided in both the PyBLP and pyRV packages.  PyBLP has excellent [documentation](https://pyblp.readthedocs.io/en/stable/index.html) including a thorough tutorial for estimating demand on this dataset which can be found [here](https://pyblp.readthedocs.io/en/stable/_notebooks/tutorial/nevo.html).   
 
 First you load the main dataset, which we refer to as `product_data`:
 
@@ -48,8 +65,9 @@ First you load the main dataset, which we refer to as `product_data`:
 product_data = pd.read_csv(pyblp.data.NEVO_PRODUCTS_LOCATION)
 ````
 
+
 ## Estimate demand with PyBLP
-Next, you extimate demand using PyBLP.  
+Next, you extimate demand using PyBLP ([Conlon and Gortmaker (2021)](#pyblp)).  
 
 ````
 pyblp_problem = pyblp.Problem(
@@ -420,7 +438,6 @@ F-stat critical values...
 ==========================================================================================================
 ````
 
-
 ## References
 
 <a name="pyblp">Conlon, Christopher, and Jeff Gortmaker. "Best practices for differentiated products demand estimation with pyblp." The RAND Journal of Economics 51, no. 4 (2020): 1108-1161.</a>
@@ -429,6 +446,10 @@ F-stat critical values...
 
 <a name="hln">Hansen, Peter R., Asger Lunde, and James M. Nason. "The model confidence set." Econometrica 79, no. 2 (2011): 453-497.</a>
 
+<a name="nevo">Nevo, Aviv. "A practitioner's guide to estimation of random‐coefficients logit models of demand." Journal of economics & management strategy 9, no. 4 (2000): 513-548.</a>    
+
+<a name="nevo01">Nevo, Aviv. "Measuring market power in the ready‐to‐eat cereal industry." Econometrica 69, no. 2 (2001): 307-342.</a>
+    
 <a name="rv">Rivers, Douglas, and Quang Vuong. "Model selection tests for nonlinear dynamic models." The Econometrics Journal 5, no. 1 (2002): 1-39.</a>
 
 
