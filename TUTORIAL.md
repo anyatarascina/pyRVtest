@@ -173,11 +173,11 @@ pyRV.problem takes the following imputs:
 Running the `pyRV.problem` block of code yeilds the following output:
 ````
 Dimensions:
-=============================
- T    N     L    M    EC   K0
----  ----  ---  ---  ----  --
-94   2256   1    2    1    2 
-=============================
+=======================
+ T    N     M    L   K0
+---  ----  ---  ---  --
+94   2256   2    1   2 
+=======================
 
 Formulations:
 ==========================================================
@@ -202,9 +202,8 @@ Firm id - Downstream  monopoly  firm_ids
 The first table `Dimensions` reports the following statistics:
 * T = number of markets
 * N = number of observations
-* L = number of instrument sets (each specified by an instrument formulation)
 * M = number of models (each specified by a model formulation)
-* EC = ??
+* L = number of instrument sets (each specified by an instrument formulation)
 * K0 = number of instruments in the first instrument set (with more than one instrument formulation, additional columns K1, K2, .. K(L-1) would be reported)
 
 The second table `Formulations` reports the variables specified as observed cost shifers and excluded instruments. The first row indicates that sugar is the only included observed cost shifter (ignoring the fixed effects).  The second row indicates that `demand_instruments0` and `demand_instruments1` are the excluded instrunments for testing each model.
@@ -286,7 +285,7 @@ We are also going to adjust all standard errors to account for two-step estimati
 product_data["clustering_ids"] = product_data.market_ids
 ````
 
-Now we can run the code to set up the testing problem (which we will now call `testing_problem_new`) and then run the code to run the testing procedure (which we will call `testing_results_new`).
+Now we can run the code to set up the testing problem (which we will now call `testing_problem_new`) and then run the code to run the testing procedure (which we will call `testing_results_new`).  Notice that to add more models or more instrument sets, we add model formulations and instrument formulations.  Further notice that by specifying demand adjustment = 'yes' and se_type = 'clustered' we turn on two-step adjustments to the standard errors as well as clustering at the level indicated by `product_data.clustering_ids`. 
 
 ````
 
@@ -322,11 +321,11 @@ We get the following output from `testing_problem_new`:
 ````
 
 Dimensions:
-=====================================
- T    N     L    M    EC   K0  K1  K2
----  ----  ---  ---  ----  --  --  --
-94   2256   3    5    1    2   3   1 
-=====================================
+===============================
+ T    N     M    L   K0  K1  K2
+---  ----  ---  ---  --  --  --
+94   2256   5    3   2   3   1 
+===============================
 
 Formulations:
 ===============================================================================
