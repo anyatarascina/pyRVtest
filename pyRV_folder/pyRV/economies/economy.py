@@ -99,7 +99,7 @@ class Economy(Container, StringRepresentation):
         """Format information about the nonzero dimensions of the economy as a string."""
         header: List[str] = []
         values: List[str] = []
-        for key in ['T', 'N', 'L', 'M', 'EC', 'H']:
+        for key in ['T', 'N', 'M', 'L']:
             value = getattr(self, key)
             if value > 0:
                 header.append(f" {key} ")
