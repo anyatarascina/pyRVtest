@@ -202,9 +202,8 @@ Firm id - Downstream  monopoly  firm_ids
 The first table `Dimensions` reports the following statistics:
 * T = number of markets
 * N = number of observations
-* L = number of instrument sets (each specified by an instrument formulation)
 * M = number of models (each specified by a model formulation)
-* EC = ??
+* L = number of instrument sets (each specified by an instrument formulation)
 * K0 = number of instruments in the first instrument set (with more than one instrument formulation, additional columns K1, K2, .. K(L-1) would be reported)
 
 The second table `Formulations` reports the variables specified as observed cost shifers and excluded instruments. The first row indicates that sugar is the only included observed cost shifter (ignoring the fixed effects).  The second row indicates that `demand_instruments0` and `demand_instruments1` are the excluded instrunments for testing each model.
