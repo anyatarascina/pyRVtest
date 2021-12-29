@@ -286,7 +286,7 @@ We are also going to adjust all standard errors to account for two-step estimati
 product_data["clustering_ids"] = product_data.market_ids
 ````
 
-Now we can run the code to set up the testing problem (which we will now call `testing_problem_new`) and then run the code to run the testing procedure (which we will call `testing_results_new`).  Notice that to add more models or more instrument sets, we add model formulations and instrument formulations.  Further notice that by specifying demand adjustment = `yes' and se_type = 'clustered' we turn on two-step adjustments to the standard errors as well as clustering at the level indicated by `product_data.clustering_ids`. 
+Now we can run the code to set up the testing problem (which we will now call `testing_problem_new`) and then run the code to run the testing procedure (which we will call `testing_results_new`).  Notice that to add more models or more instrument sets, we add model formulations and instrument formulations.  Further notice that by specifying demand adjustment = 'yes' and se_type = 'clustered' we turn on two-step adjustments to the standard errors as well as clustering at the level indicated by `product_data.clustering_ids`. 
 
 ````
 
