@@ -173,11 +173,11 @@ pyRV.problem takes the following imputs:
 Running the `pyRV.problem` block of code yeilds the following output:
 ````
 Dimensions:
-=============================
- T    N     L    M    EC   K0
----  ----  ---  ---  ----  --
-94   2256   1    2    1    2 
-=============================
+=======================
+ T    N     M    L   K0
+---  ----  ---  ---  --
+94   2256   2    1   2 
+=======================
 
 Formulations:
 ==========================================================
