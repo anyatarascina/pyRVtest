@@ -252,24 +252,24 @@ This block of code to solve the testing problem returns the following output:
 
 ````
 Testing Results - Instruments z0:
-=======================================================================
-  TRV:                |   F-stats:              |   MCS:               
---------  ---  -----  |  ----------  ---  ----  |  ------  ------------
- models    0     1    |    models     0    1    |  models  MCS p-values
---------  ---  -----  |  ----------  ---  ----  |  ------  ------------
-   0      0.0  1.144  |      0       0.0  13.3  |    0        0.252    
-   1      0.0   0.0   |      1       0.0  0.0   |    1         1.0     
-=======================================================================
-F-stat critical values...                                                             
-... for worst-case size:                                                             
-......07.5% worst-case size:  0.0                                                        
-......10.0% worst-case size:  0.0                                                        
-......12.5% worst-case size:  0.0                                                        
-... for maximal power:                                                             
-......95% max power:  18.9                                                        
-......75% max power:  13.2                                                        
-......50% max power:  10.4                                                        
-=====================================================================
+========================================================================
+  TRV:                 |   F-stats:              |   MCS:               
+--------  ---  ------  |  ----------  ---  ----  |  ------  ------------
+ models    0     1     |    models     0    1    |  models  MCS p-values
+--------  ---  ------  |  ----------  ---  ----  |  ------  ------------
+   0      0.0  -1.144  |      0       0.0  13.3  |    0         1.0     
+   1      0.0   0.0    |      1       0.0  0.0   |    1        0.252    
+========================================================================
+F-stat critical values...                                                              
+... for worst-case size:                                                              
+......07.5% worst-case size:  0.0                                                         
+......10.0% worst-case size:  0.0                                                         
+......12.5% worst-case size:  0.0                                                         
+... for maximal power:                                                              
+......95% max power:  18.9                                                         
+......75% max power:  13.2                                                         
+......50% max power:  10.4                                                         
+======================================================================
 ````
 
 This table first reports the pairwise RV test statistic given the specified adjustments to the standard errors.  Then the pairwise F-statistics are reported, again with the specified adjustments to the standard errors.  Finally, the p-values associated with the model confidence set are reported.  Details on the model confidence set procedure are found in Section 6 of [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss) which adapts the procedure in [Hansen, Lunde, and Nason (2011)](#hln) to the setting of testing firm conduct.  Beneath the table are the appropriate critical values from Table 1 of [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss) given the number of instruments the researcher is using.  The researcher can compare her pariwise F-statistics to these critical values.  Here, we are using two instruments, so there are no size distortions above 2.5%.  However, for a target maximal power of 95%, the F-statistic of 13.3 is less than the critical value of 18.9, so the instruments are weak for power.
