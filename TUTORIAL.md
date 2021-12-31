@@ -209,9 +209,9 @@ Models:
 ========================================
                          0         1    
 --------------------  --------  --------
- Model - Downstream   monopoly  bertrand
+ Model - Downstream   bertrand  monopoly
   Model - Upstream      None      None  
-Firm id - Downstream  monopoly  firm_ids
+Firm id - Downstream  firm_ids  monopoly
  Firm id - Upstream     None      None  
        VI ind           None      None  
 ========================================
