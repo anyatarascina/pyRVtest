@@ -293,7 +293,7 @@ testing_results.markups
 ````
 
 ## Example with more than two models and more than one instrument set
-Here we consider a more complicated example to illustrate more of the features of pyRV.  Here, we are going to test five models of vertical conduct: (1) manufacturers set monopoly retail prices, (2) manufacturers set Bertrand retail prices, (3) manufactuers set Cournot retail quantities, (4) manufacturers set Bertrand wholesale prices and retailers set monopoly retail prices, (5) manufacturers set monopoly wholesale prices and retailers set monopoly retail prices.  To accumulate evidence, we are going to use three different sets of instruments.  
+Here we consider a more complicated example to illustrate more of the features of pyRV.  Here, we are going to test five models of vertical conduct: (1) manufacturers set monopoly retail prices, (2) manufacturers set Bertrand retail prices, (3) manufacturers set Cournot retail quantities, (4) manufacturers set Bertrand wholesale prices and retailers set monopoly retail prices, (5) manufacturers set monopoly wholesale prices and retailers set monopoly retail prices.  To accumulate evidence, we are going to use three different sets of instruments.  
 
 We are also going to adjust all standard errors to account for two-step estimation coming from demand, as well as cluster standard errors at the market level.  To implement these adjustments, we need to add a variable to the `product_data` called `clustering_ids`:
 
