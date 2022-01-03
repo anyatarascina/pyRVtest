@@ -43,7 +43,7 @@ import sys
 To import pyRV, you specify the path on your computer for the pyRV_folder you downloaded
 
 ````
-pyRV_path = '<user specified path>/pyRV-Main/pyRV_folder'
+pyRV_path = '<user specified path>/pyRV-main/pyRV_folder'
 sys.path.append(pyRV_path)
 import pyRV
 ````
