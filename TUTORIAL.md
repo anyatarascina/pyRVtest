@@ -437,6 +437,11 @@ F-stat critical values...
 ==========================================================================================================
 ````
 
+This output has a similar format to Table 5 in [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss). Each testing results panel, corresponding to a set of instruments, reports in three separate blocks the RV test statistics for each pair of models, effective F-statistic for each pair of models, and MCS p-value for the row model. Negative values of the RV test statistic suggest better fit of the row model. F-statistics can be compared to the critical values for different threshold of size and power listed below each panel. Elements on and below the main diagonal in the RV and F-statistic block are set to "nan" since both RV tests and F-statistics are symmetric for a pair of models. With p-values below 0.05, the model in the corresponding row is rejected from the MCS.
+
+Note that, in the example of this tutorial, all instruments are weak and no model is ever rejected from the MCS. These results reflect the fact that the data used in the tutorial do not provide the appropriate variation to test conduct. As such, the results should not be interpreted as to draw any conclusion about the nature of conduct in this empirical environment. We plan to include a more economically interesting example with future releases. 
+
+
 ## References
 
 <a name="pyblp">Conlon, Christopher, and Jeff Gortmaker. "Best practices for differentiated products demand estimation with pyblp." The RAND Journal of Economics 51, no. 4 (2020): 1108-1161.</a>
