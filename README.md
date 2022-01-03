@@ -1,6 +1,6 @@
 # pyRV
 
-This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan.  It largely adapts the pyblp source code (copyright Jeff Gortmaker and Christopher Conlon) to do so.
+This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan.  It largely adapts the PyBLP source code (copyright Jeff Gortmaker and Christopher Conlon) to do so.
 
 
 ## Install
@@ -18,7 +18,7 @@ These can be installed by running the pip3 install command in either terminal (M
 pip3 install numpy
 ````
 
-Finally, you should download the folder pyRV_folder.  
+Finally, you should download the pyRV code.  To do so, click on the green Code button above.  Then click "Download ZIP".      
 
 
 ## Import python packages
@@ -36,7 +36,7 @@ import sys
 To import pyRV, you specify the path on your computer for the pyRV_folder you downloaded
 
 ````
-pyRV_path = '<user specified path>/pyRV_folder'
+pyRV_path = '<user specified path>/pyRV-Main/pyRV_folder'
 sys.path.append(pyRV_path)
 import pyRV
 ````
