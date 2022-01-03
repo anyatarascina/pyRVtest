@@ -383,7 +383,7 @@ Testing Results - Instruments z0:
    1      nan   nan   0.156  -0.013  -0.488  |      1       nan  nan  1.2  0.0  0.0  |    1        0.982    
    2      nan   nan    nan   -0.014  -0.492  |      2       nan  nan  nan  0.0  0.0  |    2         1.0     
    3      nan   nan    nan    nan    -0.222  |      3       nan  nan  nan  nan  0.0  |    3        0.988    
-   4      nan   nan    nan    nan     nan    |      4       nan  nan  nan  nan  nan  |    4        0.948    
+   4      nan   nan    nan    nan     nan    |      4       nan  nan  nan  nan  nan  |    4        0.946    
 ============================================================================================================
 F-stat critical values...                                                                                                  
 ... for worst-case size:                                                                                                  
@@ -403,10 +403,10 @@ Testing Results - Instruments z1:
  models    0    1      2      3       4     |    models     0    1    2    3    4   |  models  MCS p-values
 --------  ---  ----  -----  ------  ------  |  ----------  ---  ---  ---  ---  ---  |  ------  ------------
    0      nan  0.02  0.102  -0.108  -0.587  |      0       nan  0.5  0.4  0.0  0.1  |    0        0.919    
-   1      nan  nan   1.048  -0.095  -0.56   |      1       nan  nan  0.9  0.0  0.1  |    1        0.522    
+   1      nan  nan   1.048  -0.095  -0.56   |      1       nan  nan  0.9  0.0  0.1  |    1         0.52    
    2      nan  nan    nan   -0.108  -0.566  |      2       nan  nan  nan  0.0  0.1  |    2         1.0     
    3      nan  nan    nan    nan    -0.71   |      3       nan  nan  nan  nan  0.4  |    3        0.979    
-   4      nan  nan    nan    nan     nan    |      4       nan  nan  nan  nan  nan  |    4        0.681    
+   4      nan  nan    nan    nan     nan    |      4       nan  nan  nan  nan  nan  |    4         0.68    
 ===========================================================================================================
 F-stat critical values...                                                                                                 
 ... for worst-case size:                                                                                                 
@@ -425,9 +425,9 @@ Testing Results - Instruments z2:
 --------  ---  -----  ------  -----  -----  |  ----------  ---  ---  ----  ---  ---  |  ------  ------------
  models    0     1      2       3      4    |    models     0    1    2     3    4   |  models  MCS p-values
 --------  ---  -----  ------  -----  -----  |  ----------  ---  ---  ----  ---  ---  |  ------  ------------
-   0      nan  -1.92  -2.269  0.208  0.544  |      0       nan  7.8  7.2   0.2  1.1  |    0        0.715    
+   0      nan  -1.92  -2.269  0.208  0.544  |      0       nan  7.8  7.2   0.2  1.1  |    0        0.716    
    1      nan   nan   1.011   0.493  1.463  |      1       nan  nan  15.0  0.5  1.7  |    1        0.092    
-   2      nan   nan    nan    0.464  1.23   |      2       nan  nan  nan   0.4  1.6  |    2        0.046    
+   2      nan   nan    nan    0.464  1.23   |      2       nan  nan  nan   0.4  1.6  |    2        0.044    
    3      nan   nan    nan     nan   0.101  |      3       nan  nan  nan   nan  0.1  |    3         0.92    
    4      nan   nan    nan     nan    nan   |      4       nan  nan  nan   nan  nan  |    4         1.0     
 ============================================================================================================
