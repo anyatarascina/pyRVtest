@@ -67,7 +67,7 @@ product_data = pd.read_csv(pyblp.data.NEVO_PRODUCTS_LOCATION)
 
 
 ## Estimate demand with PyBLP
-Next, you extimate demand using PyBLP ([Conlon and Gortmaker (2021)](#pyblp)).  
+Next, you estimate demand using PyBLP ([Conlon and Gortmaker (2021)](#pyblp)).  
 
 ````
 pyblp_problem = pyblp.Problem(
@@ -91,7 +91,7 @@ pyblp_results = pyblp_problem.solve(
 
 In this example the linear characteristics in consumer preferences are price and product fixed effects.  Nonlinear characteristics with random coefficients include a constant, `price`, `sugar`, and `mushy`.  For these variables, we are going to estimate both the variance of the random coefficient as well as demographic interactions for `income`, `income_squared`, `age`, and `child`. `price`, `sugar`, and `mushy` are variables in the `product_data`.  Draws of `income`, `income_squared`, `age`, and `child` are in the agent data.  More info can be found [here](https://pyblp.readthedocs.io/en/stable/_api/pyblp.Problem.html)
 
-The first 9 lines of code set up the demand estimation problem.  Running them yeilds output which summarize the dimensions of the problem (see [here](https://pyblp.readthedocs.io/en/stable/_api/pyblp.Problem.html)) for description of each variable.  Also reported are the Formulations, i.e., the linear characteristics, non-linear characteristics for which we are estimating either variances or demographic interactions, and a list of the demographics being used.
+The first 9 lines of code set up the demand estimation problem.  Running them yields output which summarize the dimensions of the problem (see [here](https://pyblp.readthedocs.io/en/stable/_api/pyblp.Problem.html)) for description of each variable.  Also reported are the Formulations, i.e., the linear characteristics, non-linear characteristics for which we are estimating either variances or demographic interactions, and a list of the demographics being used.
 
 ````
 Dimensions:
@@ -111,7 +111,7 @@ X2: Nonlinear Characteristics    1         prices      sugar  mushy
 ===================================================================
 ````
 
-The second block of code actually runs the estimation. It output includes information on computation as well as tables witrh the parameter estimates. A full list of post-estimation output which can be queried is found [here](https://pyblp.readthedocs.io/en/stable/_api/pyblp.ProblemResults.html).
+The second block of code actually runs the estimation. It output includes information on computation as well as tables with the parameter estimates. A full list of post-estimation output which can be queried is found [here](https://pyblp.readthedocs.io/en/stable/_api/pyblp.ProblemResults.html).
 
 ````
     Problem Results Summary:
@@ -160,7 +160,7 @@ Beta Estimates (Robust SEs in Parentheses):
 pyRV follows a similar structure to PyBLP.  First, you set up the testing problem, then you run the test.  
 
 ### Setting Up Testing Problem
-Here is an example of the code to set up the testing problem for a simple example where we will test two models: (1) manufacturers set retail prices according to bertrand vs (2) maunfactureres set retail prices according to monopoly (i.e., perfect collusion).  We set up the testing problem with `pyRV.problem` and we store this as a variable `testing_problem`:
+Here is an example of the code to set up the testing problem for a simple example where we will test two models: (1) manufacturers set retail prices according to Bertrand vs (2) manufacturers set retail prices according to monopoly (i.e., perfect collusion).  We set up the testing problem with `pyRV.problem` and we store this as a variable `testing_problem`:
 ````
 testing_problem = pyRV.Problem(
     cost_formulation = (
@@ -178,17 +178,16 @@ testing_problem = pyRV.Problem(
         )
 ````
 pyRV.problem takes the following inputs:
-* `cost_formulation`: list of the variables for observed product characteristics.  In this example, we have defined the cost formulation as:`pyRV.Formulation('0 + sugar', absorb = 'C(firm_ids)' )`.  Here, `0` means no constant.  To use a constant, one would replace `0` with `1`.  We are also including the variable `sugar` as an observed cost shifter and this variable must be in the `product_data`.  Finally `absorb = 'C(firm_ids)'` specifies that we are including firm fixed effects which will be absorbed using [PYHDFE](https://github.com/jeffgortmaker/pyhdfe), a companion package to PyBLP developed by Jeff Gortmaker and Anya Tarascina.  The variable `firm_ids` must also be in the `product_data`.
-* `instrument_formulation`: list of the variables used as excluded instruments for testing.  In this example, we have defined the cost formulation as:`pyRV.Formulation('0 + demand_instruments0 + demand_instruments1')`.  Here, `0` means no constant and this should always be specfied as a 0.  Here, we have an important difference with PyBLP.  With PyBLP, one specifies the excluded instruments for demand estimation via a naming convention in the product_data: each excluded instrument for demand estimation begins with demand_instrument followed by a number ( i.e., `demand_instrument0`).  In pyRV, you specify directly the names of the variables in the `product_data` that you want to use as excluded instruments for testing. 
-* `model_formulations`: Here the researcher specifies the models that she wants to test.  There is a built in library of models that the researcher can choose from discussed below.  Here, we have specified two ModelFormulations and therefore two models to test. the first model is specified as:
-`pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids')` `model_downstream = 'bertrand'` indicates that retail prices are set according to bertrand.  `ownership_downstream='firm_ids'` specifies that the ownership matrix in each market should be built from the variable `firm_id` in the `product_data`.  Here, we have another difference with PyBLP.  In PyBLP, if one wants to build an ownership matrix, there must be a variable called `firm_id` in the `product_data`.  With pyRV, the researcher can pass any variable in the `product_data` as `ownership_downstream` and from this, the ownership martix in each market will be built
+* `cost_formulation`: list of the variables for observed product characteristics.  In this example, we have defined the cost formulation as `pyRV.Formulation('0 + sugar', absorb = 'C(firm_ids)' )`.  Here, `0` means no constant.  To use a constant, one would replace `0` with `1`.  We are also including the variable `sugar` as an observed cost shifter and this variable must be in the `product_data`.  Finally `absorb = 'C(firm_ids)'` specifies that we are including firm fixed effects which will be absorbed using [PYHDFE](https://github.com/jeffgortmaker/pyhdfe), a companion package to PyBLP developed by Jeff Gortmaker and Anya Tarascina.  The variable `firm_ids` must also be in the `product_data`.
+* `instrument_formulation`: list of the variables used as excluded instruments for testing.  In this example, we have defined the cost formulation as `pyRV.Formulation('0 + demand_instruments0 + demand_instruments1')`.  Here, `0` means no constant and this should always be specified as a 0.  Here, we have an important difference with PyBLP.  With PyBLP, one specifies the excluded instruments for demand estimation via a naming convention in the product_data: each excluded instrument for demand estimation begins with demand_instrument followed by a number ( i.e., `demand_instrument0`).  In pyRV, you specify directly the names of the variables in the `product_data` that you want to use as excluded instruments for testing. 
+* `model_formulations`: Here the researcher specifies the models that she wants to test.  There is a built-in library of models that the researcher can choose from discussed below.  Here, we have specified two ModelFormulations and therefore two models to test. the first model is specified as `pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids')` `model_downstream = 'bertrand'` indicates that retail prices are set according to Bertrand.  `ownership_downstream='firm_ids'` specifies that the ownership matrix in each market should be built from the variable `firm_id` in the `product_data`.  Here, we have another difference with PyBLP.  In PyBLP, if one wants to build an ownership matrix, there must be a variable called `firm_id` in the `product_data`.  With pyRV, the researcher can pass any variable in the `product_data` as `ownership_downstream` and from this, the ownership matrix in each market will be built
    (Future Release Note: We are working on adding additional models to this library as well as options for the researcher to specify their own markup function)
 * `product_data`: same as in PyBLP
 * `demand_results`: set to `pyblp_results` which is the name of the variable defining pyblp.solve in the PyBLP code above
 
 
 
-Running the `pyRV.problem` block of code yeilds the following output:
+Running the `pyRV.problem` block of code yields the following output:
 ````
 Dimensions:
 =======================
@@ -222,14 +221,14 @@ The first table `Dimensions` reports the following statistics:
 * N = number of observations
 * M = number of models (each specified by a model formulation)
 * L = number of instrument sets (each specified by an instrument formulation)
-* K0 = number of instruments in the first instrument set (with more than one instrument formulation, additional columns K1, K2, .. K(L-1) would be reported)
+* K0 = number of instruments in the first instrument set (with more than one instrument formulation, additional columns K1, K2, ... K(L-1) would be reported)
 
-The second table `Formulations` reports the variables specified as observed cost shifers and excluded instruments. The first row indicates that sugar is the only included observed cost shifter (ignoring the fixed effects).  The second row indicates that `demand_instruments0` and `demand_instruments1` are the excluded instrunments for testing each model.
+The second table `Formulations` reports the variables specified as observed cost shifters and excluded instruments. The first row indicates that sugar is the only included observed cost shifter (ignoring the fixed effects).  The second row indicates that `demand_instruments0` and `demand_instruments1` are the excluded instruments for testing each model.
 
 The third table `Models` specifies the models being tested where each model is a column in the table
 * Model-Downsream reports the name of the model governing how retail prices are set (current options are bertrand, cournot, monopoly)
 * Model-Upstream reports the name of the model governing how wholesale prices are set (current options are bertrand, cournot, monopoly).   In this example, we are ignoring upstream behavior and assuming manufacturers set retail prices directly as in [Nevo (2001)](#nevo01). 
-* Firm id - Downstream: the variable in `product_data` used to make the ownership martix for setting retail conduct (prices or quantities).  If monopoly is specified as Model-Downstream, then Firm id - Downstream will default to monopoly and the ownership martrix in each market will be a matrix of ones.  
+* Firm id - Downstream: the variable in `product_data` used to make the ownership matrix for setting retail conduct (prices or quantities).  If monopoly is specified as Model-Downstream, then Firm id - Downstream will default to monopoly and the ownership matrix in each market will be a matrix of ones.  
 * Firm id - Upstream: same as Firm id - Downstream but for wholesale price or quantity behavior
 * VI id = name of dummy variable indicating whether retailer and manufacturer are vertically integrated.
 
@@ -272,7 +271,7 @@ F-stat critical values...
 ======================================================================
 ````
 
-This table first reports the pairwise RV test statistic given the specified adjustments to the standard errors.  Then the pairwise F-statistics are reported, again with the specified adjustments to the standard errors.  Finally, the p-values associated with the model confidence set are reported.  Details on the model confidence set procedure are found in Section 6 of [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss) which adapts the procedure in [Hansen, Lunde, and Nason (2011)](#hln) to the setting of testing firm conduct.  Beneath the table are the appropriate critical values from Table 1 of [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss) given the number of instruments the researcher is using.  The researcher can compare her pariwise F-statistics to these critical values.  Here, we are using two instruments, so there are no size distortions above 2.5%.  However, for a target maximal power of 95%, the F-statistic of 13.3 is less than the critical value of 18.9, so the instruments are weak for power.
+This table first reports the pairwise RV test statistic given the specified adjustments to the standard errors.  Then the pairwise F-statistics are reported, again with the specified adjustments to the standard errors.  Finally, the p-values associated with the model confidence set are reported.  Details on the model confidence set procedure are found in Section 6 of [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss) which adapts the procedure in [Hansen, Lunde, and Nason (2011)](#hln) to the setting of testing firm conduct.  Beneath the table are the appropriate critical values from Table 1 of [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss) given the number of instruments the researcher is using.  The researcher can compare her pairwise F-statistics to these critical values.  Here, we are using two instruments, so there are no size distortions above 2.5%.  However, for a target maximal power of 95%, the F-statistic of 13.3 is less than the critical value of 18.9, so the instruments are weak for power.
 
 The testing procedure also stores additional output which the user can access after running the testing code:
 * `markups`: array of the total markups implied by each model (sum of retail and wholesale markups)
@@ -282,10 +281,10 @@ The testing procedure also stores additional output which the user can access af
 * `mc`: array of implied marginal costs for each model
 * `g`: array of moments for each model and each instrument set of conduct between implied residualized cost unobservable and the instruments
 * `Q` array of lack of fit given by GMM objective function with 2SLS weight matrix for each set of instruments and each model
-* `RV_num`: array of numerators of pariwise RV test statistics for each instrument set and each pair of models
-* `RV_denom`: array of denominators of pariwise RV test statistics for each instrument set and each pair of models
-* `TRV`: array of pariwise RV test statistics for each instrument set and each pair of models
-* `F`: array of pariwise F-statistics for each instrument set and each pair of models
+* `RV_num`: array of numerators of pairwise RV test statistics for each instrument set and each pair of models
+* `RV_denom`: array of denominators of pairwise RV test statistics for each instrument set and each pair of models
+* `TRV`: array of pairwise RV test statistics for each instrument set and each pair of models
+* `F`: array of pairwise F-statistics for each instrument set and each pair of models
 * `MCS_pvalues`: array of MCS p-values for each instrument set and each model
 
 In the above code, we stored `testing_problem.solve()` as the variable `testing_results.  Thus, to access i.e., the markups, you type 
@@ -294,7 +293,7 @@ testing_results.markups
 ````
 
 ## Example with more than two models and more than one instrument set
-Here we consider a more complicated example to illustrate more of the features of pyRV.  Here, we are going to test five models of vertical conduct: (1) manufacturers set monopoly retail prices, (2) manufacturers set bertrand retail prices, (3) manufactuers set Cournot retail quantities, (4) manufacturers set bertrand wholsale prices and retailers set monopoly retail prices, (5) manufacturers set monopoly wholesale prices and retailers set monopoly retail prices.  To accumulate evidence, we are going to use three different sets of instruments.  
+Here we consider a more complicated example to illustrate more of the features of pyRV.  Here, we are going to test five models of vertical conduct: (1) manufacturers set monopoly retail prices, (2) manufacturers set Bertrand retail prices, (3) manufactuers set Cournot retail quantities, (4) manufacturers set Bertrand wholesale prices and retailers set monopoly retail prices, (5) manufacturers set monopoly wholesale prices and retailers set monopoly retail prices.  To accumulate evidence, we are going to use three different sets of instruments.  
 
 We are also going to adjust all standard errors to account for two-step estimation coming from demand, as well as cluster standard errors at the market level.  To implement these adjustments, we need to add a variable to the `product_data` called `clustering_ids`:
 
