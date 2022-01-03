@@ -71,7 +71,7 @@ First you load the main dataset, which we refer to as `product_data`:
 product_data = pd.read_csv(pyblp.data.NEVO_PRODUCTS_LOCATION)
 ````
 
-It is possible to estimate demand and test conduct with other databases, provided that they have the structure described here https://pyblp.readthedocs.io/en/stable/_api/pyblp.Problem.html#pyblp.Problem .
+It is possible to estimate demand and test conduct with other databases, provided that they have the `product_data` structure described [here] (https://pyblp.readthedocs.io/en/stable/_api/pyblp.Problem.html#pyblp.Problem).
 
 ## Estimate demand with PyBLP
 Next, you estimate demand using PyBLP ([Conlon and Gortmaker (2021)](#pyblp)).  
