@@ -16,6 +16,12 @@ The tutorial proceeds in the following steps:
 * Perform demand estimation with PyBLP
 * Test conduct with pyRV
 
+The code implements the following features:
+* Computes RV test statistics to test a menu of two or more models of firm conduct - see `Models` below for the current supported models
+* Implements the RV test using the variance estimator of [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss), including options to adjust for demand estimation error and clustering
+* Computes the effective F-statistic proposed in [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss) to diagnose instrument strength with respect to worst-case size and maximal power of the test, and reports appropriate critical values 
+* Reports [Hansen, Lunde, and Nason (2011)](#hln) MCS p-values for testing more than two models
+
 # Install
 First, you will need to download and install python, which you can do from this [link](https://www.python.org/).
 
@@ -226,8 +232,8 @@ The first table `Dimensions` reports the following statistics:
 The second table `Formulations` reports the variables specified as observed cost shifters and excluded instruments. The first row indicates that sugar is the only included observed cost shifter (ignoring the fixed effects).  The second row indicates that `demand_instruments0` and `demand_instruments1` are the excluded instruments for testing each model.
 
 The third table `Models` specifies the models being tested where each model is a column in the table
-* Model-Downsream reports the name of the model governing how retail prices are set (current options are bertrand, cournot, monopoly)
-* Model-Upstream reports the name of the model governing how wholesale prices are set (current options are bertrand, cournot, monopoly).   In this example, we are ignoring upstream behavior and assuming manufacturers set retail prices directly as in [Nevo (2001)](#nevo01). 
+* Model-Downsream reports the name of the model governing how retail prices are set (current options are `bertrand', `cournot', `monopoly')
+* Model-Upstream reports the name of the model governing how wholesale prices are set (current options are `bertrand', `cournot', `monopoly').   In this example, we are ignoring upstream behavior and assuming manufacturers set retail prices directly as in [Nevo (2001)](#nevo01). 
 * Firm id - Downstream: the variable in `product_data` used to make the ownership matrix for setting retail conduct (prices or quantities).  If monopoly is specified as Model-Downstream, then Firm id - Downstream will default to monopoly and the ownership matrix in each market will be a matrix of ones.  
 * Firm id - Upstream: same as Firm id - Downstream but for wholesale price or quantity behavior
 * VI id = name of dummy variable indicating whether retailer and manufacturer are vertically integrated.
