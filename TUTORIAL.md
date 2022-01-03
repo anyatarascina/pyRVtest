@@ -452,7 +452,7 @@ Note that, in the example of this tutorial, all instruments are weak and no mode
 
 <a name="pyblp">Conlon, Christopher, and Jeff Gortmaker. "Best practices for differentiated products demand estimation with pyblp." The RAND Journal of Economics 51, no. 4 (2020): 1108-1161.</a>
 
-<a name="dmss">Duarte, Marco, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan. Testing firm conduct. Working Paper, 2021.</a>
+<a name="dmss">Duarte, Marco, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan. "Testing firm conduct." Working Paper, 2021.</a>
 
 <a name="hln">Hansen, Peter R., Asger Lunde, and James M. Nason. "The model confidence set." Econometrica 79, no. 2 (2011): 453-497.</a>
 
