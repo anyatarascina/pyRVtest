@@ -922,7 +922,7 @@ class Problem(ProblemEconomy):
                 collinear, successful = precisely_identify_collinearity(tmp)
                 if not successful:
                     raise ValueError(
-                        f"Failed to compute the QR decomposition of [w,z"+srt(zz)+"] while checking for collinearity issues. "
+                        f"Failed to compute the QR decomposition of [w,z"+str(zz)+"] while checking for collinearity issues. "
                         f"{common_message}"
                     )
                 if collinear.any():
