@@ -1,5 +1,11 @@
 This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan. It largely adapts the PyBLP source code (copyright Jeff Gortmaker and Christopher Conlon) to do so.
 
+The code implements the following features:
+* Computes [Rivers and Vuong (2002)](#rv) (RV) test statistics to test a menu of two or more models of firm conduct - see `Models` below for the current supported models
+* Implements the RV test using the variance estimator of [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss), including options to adjust for demand estimation error and clustering
+* Computes the effective F-statistic proposed in [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss) to diagnose instrument strength with respect to worst-case size and maximal power of the test, and reports appropriate critical values 
+* Reports [Hansen, Lunde, and Nason (2011)](#hln) MCS p-values for testing more than two models
+
 For a full list of references, see the references in [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss).
 
 # Overview
@@ -25,10 +31,13 @@ Then you will need to install four python packages:
 * statsmodels
 * pyblp
 
-These can be installed by running the pip3 install command in either terminal (Mac) or Command Prompt (Windows).  For example, to install numpy, run the following:
+These can be installed by running the pip3 install command in either terminal (Mac) or Command Prompt (Windows).  For example, run the following:
 
 ````
 pip3 install numpy
+pip3 install pandas
+pip3 install statsmodels
+pip3 install pyblp
 ````
 
 Finally, you should download the folder pyRV code.  To do so, click on the green Code button.  Then click "Download ZIP".   
@@ -52,7 +61,7 @@ import sys
 To import pyRV, you specify the path on your computer for the pyRV_folder you downloaded
 
 ````
-pyRV_path = '<user specified path>/pyRV-Main/pyRV_folder'
+pyRV_path = '<user specified path>/pyRV-main/pyRV_folder'
 sys.path.append(pyRV_path)
 import pyRV
 ````
@@ -65,6 +74,7 @@ First you load the main dataset, which we refer to as `product_data`:
 product_data = pd.read_csv(pyblp.data.NEVO_PRODUCTS_LOCATION)
 ````
 
+It is possible to estimate demand and test conduct with other databases, provided that they have the `product_data` structure described [here](https://pyblp.readthedocs.io/en/stable/_api/pyblp.Problem.html#pyblp.Problem).
 
 ## Estimate demand with PyBLP
 Next, you estimate demand using PyBLP ([Conlon and Gortmaker (2021)](#pyblp)).  
@@ -226,8 +236,8 @@ The first table `Dimensions` reports the following statistics:
 The second table `Formulations` reports the variables specified as observed cost shifters and excluded instruments. The first row indicates that sugar is the only included observed cost shifter (ignoring the fixed effects).  The second row indicates that `demand_instruments0` and `demand_instruments1` are the excluded instruments for testing each model.
 
 The third table `Models` specifies the models being tested where each model is a column in the table
-* Model-Downsream reports the name of the model governing how retail prices are set (current options are bertrand, cournot, monopoly)
-* Model-Upstream reports the name of the model governing how wholesale prices are set (current options are bertrand, cournot, monopoly).   In this example, we are ignoring upstream behavior and assuming manufacturers set retail prices directly as in [Nevo (2001)](#nevo01). 
+* Model-Downsream reports the name of the model governing how retail prices are set (current options are `bertrand', `cournot', `monopoly')
+* Model-Upstream reports the name of the model governing how wholesale prices are set (current options are `bertrand', `cournot', `monopoly').   In this example, we are ignoring upstream behavior and assuming manufacturers set retail prices directly as in [Nevo (2001)](#nevo01). 
 * Firm id - Downstream: the variable in `product_data` used to make the ownership matrix for setting retail conduct (prices or quantities).  If monopoly is specified as Model-Downstream, then Firm id - Downstream will default to monopoly and the ownership matrix in each market will be a matrix of ones.  
 * Firm id - Upstream: same as Firm id - Downstream but for wholesale price or quantity behavior
 * VI id = name of dummy variable indicating whether retailer and manufacturer are vertically integrated.
@@ -377,7 +387,7 @@ Testing Results - Instruments z0:
    1      nan   nan   0.156  -0.013  -0.488  |      1       nan  nan  1.2  0.0  0.0  |    1        0.982    
    2      nan   nan    nan   -0.014  -0.492  |      2       nan  nan  nan  0.0  0.0  |    2         1.0     
    3      nan   nan    nan    nan    -0.222  |      3       nan  nan  nan  nan  0.0  |    3        0.988    
-   4      nan   nan    nan    nan     nan    |      4       nan  nan  nan  nan  nan  |    4        0.948    
+   4      nan   nan    nan    nan     nan    |      4       nan  nan  nan  nan  nan  |    4        0.946    
 ============================================================================================================
 F-stat critical values...                                                                                                  
 ... for worst-case size:                                                                                                  
@@ -397,10 +407,10 @@ Testing Results - Instruments z1:
  models    0    1      2      3       4     |    models     0    1    2    3    4   |  models  MCS p-values
 --------  ---  ----  -----  ------  ------  |  ----------  ---  ---  ---  ---  ---  |  ------  ------------
    0      nan  0.02  0.102  -0.108  -0.587  |      0       nan  0.5  0.4  0.0  0.1  |    0        0.919    
-   1      nan  nan   1.048  -0.095  -0.56   |      1       nan  nan  0.9  0.0  0.1  |    1        0.522    
+   1      nan  nan   1.048  -0.095  -0.56   |      1       nan  nan  0.9  0.0  0.1  |    1         0.52    
    2      nan  nan    nan   -0.108  -0.566  |      2       nan  nan  nan  0.0  0.1  |    2         1.0     
    3      nan  nan    nan    nan    -0.71   |      3       nan  nan  nan  nan  0.4  |    3        0.979    
-   4      nan  nan    nan    nan     nan    |      4       nan  nan  nan  nan  nan  |    4        0.681    
+   4      nan  nan    nan    nan     nan    |      4       nan  nan  nan  nan  nan  |    4         0.68    
 ===========================================================================================================
 F-stat critical values...                                                                                                 
 ... for worst-case size:                                                                                                 
@@ -419,9 +429,9 @@ Testing Results - Instruments z2:
 --------  ---  -----  ------  -----  -----  |  ----------  ---  ---  ----  ---  ---  |  ------  ------------
  models    0     1      2       3      4    |    models     0    1    2     3    4   |  models  MCS p-values
 --------  ---  -----  ------  -----  -----  |  ----------  ---  ---  ----  ---  ---  |  ------  ------------
-   0      nan  -1.92  -2.269  0.208  0.544  |      0       nan  7.8  7.2   0.2  1.1  |    0        0.715    
+   0      nan  -1.92  -2.269  0.208  0.544  |      0       nan  7.8  7.2   0.2  1.1  |    0        0.716    
    1      nan   nan   1.011   0.493  1.463  |      1       nan  nan  15.0  0.5  1.7  |    1        0.092    
-   2      nan   nan    nan    0.464  1.23   |      2       nan  nan  nan   0.4  1.6  |    2        0.046    
+   2      nan   nan    nan    0.464  1.23   |      2       nan  nan  nan   0.4  1.6  |    2        0.044    
    3      nan   nan    nan     nan   0.101  |      3       nan  nan  nan   nan  0.1  |    3         0.92    
    4      nan   nan    nan     nan    nan   |      4       nan  nan  nan   nan  nan  |    4         1.0     
 ============================================================================================================
@@ -446,7 +456,7 @@ Note that, in the example of this tutorial, all instruments are weak and no mode
 
 <a name="pyblp">Conlon, Christopher, and Jeff Gortmaker. "Best practices for differentiated products demand estimation with pyblp." The RAND Journal of Economics 51, no. 4 (2020): 1108-1161.</a>
 
-<a name="dmss">Duarte, Marco, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan. Testing firm conduct. Working Paper, 2021.</a>
+<a name="dmss">Duarte, Marco, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan. "Testing firm conduct." Working Paper, 2021.</a>
 
 <a name="hln">Hansen, Peter R., Asger Lunde, and James M. Nason. "The model confidence set." Econometrica 79, no. 2 (2011): 453-497.</a>
 
