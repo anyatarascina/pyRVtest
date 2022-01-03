@@ -19,10 +19,13 @@ Then you will need to install four python packages:
 * statsmodels
 * pyblp
 
-These can be installed by running the pip3 install command in either terminal (Mac) or Command Prompt (Windows).  For example, to install numpy, run the following:
+These can be installed by running the pip3 install command in either terminal (Mac) or Command Prompt (Windows).  For example, run the following:
 
 ````
 pip3 install numpy
+pip3 install pandas
+pip3 install statsmodels
+pip3 install pyblp
 ````
 
 Finally, you should download the pyRV code.  To do so, click on the green Code button above.  Then click "Download ZIP".      
