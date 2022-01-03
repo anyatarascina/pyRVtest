@@ -7,35 +7,14 @@ import numpy as np
 import pandas as pd
 from . import options
 from .configurations.formulation import ColumnFormulation, Formulation, ModelFormulation
-from .configurations.integration import Integration
 from .utilities.basics import Array, Data, Groups, RecArray, extract_matrix, structure_matrices, output
 from . import construction
 
 class Products(object):
     r"""Product data structured as a record array.
 
-    Attributes in addition to the ones below are the variables underlying :math:`w`, :math:`Z`.
-
     Attributes
     ----------
-    market_ids : `ndarray`
-        IDs that associate products with markets.
-    cost_ids : `ndarray`
-        IDs used to create marginal cost fixed effects.
-    nesting_ids : `ndarray`
-        IDs that associate products with nesting groups.
-    product_ids : `ndarray`
-        IDs that identify individual products within markets.
-    clustering_ids : `ndarray`
-        IDs used to compute clustered standard errors.
-    shares : `ndarray`
-        Marketshares, :math:`s`.
-    prices : `ndarray`
-        Product prices, :math:`p`.
-    Z : `ndarray`
-        Full set of instruments for testing, :math:`Z`, excluded from marginal cost.
-    w : `ndarray`
-        observed cost shifters, :math:`w`.
 
     """
 
@@ -204,16 +183,6 @@ class Models(object):
 
     Attributes
     ----------
-    market_ids : `ndarray`
-        IDs that associate agents with markets.
-    agent_ids : `ndarray`
-        IDs that identify individual agents within markets.
-    weights : `ndarray`
-        Integration weights, :math:`w`.
-    nodes : `ndarray`
-        Unobserved agent characteristics called integration nodes, :math:`\nu`.
-    demographics : `ndarray`
-        Observed agent characteristics, :math:`d`.
 
     """
 
@@ -304,22 +273,3 @@ class Container(abc.ABC):
             else:
                 stop = 1
 
-
- 
-
-#products: RecArray
-#    agents: RecArray
-#    _X1_formulations: Tuple[ColumnFormulation, ...]
-#    _X2_formulations: Tuple[ColumnFormulation, ...]
-#    _X3_formulations: Tuple[ColumnFormulation, ...]
-#    _demographics_formulations: Tuple[ColumnFormulation, ...]
-#
-#    @abc.abstractmethod
-#    def __init__(self, products: RecArray, agents: RecArray) -> None:
-#        """Store data and column formulations."""
-#        self.products = products
-#        self.agents = agents
-#        self._X1_formulations = self.products.dtype.fields['X1'][2]
-#        self._X2_formulations = self.products.dtype.fields['X2'][2]
-#        self._X3_formulations = self.products.dtype.fields['X3'][2]
-#        self._demographics_formulations = self.agents.dtype.fields['demographics'][2]

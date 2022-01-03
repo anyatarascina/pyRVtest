@@ -14,12 +14,6 @@ from scipy.stats import norm
 from .economy import Economy
 from .. import exceptions, options
 from ..configurations.formulation import Formulation, ModelFormulation
-from ..configurations.integration import Integration
-from ..configurations.iteration import Iteration
-from ..configurations.optimization import ObjectiveResults, Optimization
-from ..markets.problem_market import ProblemMarket
-from ..moments import Moment, CustomMoment, EconomyMoments
-from ..parameters import Parameters
 from ..primitives import Models, Products
 from ..results.problem_results import ProblemResults
 from ..utilities.algebra import precisely_identify_collinearity, precisely_invert
@@ -27,9 +21,8 @@ from ..utilities.basics import (
     Array, Bounds, Error, RecArray, SolverStats, format_number, format_seconds, format_table, generate_items, output,
     update_matrices, compute_finite_differences
 )
-from ..utilities.statistics import IV, compute_gmm_moments_mean, compute_gmm_moments_jacobian_mean
 from pyblp.results.problem_results import ProblemResults as pyblpProblemResults
-from ..construction import build_markups, build_markups_all
+from ..construction import build_markups_all
 
 
 class ProblemEconomy(Economy):
@@ -499,322 +492,7 @@ class ProblemEconomy(Economy):
         return results
         
 
-    def _compute_progress(
-            self, parameters: Parameters, moments: EconomyMoments, iv: IV, W: Array, scale_objective: bool,
-            error_behavior: str, error_punishment: float, delta_behavior: str, iteration: Iteration, fp_type: str,
-            shares_bounds: Bounds, costs_bounds: Bounds, finite_differences: bool, theta: Array,
-            progress: 'InitialProgress', compute_gradient: bool, compute_hessian: bool,
-            compute_micro_covariances: bool) -> 'Progress':
-        """Compute demand- and supply-side contributions before recovering the linear parameters and structural error
-        terms. Then, form the GMM objective value and its gradient. Finally, handle any errors that were encountered
-        before structuring relevant progress information.
-        """
-        errors: List[Error] = []
-
-        # expand theta
-        sigma, pi, rho, beta, gamma = parameters.expand(theta)
-
-        # compute demand-side contributions
-        compute_jacobians = compute_gradient and not finite_differences
-        (
-            delta, micro, xi_jacobian, micro_jacobian, micro_covariances, micro_values, clipped_shares, iteration_stats,
-            demand_errors
-        ) = (
-            self._compute_demand_contributions(
-                parameters, moments, iteration, fp_type, shares_bounds, sigma, pi, rho, progress, compute_jacobians,
-                compute_micro_covariances
-            )
-        )
-        errors.extend(demand_errors)
-
-        # compute supply-side contributions
-        if self.K3 == 0:
-            tilde_costs = np.full((self.N, 0), np.nan, options.dtype)
-            omega_jacobian = np.full((self.N, parameters.P), np.nan, options.dtype)
-            clipped_costs = np.zeros((self.N, 1), np.bool)
-        else:
-            compute_jacobian = compute_gradient and not finite_differences
-            tilde_costs, omega_jacobian, clipped_costs, supply_errors = self._compute_supply_contributions(
-                parameters, costs_bounds, sigma, pi, rho, beta, delta, xi_jacobian, progress, compute_jacobian
-            )
-            errors.extend(supply_errors)
-
-        # optionally compute Jacobians with central finite differences
-        if compute_gradient and finite_differences and parameters.P > 0:
-            def compute_perturbed_stack(perturbed_theta: Array) -> Array:
-                """Evaluate a stack of xi, micro moments, and omega at a perturbed parameter vector."""
-                perturbed_progress = self._compute_progress(
-                    parameters, moments, iv, W, scale_objective, error_behavior, error_punishment, delta_behavior,
-                    iteration, fp_type, shares_bounds, costs_bounds, finite_differences=False, theta=perturbed_theta,
-                    progress=progress, compute_gradient=False, compute_hessian=False, compute_micro_covariances=False
-                )
-                perturbed_stack = perturbed_progress.iv_delta
-                if moments.MM > 0:
-                    perturbed_stack = np.r_[perturbed_stack, perturbed_progress.micro]
-                if self.K3 > 0:
-                    perturbed_stack = np.r_[perturbed_stack, perturbed_progress.iv_tilde_costs]
-                return perturbed_stack
-
-            # compute and unstack the Jacobians
-            stack_jacobian = compute_finite_differences(compute_perturbed_stack, theta)
-            xi_jacobian = stack_jacobian[:self.N]
-            if moments.MM > 0:
-                micro_jacobian = stack_jacobian[self.N:self.N + moments.MM]
-            if self.K3 > 0:
-                omega_jacobian = stack_jacobian[-self.N:]
-
-        # subtract contributions of linear parameters in theta
-        iv_delta = delta.copy()
-        iv_tilde_costs = tilde_costs.copy()
-        if not parameters.eliminated_beta_index.all():
-            theta_beta = np.c_[beta[~parameters.eliminated_beta_index]]
-            iv_delta -= self._compute_true_X1(index=~parameters.eliminated_beta_index.flatten()) @ theta_beta
-        if not parameters.eliminated_gamma_index.all():
-            theta_gamma = np.c_[gamma[~parameters.eliminated_gamma_index]]
-            iv_tilde_costs -= self._compute_true_X3(index=~parameters.eliminated_gamma_index.flatten()) @ theta_gamma
-
-        # absorb any fixed effects
-        if self._absorb_demand_ids is not None:
-            iv_delta, demand_absorption_errors = self._absorb_demand_ids(iv_delta)
-            errors.extend(demand_absorption_errors)
-        if self._absorb_supply_ids is not None:
-            iv_tilde_costs, supply_absorption_errors = self._absorb_supply_ids(iv_tilde_costs)
-            errors.extend(supply_absorption_errors)
-
-        # collect inputs into GMM estimation
-        X_list = [self.products.X1[:, parameters.eliminated_beta_index.flat]]
-        Z_list = [self.products.ZD]
-        y_list = [iv_delta]
-        jacobian_list = [xi_jacobian]
-        if self.K3 > 0:
-            X_list.append(self.products.X3[:, parameters.eliminated_gamma_index.flat])
-            Z_list.append(self.products.ZS)
-            y_list.append(iv_tilde_costs)
-            jacobian_list.append(omega_jacobian)
-
-        # recover the linear parameters and structural error terms
-        parameters_list, u_list = iv.estimate(X_list, Z_list, W[:self.MD + self.MS, :self.MD + self.MS], y_list)
-        beta[parameters.eliminated_beta_index] = parameters_list[0].flat
-        xi = u_list[0]
-        if self.K3 == 0:
-            omega = np.full((self.N, 0), np.nan, options.dtype)
-        else:
-            gamma[parameters.eliminated_gamma_index] = parameters_list[1].flat
-            omega = u_list[1]
-
-        # compute the objective value and replace it with its last value if computation failed
-        with np.errstate(all='ignore'):
-            mean_g = np.r_[compute_gmm_moments_mean(u_list, Z_list), micro]
-            objective = mean_g.T @ W @ mean_g
-            if scale_objective:
-                objective *= self.N
-        if not np.isfinite(np.squeeze(objective)):
-            objective = progress.objective
-            errors.append(exceptions.ObjectiveReversionError())
-
-        # compute the gradient and replace any invalid elements with their last values (even if we concentrate out
-        #   linear parameters, it turns out that one can use orthogonality conditions to show that treating the linear
-        #   parameters as fixed is fine, so that we can treat xi and omega Jacobians as equal to delta and transformed
-        #   marginal cost Jacobians when computing the gradient)
-        gradient = np.full_like(progress.gradient, np.nan)
-        if compute_gradient:
-            with np.errstate(all='ignore'):
-                mean_G = np.r_[compute_gmm_moments_jacobian_mean(jacobian_list, Z_list), micro_jacobian]
-                gradient = 2 * (mean_G.T @ W @ mean_g)
-                if scale_objective:
-                    gradient *= self.N
-            bad_gradient_index = ~np.isfinite(gradient)
-            if np.any(bad_gradient_index):
-                gradient[bad_gradient_index] = progress.gradient[bad_gradient_index]
-                errors.append(exceptions.GradientReversionError(bad_gradient_index))
-
-        # handle any errors
-        if errors:
-            if error_behavior == 'raise':
-                raise exceptions.MultipleErrors(errors)
-            if error_behavior == 'revert':
-                objective *= error_punishment
-            else:
-                assert error_behavior == 'punish'
-                objective = np.array(error_punishment)
-                if compute_gradient:
-                    gradient = np.zeros_like(progress.gradient)
-
-        # select the delta that will be used in the next objective evaluation
-        if delta_behavior == 'last':
-            next_delta = delta
-        else:
-            assert delta_behavior == 'first'
-            next_delta = progress.next_delta
-
-        # optionally compute the Hessian with central finite differences
-        hessian = np.full_like(progress.hessian, np.nan)
-        if compute_hessian:
-            def compute_perturbed_gradient(perturbed_theta: Array) -> Array:
-                """Evaluate the gradient at a perturbed parameter vector."""
-                perturbed_progress = self._compute_progress(
-                    parameters, moments, iv, W, scale_objective, error_behavior, error_punishment, delta_behavior,
-                    iteration, fp_type, shares_bounds, costs_bounds, finite_differences, perturbed_theta, progress,
-                    compute_gradient=True, compute_hessian=False, compute_micro_covariances=False
-                )
-                return perturbed_progress.gradient
-
-            # compute the Hessian, enforcing shape and symmetry
-            hessian = compute_finite_differences(compute_perturbed_gradient, theta)
-            hessian = np.c_[hessian + hessian.T] / 2
-
-        # structure progress
-        return Progress(
-            self, parameters, moments, W, theta, objective, gradient, hessian, next_delta, delta, tilde_costs, micro,
-            xi_jacobian, omega_jacobian, micro_jacobian, micro_covariances, micro_values, iv_delta, iv_tilde_costs, xi,
-            omega, beta, gamma, iteration_stats, clipped_shares, clipped_costs, errors
-        )
-
-    def _compute_demand_contributions(
-            self, parameters: Parameters, moments: EconomyMoments, iteration: Iteration, fp_type: str,
-            shares_bounds: Bounds, sigma: Array, pi: Array, rho: Array, progress: 'InitialProgress',
-            compute_jacobians: bool, compute_micro_covariances: bool) -> (
-            Tuple[Array, Array, Array, Array, Array, Array, Array, Dict[Hashable, SolverStats], List[Error]]):
-        """Compute delta and the Jacobian (holding beta fixed) of xi (equivalently, of delta) with respect to theta
-        market-by-market. If there are any micro moments, compute them (taking the average across relevant markets)
-        along with their Jacobian and covariances. Revert any problematic elements to their last values.
-        """
-        errors: List[Error] = []
-
-        # initialize delta, micro moments, their Jacobians, micro moment covariances, micro moment values, indices of
-        #   clipped shares, and fixed point statistics so that they can be filled
-        delta = np.zeros((self.N, 1), options.dtype)
-        micro = np.zeros((moments.MM, 1), options.dtype)
-        xi_jacobian = np.zeros((self.N, parameters.P), options.dtype)
-        micro_jacobian = np.zeros((moments.MM, parameters.P), options.dtype)
-        micro_covariances = np.zeros((moments.MM, moments.MM), options.dtype)
-        micro_values = np.full((self.T, moments.MM), np.nan, options.dtype)
-        clipped_shares = np.zeros((self.N, 1), np.bool)
-        iteration_stats: Dict[Hashable, SolverStats] = {}
-
-        # when possible and when a gradient isn't needed, compute delta with a closed-form solution
-        if self.K2 == 0 and moments.MM == 0 and (parameters.P == 0 or not compute_jacobians):
-            delta = self._compute_logit_delta(rho)
-        else:
-            def market_factory(s: Hashable) -> Tuple[ProblemMarket, Array, Array, Iteration, str, Bounds, bool, bool]:
-                """Build a market along with arguments used to compute delta, micro moment values, and Jacobians."""
-                market_s = ProblemMarket(self, s, parameters, sigma, pi, rho, moments=moments)
-                delta_s = progress.next_delta[self._product_market_indices[s]]
-                last_delta_s = progress.delta[self._product_market_indices[s]]
-                return (
-                    market_s, delta_s, last_delta_s, iteration, fp_type, shares_bounds, compute_jacobians,
-                    compute_micro_covariances
-                )
-
-            # compute delta, micro moment values, their Jacobians, and micro moment covariances market-by-market
-            micro_jacobian_mapping: Dict[Hashable, Array] = {}
-            micro_covariances_mapping: Dict[Hashable, Array] = {}
-            generator = generate_items(self.unique_market_ids, market_factory, ProblemMarket.solve_demand)
-            for t, generated_t in generator:
-                (
-                    delta_t, micro_values_t, xi_jacobian_t, micro_jacobian_t, micro_covariances_t, clipped_shares_t,
-                    iteration_stats_t, errors_t
-                ) = generated_t
-                delta[self._product_market_indices[t]] = delta_t
-                xi_jacobian[self._product_market_indices[t], :parameters.P] = xi_jacobian_t
-                micro_values[self._market_indices[t], moments.market_indices[t]] = micro_values_t.flat
-                micro_jacobian_mapping[t] = micro_jacobian_t
-                micro_covariances_mapping[t] = micro_covariances_t
-                clipped_shares[self._product_market_indices[t]] = clipped_shares_t
-                iteration_stats[t] = iteration_stats_t
-                errors.extend(errors_t)
-
-            # aggregate micro moments, their Jacobian, and their covariances across all markets (this is done after
-            #   market-by-market computation to preserve numerical stability with different market orderings)
-            if moments.MM > 0:
-                with np.errstate(all='ignore'):
-                    for t in self.unique_market_ids:
-                        indices = moments.market_indices[t]
-                        weights = moments.market_weights[t]
-                        if indices.size > 0:
-                            differences = moments.market_values[t] - micro_values[self._market_indices[t], indices]
-                            micro[indices] += weights[:, None] * differences[:, None]
-                            micro_jacobian[indices, :parameters.P] -= weights[:, None] * micro_jacobian_mapping[t]
-                            if compute_micro_covariances:
-                                pairwise_indices = tuple(np.meshgrid(indices, indices))
-                                pairwise_weights = weights[:, None] * weights[:, None].T
-                                micro_covariances[pairwise_indices] += pairwise_weights * micro_covariances_mapping[t]
-
-                    # enforce shape and symmetry of micro covariances
-                    if compute_micro_covariances:
-                        micro_covariances = np.c_[micro_covariances + micro_covariances.T] / 2
-
-        # replace invalid elements in delta and the micro moment values with their last values
-        bad_delta_index = ~np.isfinite(delta)
-        bad_micro_index = ~np.isfinite(micro)
-        if np.any(bad_delta_index):
-            delta[bad_delta_index] = progress.delta[bad_delta_index]
-            errors.append(exceptions.DeltaReversionError(bad_delta_index))
-        if np.any(bad_micro_index):
-            micro[bad_micro_index] = progress.micro[bad_micro_index]
-            errors.append(exceptions.MicroMomentsReversionError(bad_micro_index))
-
-        # replace invalid elements in the Jacobians with their last values
-        if compute_jacobians:
-            bad_xi_jacobian_index = ~np.isfinite(xi_jacobian)
-            bad_micro_jacobian_index = ~np.isfinite(micro_jacobian)
-            if np.any(bad_xi_jacobian_index):
-                xi_jacobian[bad_xi_jacobian_index] = progress.xi_jacobian[bad_xi_jacobian_index]
-                errors.append(exceptions.XiByThetaJacobianReversionError(bad_xi_jacobian_index))
-            if np.any(bad_micro_jacobian_index):
-                micro_jacobian[bad_micro_jacobian_index] = progress.micro_jacobian[bad_micro_jacobian_index]
-                errors.append(exceptions.MicroMomentsByThetaJacobianReversionError(bad_micro_jacobian_index))
-
-        return (
-            delta, micro, xi_jacobian, micro_jacobian, micro_covariances, micro_values, clipped_shares, iteration_stats,
-            errors
-        )
-
-    def _compute_supply_contributions(
-            self, parameters: Parameters, costs_bounds: Bounds, sigma: Array, pi: Array, rho: Array, beta: Array,
-            delta: Array, xi_jacobian: Array, progress: 'InitialProgress', compute_jacobian: bool) -> (
-            Tuple[Array, Array, Array, List[Error]]):
-        """Compute transformed marginal costs and the Jacobian (holding gamma fixed) of omega (equivalently, of
-        transformed marginal costs) with respect to theta market-by-market. Revert any problematic elements to their
-        last values.
-        """
-        errors: List[Error] = []
-
-        # initialize transformed marginal costs, their Jacobian, and indices of clipped costs so that they can be filled
-        tilde_costs = np.zeros((self.N, 1), options.dtype)
-        omega_jacobian = np.zeros((self.N, parameters.P), options.dtype)
-        clipped_costs = np.zeros((self.N, 1), np.bool)
-
-        def market_factory(s: Hashable) -> Tuple[ProblemMarket, Array, Array, Bounds, bool]:
-            """Build a market along with arguments used to compute transformed marginal costs and their Jacobian."""
-            market_s = ProblemMarket(self, s, parameters, sigma, pi, rho, beta, delta=delta)
-            last_tilde_costs_s = progress.tilde_costs[self._product_market_indices[s]]
-            xi_jacobian_s = xi_jacobian[self._product_market_indices[s]]
-            return market_s, last_tilde_costs_s, xi_jacobian_s, costs_bounds, compute_jacobian
-
-        # compute transformed marginal costs and their Jacobian market-by-market
-        generator = generate_items(self.unique_market_ids, market_factory, ProblemMarket.solve_supply)
-        for t, (tilde_costs_t, omega_jacobian_t, clipped_costs_t, errors_t) in generator:
-            tilde_costs[self._product_market_indices[t]] = tilde_costs_t
-            omega_jacobian[self._product_market_indices[t], :parameters.P] = omega_jacobian_t
-            clipped_costs[self._product_market_indices[t]] = clipped_costs_t
-            errors.extend(errors_t)
-
-        # replace invalid transformed marginal costs with their last values
-        bad_tilde_costs_index = ~np.isfinite(tilde_costs)
-        if np.any(bad_tilde_costs_index):
-            tilde_costs[bad_tilde_costs_index] = progress.tilde_costs[bad_tilde_costs_index]
-            errors.append(exceptions.CostsReversionError(bad_tilde_costs_index))
-
-        # replace invalid elements in their Jacobian with their last values
-        if compute_jacobian:
-            bad_omega_jacobian_index = ~np.isfinite(omega_jacobian)
-            if np.any(bad_omega_jacobian_index):
-                omega_jacobian[bad_omega_jacobian_index] = progress.omega_jacobian[bad_omega_jacobian_index]
-                errors.append(exceptions.OmegaByThetaJacobianReversionError(bad_omega_jacobian_index))
-
-        return tilde_costs, omega_jacobian, clipped_costs, errors
-
+   
 
 class Problem(ProblemEconomy):
 #class Problem(ProblemEconomy):
@@ -854,22 +532,6 @@ class Problem(ProblemEconomy):
             if not all(isinstance(f, Formulation) for f in instrument_formulation):
                 raise TypeError("Each formulation in instrument_formulation must be a Formulation.")
 
-        # validate and normalize instrument formulation
-        #if not isinstance(instrument_formulation, Formulation):
-        #    raise TypeError("instrument_formulation must be a single Formulation instance.")
-        
-
-
-        # validate and normalize model formulations
-        
-        #if isinstance(model_formulations, collections.abc.Sequence) and M > 1:
-        #    model_formulations = list(model_formulations)
-        #    
-        #else:
-        #    raise TypeError("model_formulations must be a sequence of at least two models.")
-       
-
-
 
 
         # initialize the underlying economy with structured product and cost data
@@ -887,18 +549,7 @@ class Problem(ProblemEconomy):
         )
 
 
-        # absorb any cost fixed effects
-        #if self._absorb_cost_ids is not None:
-        #    output("Absorbing cost-side fixed effects ...")
-        #    self.products.X1, X1_errors = self._absorb_demand_ids(self.products.X1)
-        #    self._handle_errors(X1_errors)
-        #    if add_exogenous:
-        #        self.products.ZD, ZD_errors = self._absorb_demand_ids(self.products.ZD)
-        #        self._handle_errors(ZD_errors)
 
-
-        # detect any problems with the cost data
-        #self._detect_collinearity()
         
         if max(options.collinear_atol, options.collinear_rtol) > 0:
 
@@ -937,135 +588,21 @@ class Problem(ProblemEconomy):
             output(self)
 
 
-class OptimalInstrumentProblem(ProblemEconomy):
-    """A BLP problem updated with optimal excluded instruments.
-
-    This class can be used exactly like :class:`Problem`.
-
-    """
-
-    def __init__(self, problem: ProblemEconomy, demand_instruments: Array, supply_instruments: Array) -> None:
-        """Initialize the underlying economy with updated product data before absorbing fixed effects."""
-
-        # keep track of long it takes to re-create the problem
-        output("Re-creating the problem ...")
-        start_time = time.time()
-
-        # supplement the excluded demand-side instruments with exogenous characteristics in X1
-        X1 = problem._compute_true_X1()
-        ZD = demand_instruments
-        for index, formulation in enumerate(problem._X1_formulations):
-            if 'prices' not in formulation.names:
-                ZD = np.c_[ZD, X1[:, [index]]]
-
-        # supplement the excluded supply-side instruments with X3
-        X3 = problem._compute_true_X3()
-        ZS = np.c_[supply_instruments, X3]
-
-        # update the products array
-        updated_products = update_matrices(problem.products, {
-            'ZD': (ZD, options.dtype),
-            'ZS': (ZS, options.dtype)
-        })
-
-        # initialize the underlying economy with structured product and agent data
-        super().__init__(
-            problem.product_formulations, problem.agent_formulation, updated_products, problem.agents,
-            distributions=problem.distributions, epsilon_scale=problem.epsilon_scale, costs_type=problem.costs_type
-        )
-
-        # absorb any demand-side fixed effects, which have already been absorbed into X1
-        if self._absorb_demand_ids is not None:
-            output("Absorbing demand-side fixed effects ...")
-            self.products.ZD, ZD_errors = self._absorb_demand_ids(self.products.ZD)
-            if ZD_errors:
-                raise exceptions.MultipleErrors(ZD_errors)
-
-        # absorb any supply-side fixed effects, which have already been absorbed into X3
-        if self._absorb_supply_ids is not None:
-            output("Absorbing supply-side fixed effects ...")
-            self.products.ZS, ZS_errors = self._absorb_supply_ids(self.products.ZS)
-            if ZS_errors:
-                raise exceptions.MultipleErrors(ZS_errors)
-
-        # detect any collinearity issues with the updated instruments
-        self._detect_collinearity()
-
-        # output information about the re-created problem
-        output(f"Re-created the problem after {format_seconds(time.time() - start_time)}.")
-        output("")
-        output(self)
-
-
-class ImportanceSamplingProblem(ProblemEconomy):
-    """A BLP problem updated after importance sampling.
-
-    This class can be used exactly like :class:`Problem`.
-
-    """
-
-    def __init__(self, problem: ProblemEconomy, sampled_agents: RecArray) -> None:
-        """Initialize the underlying economy with updated agent data."""
-
-        # keep track of long it takes to re-create the problem
-        output("Re-creating the problem ...")
-        start_time = time.time()
-
-        # initialize the underlying economy with structured product and agent data
-        super().__init__(
-            problem.product_formulations, problem.agent_formulation, problem.products, sampled_agents,
-            distributions=problem.distributions, epsilon_scale=problem.epsilon_scale, costs_type=problem.costs_type
-        )
-
-        # output information about the re-created problem
-        output(f"Re-created the problem after {format_seconds(time.time() - start_time)}.")
-        output("")
-        output(self)
 
 
 class InitialProgress(object):
     """Structured information about initial estimation progress."""
 
     problem: ProblemEconomy
-    #parameters: Parameters
-    #moments: EconomyMoments
-    #W: Array
-    #theta: Array
-    #objective: Array
-    #gradient: Array
-    #hessian: Array
-    #next_delta: Array
-    #delta: Array
-    #tilde_costs: Array
-    #micro: Array
-    #xi_jacobian: Array
-    #omega_jacobian: Array
-    #micro_jacobian: Array
+    
     
 
     def __init__(
             self, problem: ProblemEconomy 
-            #parameters: Parameters, moments: EconomyMoments, W: Array, theta: Array,
-            #objective: Array, gradient: Array, hessian: Array, next_delta: Array, delta: Array, tilde_costs: Array,
-            #micro: Array, xi_jacobian: Array, omega_jacobian: Array, micro_jacobian: Array
             ) -> None:
         """Store initial progress information, computing the projected gradient and the reduced Hessian."""
         self.problem = problem
-        #self.markups = markups
-        #self.parameters = parameters
-        #self.moments = moments
-        #self.W = W
-        #self.theta = theta
-        #self.objective = objective
-        #self.gradient = gradient
-        #self.hessian = hessian
-        #self.next_delta = next_delta
-        #self.delta = delta
-        #self.tilde_costs = tilde_costs
-        #self.micro = micro
-        #self.xi_jacobian = xi_jacobian
-        #self.omega_jacobian = omega_jacobian
-        #self.micro_jacobian = micro_jacobian
+        
 
 
 class Progress(InitialProgress):
@@ -1082,34 +619,14 @@ class Progress(InitialProgress):
     TRV: Array
     F: Array
     MCS_pvalues: Array
-    #micro_covariances: Array
-    #micro_values: Array
-    #xi: Array
-    #omega: Array
-    #beta: Array
-    #gamma: Array
-    #iteration_stats: Dict[Hashable, SolverStats]
-    #clipped_shares: Array
-    #clipped_costs: Array
-    #errors: List[Error]
-    #projected_gradient: Array
-    #reduced_hessian: Array
-    #projected_gradient_norm: Array
+    
 
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array, mc: Array, taus: Array, g: Array, Q: Array, RV_num: Array, RV_denom: Array, TRV: Array, F: Array, MCS_pvalues: Array
-            #parameters: Parameters, moments: EconomyMoments, W: Array, theta: Array,
-            #objective: Array, gradient: Array, hessian: Array, next_delta: Array, delta: Array, tilde_costs: Array,
-            #micro: Array, xi_jacobian: Array, omega_jacobian: Array, micro_jacobian: Array, micro_covariances: Array,
-            #micro_values: Array, iv_delta: Array, iv_tilde_costs: Array, xi: Array, omega: Array, beta: Array,
-            #gamma: Array, iteration_stats: Dict[Hashable, SolverStats], clipped_shares: Array, clipped_costs: Array,
-            #errors: List[Error]
             ) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
         super().__init__(
             problem
-            #, parameters, moments, W, theta, objective, gradient, hessian, next_delta, delta, tilde_costs, micro,
-            #xi_jacobian, omega_jacobian, micro_jacobian
         )
         self.markups = markups
         self.markups_downstream = markups_downstream
@@ -1123,105 +640,5 @@ class Progress(InitialProgress):
         self.TRV = TRV
         self.F = F
         self.MCS_pvalues = MCS_pvalues
-        #self.micro_covariances = micro_covariances
-        #self.micro_values = micro_values
-        #self.iv_delta = iv_delta
-        #self.iv_tilde_costs = iv_tilde_costs
-        #self.xi = xi
-        #self.omega = omega
-        #self.beta = beta
-        #self.gamma = gamma
-        #self.iteration_stats = iteration_stats or {}
-        #self.clipped_shares = clipped_shares
-        #self.clipped_costs = clipped_costs
-        #self.errors = errors or []
 
-        # compute the projected gradient and the reduced Hessian
-        #self.projected_gradient = self.gradient.copy()
-        #self.reduced_hessian = self.hessian.copy()
-        #for p, (lb, ub) in enumerate(self.parameters.compress_bounds()):
-        #    if not lb < theta[p] < ub:
-        #        self.reduced_hessian[p] = self.reduced_hessian[:, p] = 0
-        #        with np.errstate(invalid='ignore'):
-        #            if theta[p] <= lb:
-        #                self.projected_gradient[p] = min(0, self.gradient[p])
-        #            elif theta[p] >= ub:
-        #                self.projected_gradient[p] = max(0, self.gradient[p])
 
-        # compute the norm of the projected gradient
-        #self.projected_gradient_norm = np.array(np.nan, options.dtype)
-        #if gradient.size > 0:
-        #    with np.errstate(invalid='ignore'):
-        #        self.projected_gradient_norm = np.abs(self.projected_gradient).max()
-
-    def format(
-            self, optimization: Optimization, shares_bounds: Bounds, costs_bounds: Bounds, step: int, iterations: int,
-            evaluations: int, smallest_objective: Array) -> str:
-        """Format a universal display of optimization progress as a string. The first iteration will include the
-        progress table header. If there are any errors, information about them will be formatted as well, regardless of
-        whether or not a universal display is to be used. The smallest_objective is the smallest objective value
-        encountered so far during optimization.
-        """
-        lines: List[str] = []
-
-        # include information about any errors
-        if self.errors:
-            preamble = (
-                "At least one error was encountered. As long as the optimization routine does not get stuck at values "
-                "of theta that give rise to errors, this is not necessarily a problem. If the errors persist or seem "
-                "to be impacting the optimization results, consider setting an error punishment or following any of "
-                "the other suggestions below:"
-            )
-            lines.extend(["", preamble, str(exceptions.MultipleErrors(self.errors)), ""])
-
-        # only output errors if the solver's display is being used
-        if not optimization._universal_display:
-            return "\n".join(lines)
-
-        # construct the leftmost part of the table that always shows up
-        header = [
-            ("GMM", "Step"), ("Optimization", "Iterations"), ("Objective", "Evaluations"),
-            ("Fixed Point", "Iterations"), ("Contraction", "Evaluations")
-        ]
-        values = [
-            str(step),
-            str(iterations),
-            str(evaluations),
-            str(sum(s.iterations for s in self.iteration_stats.values())),
-            str(sum(s.evaluations for s in self.iteration_stats.values()))
-        ]
-
-        # add a count of any clipped shares or marginal costs
-        if np.isfinite(shares_bounds).any():
-            header.append(("Clipped", "Shares"))
-            values.append(str(self.clipped_shares.sum()))
-        if np.isfinite(costs_bounds).any():
-            header.append(("Clipped", "Costs"))
-            values.append(str(self.clipped_costs.sum()))
-
-        # add information about the objective
-        header.extend([("Objective", "Value"), ("Objective", "Improvement")])
-        values.append(format_number(self.objective))
-        improvement = smallest_objective - self.objective
-        if np.isfinite(improvement) and improvement > 0:
-            values.append(format_number(smallest_objective - self.objective))
-        else:
-            values.append(" " * len(format_number(improvement)))
-
-        # add information about the gradient
-        if optimization._compute_gradient:
-            header.append(("Projected", "Gradient Norm") if self.parameters.any_bounds else ("Gradient", "Norm"))
-            values.append(format_number(self.projected_gradient_norm))
-
-        # add information about theta
-        header.append(("", "Theta"))
-        values.append(", ".join(format_number(x) for x in self.theta))
-
-        # add information about micro moments
-        if self.moments.MM > 0:
-            header.append(("Micro", "Moments"))
-            values.append(", ".join(format_number(x) for x in self.micro))
-
-        # format the table
-        lines.append(format_table(header, values, include_border=False, include_header=evaluations == 1))
-        return "\n".join(lines)

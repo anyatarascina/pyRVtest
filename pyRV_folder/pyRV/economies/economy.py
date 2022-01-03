@@ -8,7 +8,6 @@ import numpy as np
 
 from .. import exceptions, options
 from ..configurations.formulation import Formulation, Absorb, ModelFormulation
-from ..configurations.iteration import Iteration
 from ..primitives import Container
 from ..utilities.algebra import precisely_identify_collinearity, precisely_identify_psd
 from ..utilities.basics import (
@@ -210,15 +209,7 @@ class Economy(Container, StringRepresentation):
             output(exceptions.MultipleErrors(errors))
             output("")
 
-    def _validate_name(self, name: Optional[str]) -> None:
-        """Validate that a name is either None or corresponds to a variable in X1, X2, or X3."""
-        if name is None:
-            return
-        formulations = self._X1_formulations + self._X2_formulations + self._X3_formulations
-        names = {n for f in formulations for n in f.names}
-        if name not in names:
-            raise NameError(f"'{name}' is not None or one of the underlying variables, {list(sorted(names))}.")
-
+   
     def _validate_product_ids(self, product_ids: Sequence[Any], market_ids: Optional[Array] = None) -> None:
         """Validate that product IDs either contain None (denoting the outside option) or contain at least one product
         ID for each market in the data (or in specific markets if specified). Also verify that each product ID appears
@@ -250,24 +241,7 @@ class Economy(Container, StringRepresentation):
                     f"{list(sorted(self.products.product_ids[self._product_market_indices[t]]))}."
                 )
 
-    def _validate_agent_ids(self, agent_ids: Sequence[Any], market_ids: Optional[Array] = None) -> None:
-        """Validate that agent IDs have at least one agent ID for each market in the data (or in specific markets if
-        specified).
-        """
-        if self.unique_agent_ids.size == 0:
-            raise ValueError("Agent IDs must have been specified.")
-
-        if market_ids is None:
-            market_ids = self.unique_market_ids
-
-        for t in market_ids:
-            counts = [(self.agents.agent_ids[self._agent_market_indices[t]] == i).sum() for i in agent_ids]
-            if all(c == 0 for c in counts):
-                raise ValueError(
-                    f"None of the agent_ids {sorted(list(agent_ids))} show up in market '{t}' with IDs: "
-                    f"{list(sorted(self.agents.agent_ids[self._agent_market_indices[t]]))}."
-                )
-
+    
     def _coerce_optional_firm_ids(self, firm_ids: Optional[Any], market_ids: Optional[Array] = None) -> Array:
         """Coerce optional array-like firm IDs into a column vector and validate it. By default, assume that firm IDs
         are for all markets.
@@ -298,105 +272,4 @@ class Economy(Container, StringRepresentation):
             raise ValueError(f"ownership must be None or a {rows} by {columns} matrix.")
         return ownership
 
-    @staticmethod
-    def _coerce_optional_delta_iteration(iteration: Optional[Iteration]) -> Iteration:
-        """Validate or choose a default configuration for iterating over the mean utility."""
-        if iteration is None:
-            iteration = Iteration('squarem', {'atol': 1e-14})
-        elif not isinstance(iteration, Iteration):
-            raise TypeError("iteration must be None or an Iteration instance.")
-        return iteration
-
-    @staticmethod
-    def _coerce_optional_prices_iteration(iteration: Optional[Iteration]) -> Iteration:
-        """Validate or choose a default configuration for iteration over prices."""
-        if iteration is None:
-            iteration = Iteration('simple', {'atol': 1e-12})
-        elif not isinstance(iteration, Iteration):
-            raise ValueError("iteration must be None or an Iteration.")
-        elif iteration._compute_jacobian:
-            raise ValueError("Analytic Jacobians are not supported for solving this system.")
-        return iteration
-
-    def _validate_fp_type(self, fp_type: str) -> None:
-        """Validate that the delta fixed point type is supported."""
-        if fp_type not in {'safe_linear', 'linear', 'safe_nonlinear', 'nonlinear'}:
-            raise ValueError("fp_type must be 'safe_linear', 'linear', 'safe_nonlinear', or 'nonlinear'.")
-        if fp_type in {'safe_nonlinear', 'nonlinear'} and self.epsilon_scale != 1:
-            raise ValueError("When epsilon_scale is not 1, fp_type must be 'safe_linear' or 'linear'.")
-
-    @staticmethod
-    def _coerce_optional_bounds(bounds: Optional[Tuple[Any, Any]], name: str) -> Bounds:
-        """Validate or choose default bounds for some object."""
-        if bounds is None:
-            return -np.inf, +np.inf
-        if len(bounds) != 2:
-            raise ValueError(f"{name} must be a tuple of the form (lb, ub).")
-        bounds = (np.asarray(bounds[0], options.dtype), np.asarray(bounds[1], options.dtype))
-        bounds[0][np.isnan(bounds[0])] = -np.inf
-        bounds[1][np.isnan(bounds[1])] = +np.inf
-        if bounds[0].size != 1:
-            raise ValueError(f"The lower bound in {name} must be None or a float.")
-        if bounds[1].size != 1:
-            raise ValueError(f"The upper bound in {name} must be None or a float.")
-        if bounds[0] > bounds[1]:
-            raise ValueError(f"The lower bound in {name} cannot be larger than the upper bound.")
-        return bounds
-
-    def _compute_true_X1(self, data_override: Optional[Mapping] = None, index: Optional[Array] = None) -> Array:
-        """Compute X1 or columns of X1 without any absorbed demand-side fixed effects."""
-        if index is None:
-            index = np.ones(self.K1, np.bool)
-        if self.ED == 0 and not data_override:
-            return self.products.X1[:, index]
-
-        # compute X1 column-by-column
-        columns = []
-        for include, formulation in zip(index, self._X1_formulations):
-            if include:
-                column = formulation.evaluate(self.products, data_override)
-                columns.append(np.broadcast_to(column, (self.N, 1)).astype(options.dtype))
-
-        return np.column_stack(columns)
-
-    def _compute_true_X3(self, data_override: Optional[Mapping] = None, index: Optional[Array] = None) -> Array:
-        """Compute X3 or columns of X3 without any absorbed supply-side fixed effects."""
-        if index is None:
-            index = np.ones(self.K3, np.bool)
-        if self.ES == 0 and not data_override:
-            return self.products.X3[:, index]
-
-        # compute X3 column-by-column
-        columns = []
-        for include, formulation in zip(index, self._X3_formulations):
-            if include:
-                columns.append(formulation.evaluate(self.products, data_override) * np.ones((self.N, 1)))
-
-        return np.column_stack(columns)
-
-    def _compute_logit_delta(self, rho: Array) -> Array:
-        """Compute the mean utility that solves the simple logit (or nested logit) model."""
-        log_shares = np.log(self.products.shares)
-
-        # compute delta market-by-market
-        delta = log_shares.copy()
-        for t, indices_t in self._product_market_indices.items():
-            shares_t = self.products.shares[indices_t]
-            log_outside_share_t = np.log(1 - shares_t.sum())
-            delta[indices_t] -= log_outside_share_t
-            if self.H > 0:
-                log_shares_t = log_shares[indices_t]
-                groups_t = Groups(self.products.nesting_ids[indices_t])
-                log_group_shares_t = np.log(groups_t.expand(groups_t.sum(shares_t)))
-                if rho.size == 1:
-                    rho_t = np.full_like(shares_t, float(rho))
-                else:
-                    rho_t = groups_t.expand(rho[np.searchsorted(self.unique_nesting_ids, groups_t.unique)])
-                delta[indices_t] -= rho_t * (log_shares_t - log_group_shares_t)
-
-        # delta needs to be scaled if the error term is scaled
-        if self.epsilon_scale != 1:
-            assert self.H == 0
-            delta *= self.epsilon_scale
-
-        return delta
+    
