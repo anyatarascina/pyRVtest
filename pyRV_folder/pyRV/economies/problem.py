@@ -373,9 +373,11 @@ class ProblemEconomy(Economy):
             # Compute the pairwise RV test statistic           
             TRV = np.zeros((M,M))
             for kk in range(M):
-                for jj in range(kk):
+                for jj in range(M):
                     if jj < kk:  
                         TRV[jj,kk] = RV_num[jj,kk]/RV_denom[jj,kk]
+                    if jj >= kk:
+                        TRV[jj,kk] = "NaN"
 
             # Compute the pairwise F-statistic
             F = np.zeros((M,M))
@@ -392,7 +394,7 @@ class ProblemEconomy(Economy):
                     phi[kk] = phi[kk] - (hi-np.transpose(h))@np.transpose(WM12@dmd_adj[kk])
 
             for kk in range(M):
-                for jj in range(kk):
+                for jj in range(M):
                     if jj < kk:  
                         VAR_11 = 1/N*phi[jj].T@phi[jj]       
                         VAR_22 = 1/N*phi[kk].T@phi[kk] 
@@ -423,10 +425,12 @@ class ProblemEconomy(Economy):
                         temp =  (sig2_1-sig2_2)*(sig2_1-sig2_2)
                         rho2 = temp/((sig2_1+sig2_2)*(sig2_1+sig2_2)-4*sig2_12)
                         F[jj,kk] = (1-rho2)*N/(2*K)*(sig2_2*g[jj].T@WM@g[jj] + sig2_1*g[kk].T@WM@g[kk] - 2*sig_12*g[jj].T@WM@g[kk])/(sig2_1*sig2_2-sig2_12) 
-            
+                    if jj >= kk:
+                        F[jj,kk] = "NaN"
+
             MCS_pvalues = np.ones([M,1])
 
-            
+            np.random.seed(123)
                 
             stop = 0
             while stop == 0:
