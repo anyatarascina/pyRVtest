@@ -16,7 +16,7 @@ setup(
     # Needed for dependencies
     install_requires=read('requirements.txt').splitlines(),
     # *strongly* suggested for sharing
-    version='0.1.0',
+    version='0.1.2',
     # The license can be anything you like
     license='MIT',
     description='Code to perform econometric test of firm conduct',
