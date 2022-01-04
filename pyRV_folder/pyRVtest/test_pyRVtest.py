@@ -31,4 +31,29 @@ pyblp_results = pyblp_problem.solve(
   )
 
 
+testing_problem_new = pyRV.Problem(
+    cost_formulation = (
+        pyRV.Formulation('1 + sugar', absorb = 'C(firm_ids)' )
+        ),
+    instrument_formulation = (
+        pyRV.Formulation('0 + demand_instruments0 + demand_instruments1'),
+        pyRV.Formulation('0 + demand_instruments2 + demand_instruments3 + demand_instruments4'),
+        pyRV.Formulation('0 + demand_instruments5')
+        ), 
+    model_formulations = (
+        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids'),
+        pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
+        pyRV.ModelFormulation(model_downstream='cournot', ownership_downstream='firm_ids'),
+        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='bertrand',  ownership_upstream='firm_ids'),
+        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='monopoly',  ownership_upstream='firm_ids')
+        ),       
+    product_data = product_data,
+    demand_results = pyblp_results
+    )
 
+testing_results_new = testing_problem_new.solve(
+    demand_adjustment = 'yes', 
+    se_type = 'clustered'
+    )
+
+assert testing_results_new.F[0][0]-0.04<1e-3
