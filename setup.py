@@ -9,7 +9,7 @@ setup(
     # Needed to actually package something
     packages=['pyRVtest'],
     # Needed for dependencies
-    install_requires=['numpy', 'patsy', 'pyhdfe', 'scipy', 'sympy', 'pandas', 'statsmodels'],
+    install_requires=read('requirements.txt').splitlines(),
     # *strongly* suggested for sharing
     version='0.1',
     # The license can be anything you like
