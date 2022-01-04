@@ -21,5 +21,5 @@ setup(
     description='Code to perform econometric test of firm conduct',
     long_description=open('README.md').read(),
     include_package_data=True,
-    version='0.1.4'
+    version='0.1.0'
 )
