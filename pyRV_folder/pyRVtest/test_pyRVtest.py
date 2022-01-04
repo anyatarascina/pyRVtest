@@ -6,7 +6,7 @@ sys.path.append(pyRV_path)
 import numpy as np
 import pandas as pd
 import pyblp
-import pyRV
+import pyRVtest as pyRV
 
 product_data = pd.read_csv(pyblp.data.NEVO_PRODUCTS_LOCATION)
 
