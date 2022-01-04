@@ -19,9 +19,9 @@ setup(
     packages=find_packages(),
     python_requires='>=3.6',
     install_requires=read('requirements.txt').splitlines(),
-    version='0.1.2',
     license='MIT',
     description='Code to perform econometric test of firm conduct',
     long_description=open('README.md').read(),
-    include_package_data=True
+    include_package_data=True,
+    version=version_match.group(1)
 )
