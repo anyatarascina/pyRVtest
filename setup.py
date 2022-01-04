@@ -10,7 +10,7 @@ setup(
     name='pyRVtest',
     url='https://github.com/chrissullivanecon/pyRVtest',
     author='Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan',
-    author_email='cjsullivan@wisc.edu',
+    author_email='chris.sullivan.econ@gmail.com',
     # Needed to actually package something
    packages=find_packages(),
     # Needed for dependencies
