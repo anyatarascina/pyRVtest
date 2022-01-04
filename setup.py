@@ -19,7 +19,7 @@ setup(
     version='0.1.0',
     # The license can be anything you like
     license='MIT',
-    description='An example of a python package from pre-existing code',
+    description='Code to perform econometric test of firm conduct',
     # We will also need a readme eventually (there will be a warning)
     long_description=open('README.md').read(),
 )
