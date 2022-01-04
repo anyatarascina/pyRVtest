@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Hashable, List, Optional, Sequence, TYPE
 import numpy as np
 import scipy.linalg
 import pandas as pd
-import pyRV.data as DATA
+import pyRVtest.data as DATA
 from .results import Results
 from .. import exceptions, options
 
