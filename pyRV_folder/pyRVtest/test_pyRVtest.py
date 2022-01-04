@@ -58,4 +58,4 @@ testing_results_new = testing_problem_new.solve(
     se_type = 'clustered'
     )
 
-assert testing_results_new.F[0][0]-0.04<1e-3
+assert testing_results_new.F[0][0,1]-.4087<1e-3
