@@ -1,4 +1,10 @@
+from pathlib import Path
+
 from setuptools import find_packages, setup
+
+
+# define a function that reads a file in this directory
+read = lambda p: Path(Path(__file__).resolve().parent / p).read_text()
 setup(
     # Needed to silence warnings (and to be a worthwhile package)
     name='pyRVtest',
