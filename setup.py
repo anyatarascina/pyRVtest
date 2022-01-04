@@ -1,5 +1,4 @@
-from setuptools import setup
-
+from setuptools import find_packages, setup
 setup(
     # Needed to silence warnings (and to be a worthwhile package)
     name='pyRVtest',
@@ -7,7 +6,7 @@ setup(
     author='Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan',
     author_email='cjsullivan@wisc.edu',
     # Needed to actually package something
-    packages=['pyRVtest'],
+   packages=find_packages(),
     # Needed for dependencies
     install_requires=read('requirements.txt').splitlines(),
     # *strongly* suggested for sharing
