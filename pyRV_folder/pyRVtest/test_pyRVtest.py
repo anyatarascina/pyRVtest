@@ -30,6 +30,8 @@ pyblp_results = pyblp_problem.solve(
   optimization = pyblp.Optimization('bfgs',{'gtol':1e-5})  
   )
 
+product_data["clustering_ids"] = product_data.market_ids
+
 
 testing_problem_new = pyRV.Problem(
     cost_formulation = (
