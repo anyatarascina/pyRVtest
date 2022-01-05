@@ -3,7 +3,7 @@ from pathlib import Path
 
 from setuptools import find_packages, setup
 
-#read = lambda p: Path(Path(__file__).resolve().parent / p).read_text()
+read = lambda p: Path(Path(__file__).resolve().parent / p).read_text()
 
 
 
@@ -16,8 +16,7 @@ setup(
     author_email='chris.sullivan.econ@gmail.com',
     packages=find_packages(),
     python_requires='>=3.6',
-    #install_requires=read('requirements.txt').splitlines(),
-    install_requires=open('requirements.txt').read(),
+    install_requires=read('requirements.txt').splitlines(),
     license='MIT',
     description='Code to perform econometric test of firm conduct',
     long_description=open('README.md').read(),
