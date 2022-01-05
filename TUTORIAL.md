@@ -235,7 +235,7 @@ testing_results = testing_problem.solve(
     )
 ````
 
-Given that we define the variable `testing_problem` as pyRV.problem, we must write `testing_problem.solve` in the first line.  There are two user specified options in running the test:
+Given that we define the variable `testing_problem` as pyRVtest.problem, we must write `testing_problem.solve` in the first line.  There are two user specified options in running the test:
 * demand_adjustment: 'no' indicates that the user does not want to adjust standard errors to account for two-step estimation with demand.  'yes' indicates standard errors should be adjusted to account for demand estimation.
 * se_type: 'unadjusted' means no clustering. 'clustered' indicated that all standard errors should be clustered.  In this case, a variable called `clustering_ids` which indicates the cluster to which each group belongs needs to appear in the `product_data`. See example below.
 
