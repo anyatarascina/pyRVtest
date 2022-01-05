@@ -38,10 +38,10 @@ These can also be installed by running the pip install command in either termina
 
 
 # Running the code
-First open python3 (pyRV has been developed for releases of python 3.6 and later) in either terminal or command prompt
+First open python3 (pyRVtest has been developed for releases of python 3.6 and later) in either terminal or command prompt.
 
 ## Import python packages
-First open python3 (pyRVtest has been developed for releases of python 3.6 and later) in either terminal or command prompt.  Then you import the necessary packages:
+Then you import the necessary packages:
 
 ````
 import numpy as np
@@ -151,37 +151,37 @@ Beta Estimates (Robust SEs in Parentheses):
 ````
 
 ## Test Models of Conduct with pyRV
-pyRV follows a similar structure to PyBLP.  First, you set up the testing problem, then you run the test.  
+pyRVtest follows a similar structure to PyBLP.  First, you set up the testing problem, then you run the test.  
 
 ### Setting Up Testing Problem
-Here is an example of the code to set up the testing problem for a simple example where we will test two models: (1) manufacturers set retail prices according to Bertrand vs (2) manufacturers set retail prices according to monopoly (i.e., perfect collusion).  We set up the testing problem with `pyRV.problem` and we store this as a variable `testing_problem`:
+Here is an example of the code to set up the testing problem for a simple example where we will test two models: (1) manufacturers set retail prices according to Bertrand vs (2) manufacturers set retail prices according to monopoly (i.e., perfect collusion).  We set up the testing problem with `pyRVtest.problem` and we store this as a variable `testing_problem`:
 ````
-testing_problem = pyRV.Problem(
+testing_problem = pyRVtest.Problem(
     cost_formulation = (
-            pyRV.Formulation('0 + sugar', absorb = 'C(firm_ids)' )
+            pyRVtest.Formulation('0 + sugar', absorb = 'C(firm_ids)' )
         ),
     instrument_formulation = (
-            pyRV.Formulation('0 + demand_instruments0 + demand_instruments1')
+            pyRVtest.Formulation('0 + demand_instruments0 + demand_instruments1')
         ), 
     model_formulations = (
-            pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
-            pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids')
+            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
+            pyRVtest.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids')
        ),       
     product_data = product_data,
     demand_results = pyblp_results
         )
 ````
-pyRV.problem takes the following inputs:
-* `cost_formulation`: list of the variables for observed product characteristics.  In this example, we have defined the cost formulation as `pyRV.Formulation('0 + sugar', absorb = 'C(firm_ids)' )`.  Here, `0` means no constant.  To use a constant, one would replace `0` with `1`.  We are also including the variable `sugar` as an observed cost shifter and this variable must be in the `product_data`.  Finally `absorb = 'C(firm_ids)'` specifies that we are including firm fixed effects which will be absorbed using [PYHDFE](https://github.com/jeffgortmaker/pyhdfe), a companion package to PyBLP developed by Jeff Gortmaker and Anya Tarascina.  The variable `firm_ids` must also be in the `product_data`.
-* `instrument_formulation`: list of the variables used as excluded instruments for testing.  In this example, we have defined the cost formulation as `pyRV.Formulation('0 + demand_instruments0 + demand_instruments1')`.  Here, `0` means no constant and this should always be specified as a 0.  Here, we have an important difference with PyBLP.  With PyBLP, one specifies the excluded instruments for demand estimation via a naming convention in the product_data: each excluded instrument for demand estimation begins with demand_instrument followed by a number ( i.e., `demand_instrument0`).  In pyRV, you specify directly the names of the variables in the `product_data` that you want to use as excluded instruments for testing (i.e., if you want to test with one instrument using the variable in the `product_data` named, "transportation_cost" one could specify `pyRV.Formulation('0 + transportation_cost')` . 
-* `model_formulations`: Here the researcher specifies the models that she wants to test.  There is a built-in library of models that the researcher can choose from discussed below.  Here, we have specified two ModelFormulations and therefore two models to test. the first model is specified as `pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids')` `model_downstream = 'bertrand'` indicates that retail prices are set according to Bertrand.  `ownership_downstream='firm_ids'` specifies that the ownership matrix in each market should be built from the variable `firm_id` in the `product_data`.  Here, we have another difference with PyBLP.  In PyBLP, if one wants to build an ownership matrix, there must be a variable called `firm_id` in the `product_data`.  With pyRV, the researcher can pass any variable in the `product_data` as `ownership_downstream` and from this, the ownership matrix in each market will be built
+pyRVtest.problem takes the following inputs:
+* `cost_formulation`: list of the variables for observed product characteristics.  In this example, we have defined the cost formulation as `pyRVtest.Formulation('0 + sugar', absorb = 'C(firm_ids)' )`.  Here, `0` means no constant.  To use a constant, one would replace `0` with `1`.  We are also including the variable `sugar` as an observed cost shifter and this variable must be in the `product_data`.  Finally `absorb = 'C(firm_ids)'` specifies that we are including firm fixed effects which will be absorbed using [PYHDFE](https://github.com/jeffgortmaker/pyhdfe), a companion package to PyBLP developed by Jeff Gortmaker and Anya Tarascina.  The variable `firm_ids` must also be in the `product_data`.
+* `instrument_formulation`: list of the variables used as excluded instruments for testing.  In this example, we have defined the cost formulation as `pyRVtest.Formulation('0 + demand_instruments0 + demand_instruments1')`.  Here, `0` means no constant and this should always be specified as a 0.  Here, we have an important difference with PyBLP.  With PyBLP, one specifies the excluded instruments for demand estimation via a naming convention in the product_data: each excluded instrument for demand estimation begins with demand_instrument followed by a number ( i.e., `demand_instrument0`).  In pyRVtest, you specify directly the names of the variables in the `product_data` that you want to use as excluded instruments for testing (i.e., if you want to test with one instrument using the variable in the `product_data` named, "transportation_cost" one could specify `pyRVtest.Formulation('0 + transportation_cost')` . 
+* `model_formulations`: Here the researcher specifies the models that she wants to test.  There is a built-in library of models that the researcher can choose from discussed below.  Here, we have specified two ModelFormulations and therefore two models to test. the first model is specified as `pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids')` `model_downstream = 'bertrand'` indicates that retail prices are set according to Bertrand.  `ownership_downstream='firm_ids'` specifies that the ownership matrix in each market should be built from the variable `firm_id` in the `product_data`.  Here, we have another difference with PyBLP.  In PyBLP, if one wants to build an ownership matrix, there must be a variable called `firm_id` in the `product_data`.  With pyRVtest, the researcher can pass any variable in the `product_data` as `ownership_downstream` and from this, the ownership matrix in each market will be built
    (Future Release Note: We are working on adding additional models to this library as well as options for the researcher to specify their own markup function)
 * `product_data`: same as in PyBLP
 * `demand_results`: set to `pyblp_results` which is the name of the variable defining pyblp.solve in the PyBLP code above
 
 
 
-Running the `pyRV.problem` block of code yields the following output:
+Running the `pyRVtest.problem` block of code yields the following output:
 ````
 Dimensions:
 =======================
@@ -220,8 +220,8 @@ The first table `Dimensions` reports the following statistics:
 The second table `Formulations` reports the variables specified as observed cost shifters and excluded instruments. The first row indicates that sugar is the only included observed cost shifter (ignoring the fixed effects).  The second row indicates that `demand_instruments0` and `demand_instruments1` are the excluded instruments for testing each model.
 
 The third table `Models` specifies the models being tested where each model is a column in the table
-* Model-Downsream reports the name of the model governing how retail prices are set (current options are `bertrand', `cournot', `monopoly')
-* Model-Upstream reports the name of the model governing how wholesale prices are set (current options are `bertrand', `cournot', `monopoly').   In this example, we are ignoring upstream behavior and assuming manufacturers set retail prices directly as in [Nevo (2001)](#nevo01). 
+* Model-Downsream reports the name of the model governing how retail prices are set (current options are 'bertrand', 'cournot', 'monopoly')
+* Model-Upstream reports the name of the model governing how wholesale prices are set (current options are 'bertrand', 'cournot', 'monopoly').   In this example, we are ignoring upstream behavior and assuming manufacturers set retail prices directly as in [Nevo (2001)](#nevo01). 
 * Firm id - Downstream: the variable in `product_data` used to make the ownership matrix for setting retail conduct (prices or quantities).  If monopoly is specified as Model-Downstream, then Firm id - Downstream will default to monopoly and the ownership matrix in each market will be a matrix of ones.  
 * Firm id - Upstream: same as Firm id - Downstream but for wholesale price or quantity behavior
 * VI id = name of dummy variable indicating whether retailer and manufacturer are vertically integrated.
@@ -300,21 +300,21 @@ Now we can run the code to set up the testing problem (which we will now call `t
 ````
 
 
-testing_problem_new = pyRV.Problem(
+testing_problem_new = pyRVtest.Problem(
     cost_formulation = (
-        pyRV.Formulation('1 + sugar', absorb = 'C(firm_ids)' )
+        pyRVtest.Formulation('1 + sugar', absorb = 'C(firm_ids)' )
         ),
     instrument_formulation = (
-        pyRV.Formulation('0 + demand_instruments0 + demand_instruments1'),
-        pyRV.Formulation('0 + demand_instruments2 + demand_instruments3 + demand_instruments4'),
-        pyRV.Formulation('0 + demand_instruments5')
+        pyRVtest.Formulation('0 + demand_instruments0 + demand_instruments1'),
+        pyRVtest.Formulation('0 + demand_instruments2 + demand_instruments3 + demand_instruments4'),
+        pyRVtest.Formulation('0 + demand_instruments5')
         ), 
     model_formulations = (
-        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids'),
-        pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
-        pyRV.ModelFormulation(model_downstream='cournot', ownership_downstream='firm_ids'),
-        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='bertrand',  ownership_upstream='firm_ids'),
-        pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='monopoly',  ownership_upstream='firm_ids')
+        pyRVtest.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids'),
+        pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
+        pyRVtest.ModelFormulation(model_downstream='cournot', ownership_downstream='firm_ids'),
+        pyRVtest.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='bertrand',  ownership_upstream='firm_ids'),
+        pyRVtest.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='monopoly',  ownership_upstream='firm_ids')
         ),       
     product_data = product_data,
     demand_results = pyblp_results
