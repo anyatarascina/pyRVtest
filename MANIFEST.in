@@ -1,5 +1,5 @@
-
 graft docs
+graft pyRVtest/data
 
 include README.md
 include LICENSE.txt
