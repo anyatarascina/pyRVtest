@@ -1,4 +1,4 @@
-# pyRV
+# pyRVtest
 
 This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan.  It largely adapts the PyBLP source code (copyright Jeff Gortmaker and Christopher Conlon) to do so.
 
@@ -13,24 +13,15 @@ For a full list of references, see the references in [Duarte, Magnolfi, Solvsten
 ## Install
 First, you will need to download and install python, which you can do from this [link](https://www.python.org/).
 
-Then you will need to install four python packages: 
-* numpy
-* pandas
-* statsmodels
-* pyblp
-
-These can be installed by running the pip3 install command in either terminal (Mac) or Command Prompt (Windows).  For example, run the following:
+Then you will need to install the pyRVtest python package: 
 
 ````
-pip3 install numpy
-pip3 install pandas
-pip3 install statsmodels
-pip3 install pyblp
+pip install pyRVtest
 ````
 
-Finally, you should download the pyRV code.  To do so, click on the green Code button above.  Then click "Download ZIP".      
+This should automatically install the python packages on which pyRVtest depends: numpy, pandas, statsmodels, pyblp
 
-
+These can also be installed by running the pip install command in either terminal (Mac) or Command Prompt (Windows). 
 ## Import python packages
 First open python3 (pyRV has been developed for releases of python 3.6 and later) in either terminal or command prompt.  Then you import the necessary packages:
 
@@ -38,18 +29,9 @@ First open python3 (pyRV has been developed for releases of python 3.6 and later
 import numpy as np
 import pandas as pd
 import pyblp
-import sys
+import pyRVtest
 ````
 
-
-
-To import pyRV, you specify the path on your computer for the pyRV_folder you downloaded
-
-````
-pyRV_path = '<user specified path>/pyRV-main/pyRV_folder'
-sys.path.append(pyRV_path)
-import pyRV
-````
 ## Running the code
 
 For a detailed tutorial about how to set up and run the code, see [tutorial.md](https://github.com/chrissullivanecon/pyRV/blob/main/TUTORIAL.md)
