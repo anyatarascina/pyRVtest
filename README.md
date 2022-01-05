@@ -23,7 +23,7 @@ This should automatically install the python packages on which pyRVtest depends:
 
 These can also be installed by running the pip install command in either terminal (Mac) or Command Prompt (Windows). 
 ## Import python packages
-First open python3 (pyRV has been developed for releases of python 3.6 and later) in either terminal or command prompt.  Then you import the necessary packages:
+First open python3 (pyRVtest has been developed for releases of python 3.6 and later) in either terminal or command prompt.  Then you import the necessary packages:
 
 ````
 import numpy as np
