@@ -22,48 +22,32 @@ The tutorial proceeds in the following steps:
 * Perform demand estimation with PyBLP
 * Test conduct with pyRVtest
 
-# Install
+## Install
 First, you will need to download and install python, which you can do from this [link](https://www.python.org/).
 
-Then you will need to install four python packages: 
-* numpy
-* pandas
-* statsmodels
-* pyblp
-
-These can be installed by running the pip3 install command in either terminal (Mac) or Command Prompt (Windows).  For example, run the following:
+Then you will need to install the pyRVtest python package: 
 
 ````
-pip3 install numpy
-pip3 install pandas
-pip3 install statsmodels
-pip3 install pyblp
+pip install pyRVtest
 ````
 
-Finally, you should download the folder pyRV code.  To do so, click on the green Code button.  Then click "Download ZIP".   
+This should automatically install the python packages on which pyRVtest depends: numpy, pandas, statsmodels, pyblp
+
+These can also be installed by running the pip install command in either terminal (Mac) or Command Prompt (Windows). 
+
 
 
 # Running the code
 First open python3 (pyRV has been developed for releases of python 3.6 and later) in either terminal or command prompt
 
-## Import Python packages
-Then you import the necessary packages:
+## Import python packages
+First open python3 (pyRVtest has been developed for releases of python 3.6 and later) in either terminal or command prompt.  Then you import the necessary packages:
 
 ````
 import numpy as np
 import pandas as pd
 import pyblp
-import sys
-````
-
-
-
-To import pyRV, you specify the path on your computer for the pyRV_folder you downloaded
-
-````
-pyRV_path = '<user specified path>/pyRV-main/pyRV_folder'
-sys.path.append(pyRV_path)
-import pyRV
+import pyRVtest
 ````
 
 ## Load the main dataset
