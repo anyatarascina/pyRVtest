@@ -1,4 +1,4 @@
-This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan. It largely adapts the PyBLP source code (copyright Jeff Gortmaker and Christopher Conlon  - see [Conlon and Gortmaker (2020)](#pyblp))) to do so.
+This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan. It largely adapts the PyBLP source code (copyright Jeff Gortmaker and Christopher Conlon  - see [Conlon and Gortmaker (2020)](#pyblp)) to do so.
 
 The code implements the following features:
 * Computes [Rivers and Vuong (2002)](#rv) (RV) test statistics to test a menu of two or more models of firm conduct - see `Models` below for the current supported models
@@ -61,7 +61,7 @@ product_data = pd.read_csv(pyblp.data.NEVO_PRODUCTS_LOCATION)
 It is possible to estimate demand and test conduct with other databases, provided that they have the `product_data` structure described [here](https://pyblp.readthedocs.io/en/stable/_api/pyblp.Problem.html#pyblp.Problem).
 
 ## Estimate demand with PyBLP
-Next, you estimate demand using PyBLP ([Conlon and Gortmaker (2021)](#pyblp)).  
+Next, you estimate demand using PyBLP ([Conlon and Gortmaker (2020)](#pyblp)).  
 
 ````
 pyblp_problem = pyblp.Problem(
