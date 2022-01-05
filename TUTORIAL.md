@@ -1,4 +1,4 @@
-This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan. It largely adapts the PyBLP source code (copyright Jeff Gortmaker and Christopher Conlon) to do so.
+This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan. It largely adapts the PyBLP source code (copyright Jeff Gortmaker and Christopher Conlon  - see [Conlon and Gortmaker (2020)](#pyblp))) to do so.
 
 The code implements the following features:
 * Computes [Rivers and Vuong (2002)](#rv) (RV) test statistics to test a menu of two or more models of firm conduct - see `Models` below for the current supported models
