@@ -5,6 +5,8 @@ The code implements the following features:
 * Implements the RV test using the variance estimator of [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss), including options to adjust for demand estimation error and clustering
 * Computes the effective F-statistic proposed in [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss) to diagnose instrument strength with respect to worst-case size and maximal power of the test, and reports appropriate critical values 
 * Reports [Hansen, Lunde, and Nason (2011)](#hln) MCS p-values for testing more than two models
+* Compatible with PyBLP [Conlon and Gortmaker (2020)](#pyblp), so that demand can be estimated with PyBLP, and the estimates are an input to the test for conduct
+
 
 For a full list of references, see the references in [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss).
 
