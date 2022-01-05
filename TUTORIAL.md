@@ -150,7 +150,7 @@ Beta Estimates (Robust SEs in Parentheses):
 ===============
 ````
 
-## Test Models of Conduct with pyRV
+## Test Models of Conduct with pyRVtest
 pyRVtest follows a similar structure to PyBLP.  First, you set up the testing problem, then you run the test.  
 
 ### Setting Up Testing Problem
