@@ -1,14 +1,14 @@
-This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan. It largely adapts the PyBLP source code (copyright Jeff Gortmaker and Christopher Conlon  - see [Conlon and Gortmaker (2020)](#pyblp)) to do so.
+This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan. It largely adapts the PyBLP source code (copyright Jeff Gortmaker and Christopher Conlon  - see [Conlon and Gortmaker (2020)](#pyblp)) to do so.
 
 The code implements the following features:
 * Computes [Rivers and Vuong (2002)](#rv) (RV) test statistics to test a menu of two or more models of firm conduct - see `Models` below for the current supported models
-* Implements the RV test using the variance estimator of [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss), including options to adjust for demand estimation error and clustering
-* Computes the effective F-statistic proposed in [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss) to diagnose instrument strength with respect to worst-case size and maximal power of the test, and reports appropriate critical values 
+* Implements the RV test using the variance estimator of [Duarte, Magnolfi, Sølvsten, and Sullivan (2021)](#dmss), including options to adjust for demand estimation error and clustering
+* Computes the effective F-statistic proposed in [Duarte, Magnolfi, Sølvsten, and Sullivan (2021)](#dmss) to diagnose instrument strength with respect to worst-case size and maximal power of the test, and reports appropriate critical values 
 * Reports [Hansen, Lunde, and Nason (2011)](#hln) MCS p-values for testing more than two models
 * Compatible with PyBLP [Conlon and Gortmaker (2020)](#pyblp), so that demand can be estimated with PyBLP, and the estimates are an input to the test for conduct
 
 
-For a full list of references, see the references in [Duarte, Magnolfi, Solvsten, and Sullivan (2021)](#dmss).
+For a full list of references, see the references in [Duarte, Magnolfi, Sølvsten, and Sullivan (2021)](#dmss).
 
 # Overview
 In this tutorial, we are going to use the [Nevo (2000)](#nevo) fake cereal data which is provided in both the PyBLP and pyRVtest packages.  PyBLP has excellent [documentation](https://pyblp.readthedocs.io/en/stable/index.html) including a thorough tutorial for estimating demand on this dataset which can be found [here](https://pyblp.readthedocs.io/en/stable/_notebooks/tutorial/nevo.html).   
