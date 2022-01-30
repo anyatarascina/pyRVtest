@@ -37,7 +37,6 @@ class Economy(Container, StringRepresentation):
     _max_J: int
     _absorb_cost_ids: Optional[Absorb]
 
-
     @abc.abstractmethod
     def __init__(
             self, cost_formulation: Formulation, instrument_formulation: Formulation, model_formulations: Sequence[Optional[ModelFormulation]], 
@@ -88,8 +87,7 @@ class Economy(Container, StringRepresentation):
         if self.EC > 0:
             assert cost_formulation is not None
             self._absorb_cost_ids = cost_formulation._build_absorb(self.products.cost_ids)
- 
- 
+
     def __str__(self) -> str:
         """Format economy information as a string."""
         return "\n\n".join([self._format_dimensions(), self._format_formulations(), self._format_modelformulations()])
@@ -113,13 +111,12 @@ class Economy(Container, StringRepresentation):
         """Formation information about the formulations of the economy as a string."""
 
         # construct the data
-
-        
-        named_formulations = [
-            (self._w_formulation, "w: Marginal Cost")]
+        named_formulations = [(self._w_formulation, "w: Marginal Cost")]
+        # TODO: why were there a bunch of pounds signs here?
         for zz in range(self.L):
-            named_formulations.append((self.Dict_Z_formulation["_Z{0}_formulation".format(zz)], "z{0}: Instruments".format(zz))) ###########
-        
+            named_formulations.append(
+                (self.Dict_Z_formulation["_Z{0}_formulation".format(zz)], "z{0}: Instruments".format(zz))
+            )
         data: List[List[str]] = []
         for formulations, name in named_formulations:
             if any(formulations):
@@ -131,10 +128,8 @@ class Economy(Container, StringRepresentation):
         
         return format_table(header, *data, title="Formulations")
 
-    def _format_modelformulations(self) -> str:
+    def _format_model_formulations(self) -> str:
         """Formation information about the formulations of the economy as a string."""
-
-
 
         # construct the data
         data: List[List[str]] = []
@@ -144,14 +139,11 @@ class Economy(Container, StringRepresentation):
             data.append(["Firm id - Downstream"] + [self.models.firmids_downstream[i] for i in range(self.M)])
             data.append(["Firm id - Upstream"] + [self.models.firmids_upstream[i] for i in range(self.M)])
             data.append(["VI ind"] + [self.models.VI_ind[i] for i in range(self.M)])
-
-
             header = [" "] + [f" {i} " for i in range(self.M)]
         else:
             data.append(["Markups Supplied by User"])    
-            
+            # TODO: is this header correct?
             header = [" "]
-        # construct the header
 
         return format_table(header, *data, title="Models")    
 
@@ -167,8 +159,12 @@ class Economy(Container, StringRepresentation):
             'w': [str(f) for f in self._w_formulation]
             }
         for zz in range(len(self.Dict_Z_formulation)):
-            matrix_labels.update({"Z{0}".format(zz): [str(f) for f in self.Dict_Z_formulation["_Z{0}_formulation".format(zz)]]})
-            matrix_labels.update({"Z{0}".format(zz): [str(f) for f in self._w_formulation] + matrix_labels["Z{0}".format(zz)] })    
+            matrix_labels.update(
+                {"Z{0}".format(zz): [str(f) for f in self.Dict_Z_formulation["_Z{0}_formulation".format(zz)]]}
+            )
+            matrix_labels.update(
+                {"Z{0}".format(zz): [str(f) for f in self._w_formulation] + matrix_labels["Z{0}".format(zz)]}
+            )
 
         # check each matrix for collinearity
         for name, labels in matrix_labels.items():
@@ -209,7 +205,6 @@ class Economy(Container, StringRepresentation):
             output(exceptions.MultipleErrors(errors))
             output("")
 
-   
     def _validate_product_ids(self, product_ids: Sequence[Any], market_ids: Optional[Array] = None) -> None:
         """Validate that product IDs either contain None (denoting the outside option) or contain at least one product
         ID for each market in the data (or in specific markets if specified). Also verify that each product ID appears
@@ -232,7 +227,6 @@ class Economy(Container, StringRepresentation):
                             f"Product IDs should be unique within markets, but ID '{product_id}' shows up {count} "
                             f"times in market '{t}'."
                         )
-
                 counts.append(count)
 
             if all(c == 0 for c in counts):
@@ -241,7 +235,6 @@ class Economy(Container, StringRepresentation):
                     f"{list(sorted(self.products.product_ids[self._product_market_indices[t]]))}."
                 )
 
-    
     def _coerce_optional_firm_ids(self, firm_ids: Optional[Any], market_ids: Optional[Array] = None) -> Array:
         """Coerce optional array-like firm IDs into a column vector and validate it. By default, assume that firm IDs
         are for all markets.
@@ -271,5 +264,3 @@ class Economy(Container, StringRepresentation):
         if ownership.shape != (rows, columns):
             raise ValueError(f"ownership must be None or a {rows} by {columns} matrix.")
         return ownership
-
-    
