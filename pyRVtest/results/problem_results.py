@@ -1,5 +1,6 @@
 """Economy-level structuring of BLP problem results."""
 
+# TODO: check which of these imports are actually necessary
 import itertools
 import time
 from typing import Any, Callable, Dict, Hashable, List, Optional, Sequence, TYPE_CHECKING, Tuple
@@ -16,8 +17,8 @@ from ..utilities.algebra import (
     approximately_invert, approximately_solve, compute_condition_number, precisely_compute_eigenvalues, vech_to_full
 )
 from ..utilities.basics import (
-    Array, Bounds, Error, Mapping, RecArray, SolverStats, format_number, format_seconds, format_table, format_table_notes, format_table_notes_sub, generate_items,
-    get_indices, output, output_progress, update_matrices
+    Array, Bounds, Error, Mapping, RecArray, SolverStats, format_number, format_seconds, format_table,
+    format_table_notes, format_table_notes_sub, generate_items, get_indices, output, output_progress, update_matrices
 )
 
 
