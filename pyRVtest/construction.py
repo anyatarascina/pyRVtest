@@ -11,9 +11,9 @@ from .utilities.basics import Array, Groups, RecArray, extract_matrix, interact_
 from .utilities.algebra import precisely_invert
 
 
-
 def build_ownership_testing(
-    product_data: Mapping, firm_col: str, kappa_specification: Optional[Union[str, Callable[[Any, Any], float]]] = None) -> Array:
+    product_data: Mapping, firm_col: str,
+    kappa_specification: Optional[Union[str, Callable[[Any, Any], float]]] = None) -> Array:
     r"""Build ownership matrices, :math:`O`.
 
     Ownership or product holding matrices are defined by their cooperation matrix counterparts, :math:`\kappa`. For each
@@ -118,7 +118,6 @@ def build_ownership_testing(
             ownership[indices_t, :indices_t.size] = kappa_specification(tiled_ids_t, tiled_ids_t.T)
 
     return ownership
-
 
 
 def build_blp_instruments(formulation: Formulation, product_data: Mapping) -> Array:
@@ -384,8 +383,6 @@ def build_differentiation_instruments(
     return np.c_[np.block(other_blocks), np.block(rival_blocks)]
 
 
-
-
 def build_matrix(formulation: Formulation, data: Mapping) -> Array:
     r"""Construct a matrix according to a formulation.
 
@@ -489,32 +486,47 @@ def data_to_dict(data: RecArray, ignore_empty: bool = True) -> Dict[str, Array]:
     return mapping
 
 
-
 def build_markups_all(products: RecArray, demand_results: Mapping, model_downstream: Array, ownership_downstream: Array,
-    model_upstream: Optional[Array] = None,  ownership_upstream: Optional[Array] = None, vertical_integration: Optional[Array] = None)-> Array:
-    ## This function computes markups for a large set of standard models.  These include:
-    ##      standard bertrand with ownership matrix based on firm id
-    ##      price setting with arbitrary ownership matrix (e.g. profit weight model)
-    ##      standard cournot with ownership matrix based on firm id
-    ##      quantity setting with arbitrary ownership matrix (e.g. profit weight model)
-    ##      monopoly
-    ##      bilateral oligopoly with any combination of the above models upstream and downstream
-    ##      bilateral oligopoly as above but with subset of products vertically integrated
-    ##      Any of the above with consumer surplus weights (maybe)
-
-    ## Inputs: product_data used for pytBLP demand estimation
-    ##         results structure from pyBLP demand estimation
-    ##         model_downstream in ['bertrand', 'cournot', 'monopoly'].  If model_upstream not specified, this is model without vertical integration
-    ##         ownership_downstream (optional, default is standard ownership) ownership matrix for price or quantity setting
-    ##         model_upstream in ['non'' (default), bertrand', 'cournot', 'monopoly'].  Upstream firm's model
-    ##         ownership_upstream (optional, default is standard ownership) ownership matrix for price or quantity setting of upstream firms            
-    ##         store_prod_ids = vector indicating which product_ids are vertically integrated (ie store brands) .  Default is missing and no vertical integration
-
-    ## Notes: for models w/o vertical integration, firm_ids must be defined in product_data
-    ##        for vi models, an firm_ids_upstream and firm_ids (=firm_ids_downstream) must be defined
-
-
-    ## Compute downstream markups
+        model_upstream: Optional[Array] = None,  ownership_upstream: Optional[Array] = None,
+        vertical_integration: Optional[Array] = None)-> Array:
+    r"""This function computes markups for a large set of standard models. These include:
+            - standard bertrand with ownership matrix based on firm id
+            - price setting with arbitrary ownership matrix (e.g. profit weight model)
+            - standard cournot with ownership matrix based on firm id
+            - quantity setting with arbitrary ownership matrix (e.g. profit weight model)
+            - monopoly
+            - bilateral oligopoly with any combination of the above models upstream and downstream
+            - bilateral oligopoly as above but with subset of products vertically integrated
+            - any of the above with consumer surplus weights (maybe)
+        Parameters
+        ----------
+        products : `RecArray`
+            product_data used for pytBLP demand estimation
+        demand_results : `Mapping`
+            results structure from pyBLP demand estimation
+        model_downstream: Array
+            Can be one of ['bertrand', 'cournot', 'monopoly']. If model_upstream not specified, this is model without
+            vertical integration.
+        ownership_downstream: Array
+            (optional, default is standard ownership) ownership matrix for price or quantity setting
+        model_upstream: Optional[Array]
+            Can be one of ['non'' (default), bertrand', 'cournot', 'monopoly'].  Upstream firm's model.
+        ownership_upstream: Optional[Array]
+            (optional, default is standard ownership) ownership matrix for price or quantity setting of upstream firms
+        vertical_integration: Optional[Array]
+        TODO: not sure where this one comes from
+        store_prod_ids = vector indicating which product_ids are vertically integrated (ie store brands) .  Default is
+        missing and no vertical integration.
+        Returns
+        -------
+        `ndarray`
+            The built matrix.
+        Notes
+        _____
+        For models without vertical integration, firm_ids must be defined in product_data for vi models, and
+        firm_ids_upstream and firm_ids (=firm_ids_downstream) must be defined.
+    """
+    # initialize
     N = np.size(products.prices)
     elas = demand_results.compute_elasticities()
     M = len(model_downstream)
@@ -522,16 +534,16 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
     markups_upstream = [None]*M
     markups_downstream = [None]*M
     for kk in range(M):
-            markups_downstream[kk] = np.zeros((N,1))
-            markups_upstream[kk] = np.zeros((N,1))
-
+        markups_downstream[kk] = np.zeros((N, 1))
+        markups_upstream[kk] = np.zeros((N, 1))
     mkts = np.unique(products.market_ids)
 
-    if not model_upstream is None:
+    # TODO: make sure this is the desired condition
+    if model_upstream is not None:
 
         CP = demand_results.compute_probabilities()
         
-        #get alpha for each draw
+        # get alpha for each draw
         NS_all = len(demand_results.problem.agents)
         sigma_price = np.zeros((NS_all,1))
         pi_price = np.zeros((NS_all,1))
@@ -551,10 +563,8 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
                             pi_price = pi_price.reshape(NS_all,1)
         alpha_i = alpha + sigma_price + pi_price
 
-
-    
-
-    # Compute Markups market-by-market
+    # compute markups market-by-market
+    # TODO: maybe have separate function for markup computations
     for mm in mkts:
         ind_mm = np.where(demand_results.problem.products['market_ids'] == mm)[0] 
         p = products.prices[ind_mm]
@@ -564,7 +574,8 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
         dsdp = elas_mm*np.outer(s,1/p)        
         
         for kk in range(M):
-            #Compute downstream markups
+            # compute downstream markups
+            # TODO: move this chunk into a function
             O_mm = ownership_downstream[kk][ind_mm]
             O_mm = O_mm[:, ~np.isnan(O_mm).all(axis=0)]
             if model_downstream[kk] == 'bertrand':
@@ -575,40 +586,41 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
                 markups_mm = -inv(dsdp)@s
             markups_downstream[kk][ind_mm] = markups_mm 
 
-        #Compute upstream markups (if applicable) following formula in Villas-Boas (2007)       
+        # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
         if not all(model_upstream[ll] is None for ll in range(M)):
             P_ii = CP[ind_mm]
             P_ii = P_ii[:, ~np.isnan(P_ii).all(axis=0)]
             J = len(p)
 
             indA_mm = np.where(demand_results.problem.agents['market_ids'] == mm)[0]
-            alpha_mi = np.repeat(np.transpose(alpha_i[indA_mm]),J,axis = 0)
+            alpha_mi = np.repeat(np.transpose(alpha_i[indA_mm]), J, axis=0)
             alpha2_mi = alpha_mi**2
 
             H = np.transpose(O_mm*dsdp)
-            g = np.zeros((J,J))
+            g = np.zeros((J, J))
 
             if len(demand_results.rho) == 0:
                 Weights = demand_results.problem.agents.weights[indA_mm]
                 NS = len(Weights)
-                Weights = Weights.reshape(NS,1)
-                Weights_a = np.repeat(Weights,J,axis=1)
+                Weights = Weights.reshape(NS, 1)
+                Weights_a = np.repeat(Weights, J, axis=1)
                 
                 for kk in range(J):      
-                    tmp1 = np.zeros((J,J))
-                    tmp4 = np.zeros((J,J))
-                    P_ik = P_ii[kk].reshape(NS,1)
+                    tmp1 = np.zeros((J, J))
+                    tmp4 = np.zeros((J, J))
+                    P_ik = P_ii[kk].reshape(NS, 1)
                     s_iis_ik= (alpha2_mi*P_ii)@(P_ik*Weights) 
 
-                    tmp1[kk] = np.transpose(s_iis_ik)      #corresponds to i = k, put integ(s_jls_kl)  in kth row
-                    tmp2 = np.transpose(tmp1)               #corresponds to j = k, put integ(s_jls_kl) in kth col
-                    tmp3 = np.diagflat(s_iis_ik)           #corresponds to i = j, put integ(s_ils_kl) on main diag
+                    tmp1[kk] = np.transpose(s_iis_ik)      # corresponds to i = k, put integ(s_jls_kl)  in kth row
+                    tmp2 = np.transpose(tmp1)              # corresponds to j = k, put integ(s_jls_kl) in kth col
+                    tmp3 = np.diagflat(s_iis_ik)           # corresponds to i = j, put integ(s_ils_kl) on main diag
                     a2s = (alpha2_mi*P_ii)@Weights
-                    tmp4[kk,kk] = a2s[kk]                   #corresponds to i = j = k, matrix of zeros with s_i at (k,k)  
+                    tmp4[kk, kk] = a2s[kk]                 # corresponds to i = j = k, matrix of zeros with s_i at (k,k)
 
-                    P_ik =  np.repeat(P_ik,J,axis=1)
-                    P_ij =  np.transpose(P_ii)
+                    P_ik = np.repeat(P_ik, J, axis=1)
+                    P_ij = np.transpose(P_ii)
 
+                    # TODO: could these variables names be improved at all?
                     s_iis_jis_ki = (alpha2_mi*P_ii)@(P_ij*P_ik*Weights_a)
                     
                     d2s_idpjpk = (2*s_iis_jis_ki-tmp1-tmp2-tmp3+tmp4)    
@@ -616,11 +628,12 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
                 
                 g = np.transpose(g)
                 G = dsdp + H + g 
-                dpdp_u=inv(G)@H
-                dsdp_u=np.transpose(dpdp_u)@dsdp
+                dpdp_u = inv(G)@H
+                dsdp_u = np.transpose(dpdp_u)@dsdp
                 for ii in range(M):
                     if not model_upstream[ii] is None:
-                        #Compute downstream markups
+                        # compute downstream markups
+                        # TODO: move this chunk into a function
                         Ou_mm = ownership_upstream[ii][ind_mm]
                         Ou_mm = Ou_mm[:, ~np.isnan(Ou_mm).all(axis=0)]
                         if model_upstream[ii] == 'bertrand':
@@ -631,14 +644,14 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
                             markups_umm = -inv(dsdp_u)@s
                         markups_upstream[ii][ind_mm] = markups_umm
 
-    #Compute total markups as sum of upstream and downstream mkps, taking into account vertical integration            
+    # compute total markups as sum of upstream and downstream mkps, taking into account vertical integration
     for kk in range(M):
         if vertical_integration[kk] is None:
-            vi = np.ones((N,1))
+            vi = np.ones((N, 1))
         else:
             vi = (vertical_integration[kk]-1)**2
-        markups[kk] =  markups_downstream[kk] + vi*markups_upstream[kk] 
-    return(markups,markups_downstream,markups_upstream)
+        markups[kk] = markups_downstream[kk] + vi*markups_upstream[kk]
+    return markups, markups_downstream, markups_upstream
 
 
 
