@@ -644,7 +644,7 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
                             markups_umm = -inv(dsdp_u)@s
                         markups_upstream[ii][ind_mm] = markups_umm
 
-    # compute total markups as sum of upstream and downstream mkps, taking into account vertical integration
+    # compute total markups as sum of upstream and downstream markups, taking into account vertical integration
     for kk in range(M):
         if vertical_integration[kk] is None:
             vi = np.ones((N, 1))

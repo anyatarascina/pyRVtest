@@ -16,7 +16,9 @@ import sympy as sp
 import sympy.parsing.sympy_parser
 
 from .. import exceptions, options
-from ..utilities.basics import Array, RecArray, Data, Error, StringRepresentation, extract_size, interact_ids, structure_matrices
+from ..utilities.basics import (
+    Array, RecArray, Data, Error, StringRepresentation, extract_size, interact_ids, structure_matrices
+)
 
 
 class Formulation(StringRepresentation):
@@ -327,8 +329,6 @@ class ModelFormulation(object):
         _vertical_integration: Optional[str]
         _kappa_specification_downstream: Optional[Union[str, Callable[[Any, Any], float]]]
         _kappa_specification_upstream: Optional[Union[str, Callable[[Any, Any], float]]]
- 
-
 
         # parse the formulas into patsy terms
         self._model_downstream = model_downstream
@@ -339,8 +339,6 @@ class ModelFormulation(object):
         self._kappa_specification_downstream = kappa_specification_downstream
         self._kappa_specification_upstream = kappa_specification_upstream
 
-
-        
     def __reduce__(self) -> Tuple[Type['Formulation'], Tuple]:
         """Handle pickling."""
         return (self.__class__, (self._model_downstream, self._model_upstream, self._ownership_downstream, self._ownership_upstream, self._vertical_integration, self._kappa_specification_downstream, self._kappa_specification_upstream))
@@ -349,8 +347,7 @@ class ModelFormulation(object):
         """Format the terms as a string."""
         names: List[str] = [self._model_downstream,self._model_upstream]
         return ' + '.join(names)
-    
-        
+
     def _build_matrix(self, data: Mapping) -> Dict:
         """Convert a mapping from variable names to arrays into the designed matrix, a list of column formulations that
         describe the columns of the matrix, and a mapping from variable names to arrays of data underlying the matrix,
@@ -370,14 +367,6 @@ class ModelFormulation(object):
 
         return model_mapping
 
-
-
-
-
-        
-
-
-        
 
 class Absorb(object):
     """Wrapper for PyHDFE fixed effect absorption."""

@@ -38,9 +38,13 @@ class ProblemEconomy(Economy):
             cost_formulation, instrument_formulation, model_formulations, products, models, demand_results, markups
         )
 
+    # TODO: there must be a way to parse this out into multiple functions. very long and messy right now
+    # TODO: needs to be commented
     def solve(
             self, method: str = 'both', demand_adjustment: str = 'no', se_type: str = 'unadjusted') -> ProblemResults:
         r"""Solve the problem.
+
+        # TODO: add docstring
 
         """
 
@@ -56,7 +60,7 @@ class ProblemEconomy(Economy):
         if se_type == 'clustered' and np.shape(self.products.clustering_ids)[1] !=1:
             raise ValueError("product_data.clustering_ids must be specified with se_type 'clustered'.")
  
-        # Compute the markups
+        # compute the markups
         M = self.M
         N = self.N
         L = self.L
@@ -78,15 +82,11 @@ class ProblemEconomy(Economy):
                 self.models.models_upstream, self.models.ownership_upstream,
                 self.models.VI)
 
-        
         for kk in range(M):
             mc[kk] = self.products.prices - markups[kk]
-        
 
         # if demand_adjustment is yes, get finite differences approx to the derivative of markups wrt theta
-        # TO BE ADDED
-
-
+        # TODO: add this feature
 
         # absorb any cost fixed effects from prices, markups, and instruments
         if self._absorb_cost_ids is not None:
@@ -98,18 +98,17 @@ class ProblemEconomy(Economy):
                 markups_orth[kk], markups_errors[kk] = self._absorb_cost_ids(markups[kk])
                 mc_orth[kk], mc_errors[kk] = self._absorb_cost_ids(mc[kk])
 
-        # residualize prices, markups, and instruments w.r.t cost shifters w 
-        # Also, recover the tau parameters in cost regression on w
-        
-        tmp = sm.OLS(prices_orth,self.products.w).fit()    
+        # residualize prices, markups, and instruments w.r.t cost shifters w and recover the tau parameters in cost
+        #   regression on w
+        tmp = sm.OLS(prices_orth, self.products.w).fit()
         prices_orth = tmp.resid
-        prices_orth = np.reshape(prices_orth,[N,1])
+        prices_orth = np.reshape(prices_orth, [N, 1])
         
         for kk in range(M):
-            tmp = sm.OLS(markups_orth[kk],self.products.w).fit()    
+            tmp = sm.OLS(markups_orth[kk], self.products.w).fit()
             markups_orth[kk] = tmp.resid
-            markups_orth[kk] = np.reshape(markups_orth[kk],[N,1]) 
-            tmp = sm.OLS(mc_orth[kk],self.products.w).fit() 
+            markups_orth[kk] = np.reshape(markups_orth[kk], [N, 1])
+            tmp = sm.OLS(mc_orth[kk], self.products.w).fit()
             taus[kk] = tmp.params
 
         if demand_adjustment == 'yes':
@@ -122,9 +121,11 @@ class ProblemEconomy(Economy):
             WD = self.demand_results.updated_W
             h = self.demand_results.moments
             
-            dy_dtheta = np.append(self.demand_results.xi_by_theta_jacobian,-self.demand_results.problem.products.prices,1)
+            dy_dtheta = np.append(
+                self.demand_results.xi_by_theta_jacobian, -self.demand_results.problem.products.prices, 1
+            )
             dy_dtheta = self.demand_results.problem._absorb_demand_ids(dy_dtheta)
-            dy_dtheta = np.reshape(dy_dtheta[0],[N,len(self.demand_results.theta)+1])
+            dy_dtheta = np.reshape(dy_dtheta[0], [N, len(self.demand_results.theta)+1])
 
             if np.shape(XD)[1] == 0:
                 dxi_dtheta = dy_dtheta
@@ -139,71 +140,73 @@ class ProblemEconomy(Economy):
             K2 = self.demand_results.problem.K2
             D = self.demand_results.problem.D
 
-            #Build adjustment to psi for each model
+            # build adjustment to psi for each model
             eps = options.finite_differences_epsilon
             Gm = [None]*M
             grad_markups = [None]*M
-            
-            
 
-            #Get numerical derivatives of markups wrt theta, alpha
+            # get numerical derivatives of markups wrt theta, alpha
             for kk in range(M):
-                grad_markups[kk] = np.zeros((N,len(self.demand_results.theta)+1))
+                grad_markups[kk] = np.zeros((N, len(self.demand_results.theta)+1))
 
-            #sigma
+            # sigma
             ind_theta = 0
             delta_est = self.demand_results.delta
             for jj in range(K2):
                 for ll in range(K2):
-                    if not self.demand_results.sigma[jj,ll] == 0:
-                        tmp_sig = self.demand_results.sigma[jj,ll]
+                    if not self.demand_results.sigma[jj, ll] == 0:
+                        tmp_sig = self.demand_results.sigma[jj, ll]
 
-                        #reduce sigma by small increment
-                        self.demand_results.sigma[jj,ll] = tmp_sig - eps/2
+                        # reduce sigma by small increment
+                        self.demand_results.sigma[jj, ll] = tmp_sig - eps/2
 
-                        #update delta
+                        # update delta
                         delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
                         
-                        #recompute markups
-                        markups_l, md, ml = build_markups_all(self.products, self.demand_results,
-                            self.models.models_downstream, self.models.ownership_downstream,
-                            self.models.models_upstream, self.models.ownership_upstream,
-                            self.models.VI)
+                        # recompute markups
+                        markups_l, md, ml = build_markups_all(
+                            self.products, self.demand_results, self.models.models_downstream,
+                            self.models.ownership_downstream, self.models.models_upstream,
+                            self.models.ownership_upstream, self.models.VI
+                        )
 
-                        #increase sigma by small increment
-                        self.demand_results.sigma[jj,ll] = tmp_sig + eps/2
-                        #update delta
+                        # increase sigma by small increment
+                        self.demand_results.sigma[jj, ll] = tmp_sig + eps/2
+
+                        # update delta
                         delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
                         
-                        #recompute markups
-                        markups_u, mu, mu = build_markups_all(self.products, self.demand_results,
-                            self.models.models_downstream, self.models.ownership_downstream,
-                            self.models.models_upstream, self.models.ownership_upstream,
-                            self.models.VI)
+                        # recompute markups
+                        markups_u, mu, mu = build_markups_all(
+                            self.products, self.demand_results, self.models.models_downstream,
+                            self.models.ownership_downstream, self.models.models_upstream,
+                            self.models.ownership_upstream, self.models.VI
+                        )
                         
-                        # Compute first difference approximation of derivative of markups
+                        # compute first difference approximation of derivative of markups
                         for kk in range(M):
                             diff_markups = (markups_u[kk]-markups_l[kk])/eps
                             diff_markups, me = self._absorb_cost_ids(diff_markups)
-                            tmp = sm.OLS(diff_markups,self.products.w).fit()
-                            grad_markups[kk][:,ind_theta] = tmp.resid
-                        self.demand_results.sigma[jj,ll] = tmp_sig
+                            tmp = sm.OLS(diff_markups, self.products.w).fit()
+                            grad_markups[kk][:, ind_theta] = tmp.resid
+                        self.demand_results.sigma[jj, ll] = tmp_sig
                         ind_theta = ind_theta+1
-            #pi            
+
+            # pi
             for jj in range(K2):
                 for ll in range(D):
-                    if not self.demand_results.pi[jj,ll] == 0:
-                        tmp_pi = self.demand_results.pi[jj,ll]
-                        self.demand_results.pi[jj,ll] = tmp_pi - eps/2
+                    if not self.demand_results.pi[jj, ll] == 0:
+                        tmp_pi = self.demand_results.pi[jj, ll]
+                        self.demand_results.pi[jj, ll] = tmp_pi - eps/2
                         delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
                         markups_l, md, ml = build_markups_all(self.products, self.demand_results,
                             self.models.models_downstream, self.models.ownership_downstream,
                             self.models.models_upstream, self.models.ownership_upstream,
                             self.models.VI)
-                        self.demand_results.pi[jj,ll] = tmp_pi + eps/2
+                        self.demand_results.pi[jj, ll] = tmp_pi + eps/2
                         delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
                         markups_u, mu, mu = build_markups_all(self.products, self.demand_results,
@@ -213,14 +216,14 @@ class ProblemEconomy(Economy):
                         for kk in range(M):
                             diff_markups = (markups_u[kk]-markups_l[kk])/eps
                             diff_markups, me = self._absorb_cost_ids(diff_markups)
-                            tmp = sm.OLS(diff_markups,self.products.w).fit()    
-                            grad_markups[kk][:,ind_theta] = tmp.resid
-                        self.demand_results.pi[jj,ll] = tmp_pi
+                            tmp = sm.OLS(diff_markups, self.products.w).fit()
+                            grad_markups[kk][:, ind_theta] = tmp.resid
+                        self.demand_results.pi[jj, ll] = tmp_pi
                         ind_theta = ind_theta+1                
             
             self.demand_results.delta = delta_est             
                 
-            #alpha
+            # alpha
             for jj in range(len(self.demand_results.beta)):
                 if self.demand_results.beta_labels[jj] == 'prices':
                     tmp_alpha = self.demand_results.beta[jj]
@@ -237,11 +240,10 @@ class ProblemEconomy(Economy):
                     for kk in range(M):
                         diff_markups = (markups_u[kk]-markups_l[kk])/eps
                         diff_markups, me = self._absorb_cost_ids(diff_markups)
-                        tmp = sm.OLS(diff_markups,self.products.w).fit()    
-                        grad_markups[kk][:,ind_theta] = tmp.resid
+                        tmp = sm.OLS(diff_markups, self.products.w).fit()
+                        grad_markups[kk][:, ind_theta] = tmp.resid
                     self.demand_results.beta[jj] = tmp_alpha
                     ind_theta = ind_theta+1 
-
 
         g_ALL = [None]*L
         Q_ALL = [None]*L
@@ -262,32 +264,33 @@ class ProblemEconomy(Economy):
             tmp = sm.OLS(Z_orth,self.products.w).fit()    
             Z_orth = tmp.resid     
             Z_orth = np.reshape(Z_orth,[N,K])
-            # Get the GMM measure of fit Q_m for each model
+
+            # get the GMM measure of fit Q_m for each model
             g = [None]*M
             Q = [None]*M
             WMinv =  1/N*(Z_orth.T@Z_orth)
-            WMinv = np.reshape(WMinv,[K,K])
-            
-            WM = inv(WMinv)
+            WMinv = np.reshape(WMinv, [K, K])
 
+            # TODO: what is this and why is it commented?
+            WM = inv(WMinv)
             #WM = precisely_invert(WMinv)
             #WM = WM[0]
 
-
             for kk in range(M):
                 g[kk] = 1/N*(Z_orth.T@(prices_orth-markups_orth[kk])) 
-                g[kk] = np.reshape(g[kk],[K,1])
+                g[kk] = np.reshape(g[kk], [K, 1])
                 Q[kk] = g[kk].T@WM@g[kk] 
-            # Compute the pairwise RV numerator
+
+            # compute the pairwise RV numerator
             RV_num = np.zeros((M,M))
             for kk in range(M):
                 for jj in range(kk):
                     if jj < kk:
                         RV_num[jj,kk] = math.sqrt(N)*(Q[jj]-Q[kk])     
             
-            # Compute the pairwise RV denominator      
-            RV_denom = np.zeros((M,M))
-            COV_MCS = np.zeros((M,M))
+            # compute the pairwise RV denominator
+            RV_denom = np.zeros((M, M))
+            COV_MCS = np.zeros((M, M))
             WM14 = fractional_matrix_power(WM, 0.25)
             WM12 = fractional_matrix_power(WM, 0.5)
             WM34 = fractional_matrix_power(WM, 0.75)
@@ -307,16 +310,11 @@ class ProblemEconomy(Economy):
                     dmd_adj[kk] = WM12@Gm[kk]@inv(H_primeWD@H)@H_primeWD
                     psi[kk] = psi[kk] - (hi-np.transpose(h))@np.transpose(dmd_adj[kk])
 
-            
-            
             M_MCS = np.array(range(M))
             all_combos = list(itertools.combinations(M_MCS, 2))
-            Var_MCS = np.zeros([np.shape(all_combos)[0],1])
+            Var_MCS = np.zeros([np.shape(all_combos)[0], 1])
 
-
-
-
-            #vii = 0
+            # vii = 0
             for kk in range(M):
                 for jj in range(kk):
                     if jj < kk:  
@@ -327,25 +325,25 @@ class ProblemEconomy(Economy):
                             cids = np.unique(self.products.clustering_ids)
                             for ll in cids:
                                 ind_kk = np.where(self.products.clustering_ids == ll)[0]
-                                psi1_l = psi[jj][ind_kk,:]
-                                psi2_l = psi[kk][ind_kk,:]
+                                psi1_l = psi[jj][ind_kk, :]
+                                psi2_l = psi[kk][ind_kk, :]
                                 
                                 psi1_c = psi1_l
                                 psi2_c = psi2_l
                                 
                                 for ii in range(len(ind_kk)-1):
-                                    psi1_c = np.roll(psi1_c,1,axis=0)
-                                    psi2_c = np.roll(psi2_c,1,axis=0)
+                                    psi1_c = np.roll(psi1_c, 1, axis=0)
+                                    psi2_c = np.roll(psi2_c, 1, axis=0)
                                  
                                     VRV_11 = VRV_11 + 1/N*psi1_l.T@psi1_c
                                     VRV_22 = VRV_22 + 1/N*psi2_l.T@psi2_c
                                     VRV_12 = VRV_12 + 1/N*psi1_l.T@psi2_c    
                         sigma2 = 4*(g[jj].T@WM12@VRV_11@WM12@g[jj]+g[kk].T@WM12@VRV_22@WM12@g[kk]-2*g[jj].T@WM12@VRV_12@WM12@g[kk])
                         
-                        COV_MCS[jj,kk] = g[jj].T@WM12@VRV_12@WM12@g[kk]
-                        COV_MCS[kk,jj] = COV_MCS[jj,kk]
-                        COV_MCS[kk,kk] = g[kk].T@WM12@VRV_22@WM12@g[kk]
-                        COV_MCS[jj,jj] = g[jj].T@WM12@VRV_11@WM12@g[jj] 
+                        COV_MCS[jj, kk] = g[jj].T@WM12@VRV_12@WM12@g[kk]
+                        COV_MCS[kk, jj] = COV_MCS[jj, kk]
+                        COV_MCS[kk, kk] = g[kk].T@WM12@VRV_22@WM12@g[kk]
+                        COV_MCS[jj, jj] = g[jj].T@WM12@VRV_11@WM12@g[jj]
                         
                         RV_denom[jj,kk] = math.sqrt(sigma2)
                 
@@ -359,22 +357,22 @@ class ProblemEconomy(Economy):
                 for jj in range(Ncombos):
                     tmp1 = all_combos[jj][0]
                     tmp2 = all_combos[jj][1]
-                    Sigma_MCS[jj,ii]  = COV_MCS[tmp1,tmp3]-COV_MCS[tmp2,tmp3]-COV_MCS[tmp1,tmp4]+COV_MCS[tmp2,tmp4]
+                    Sigma_MCS[jj, ii] = COV_MCS[tmp1, tmp3]-COV_MCS[tmp2, tmp3] - COV_MCS[tmp1, tmp4] + COV_MCS[tmp2, tmp4]
             
             Sigma_MCS = Sigma_MCS/(Var_MCS@Var_MCS.T)
                 
-            # Compute the pairwise RV test statistic           
+            # compute the pairwise RV test statistic
             TRV = np.zeros((M,M))
             for kk in range(M):
                 for jj in range(M):
                     if jj < kk:  
-                        TRV[jj,kk] = RV_num[jj,kk]/RV_denom[jj,kk]
+                        TRV[jj, kk] = RV_num[jj, kk]/RV_denom[jj, kk]
                     if jj >= kk:
-                        TRV[jj,kk] = "NaN"
+                        TRV[jj, kk] = "NaN"
 
-            # Compute the pairwise F-statistic
-            F = np.zeros((M,M))
-            pi = np.zeros((K,M))
+            # compute the pairwise F-statistic
+            F = np.zeros((M, M))
+            pi = np.zeros((K, M))
             phi = [None]*M
 
             for kk in range(M):
@@ -452,7 +450,6 @@ class ProblemEconomy(Economy):
                         tmp2.append(combos[ii][1])
 
                         Sig_idx[ii] = all_combos.index(combos[ii])
-                        
 
                     TRV_MCS = TRV[tmp1,tmp2]
                     index = np.argmax(abs(TRV_MCS))
@@ -471,9 +468,7 @@ class ProblemEconomy(Economy):
                     maxsimTRV = np.amax(abs(simTRV),1)
 
                     MCS_pvalues[em] = np.mean(maxsimTRV > TRVmax)
-
                     M_MCS = np.delete(M_MCS,np.where(M_MCS == em))
-
 
             g_ALL[zz] = g
             Q_ALL[zz] = Q
@@ -483,7 +478,10 @@ class ProblemEconomy(Economy):
             F_ALL[zz] = F
             MCS_pvalues_ALL[zz] = MCS_pvalues
 
-        results = ProblemResults(Progress(self,markups,markups_downstream,markups_upstream,mc,taus,g_ALL,Q_ALL,RV_num_ALL,RV_denom_ALL,TRV_ALL,F_ALL,MCS_pvalues_ALL))
+        results = ProblemResults(Progress(
+            self, markups, markups_downstream, markups_upstream, mc, taus, g_ALL, Q_ALL, RV_num_ALL, RV_denom_ALL,
+            TRV_ALL, F_ALL, MCS_pvalues_ALL)
+        )
         step_end_time = time.time()
         tot_time = step_end_time-step_start_time
         print('Total Time is ... ' + str(tot_time))
@@ -491,8 +489,6 @@ class ProblemEconomy(Economy):
         output(results)
         return results
         
-
-   
 
 class Problem(ProblemEconomy):
 #class Problem(ProblemEconomy):
@@ -503,7 +499,8 @@ class Problem(ProblemEconomy):
 
     def __init__(
             self, cost_formulation: Formulation, instrument_formulation: Sequence[Formulation], 
-            product_data: Mapping, demand_results: Mapping, model_formulations: Sequence[ModelFormulation] = None, markup_data: Optional[RecArray] = None) -> None:
+            product_data: Mapping, demand_results: Mapping, model_formulations: Sequence[ModelFormulation] = None,
+            markup_data: Optional[RecArray] = None) -> None:
 
         #super().__init__(demand_results)
         """Initialize the underlying economy with product and agent data before absorbing fixed effects."""
@@ -532,25 +529,21 @@ class Problem(ProblemEconomy):
             if not all(isinstance(f, Formulation) for f in instrument_formulation):
                 raise TypeError("Each formulation in instrument_formulation must be a Formulation.")
 
-
-
         # initialize the underlying economy with structured product and cost data
-        products = Products(cost_formulation = cost_formulation, instrument_formulation = instrument_formulation, product_data = product_data)
+        products = Products(
+            cost_formulation=cost_formulation, instrument_formulation=instrument_formulation, product_data=product_data
+        )
         if markup_data is None:
             models = Models(model_formulations = model_formulations, product_data = product_data)
             markups = [None]*M
         else:
             models = None
             markups = markup_data
-    
 
         super().__init__(
             cost_formulation, instrument_formulation, model_formulations, products, models, demand_results, markups
         )
 
-
-
-        
         if max(options.collinear_atol, options.collinear_rtol) > 0:
 
             tmp = self.products.w
@@ -573,7 +566,8 @@ class Problem(ProblemEconomy):
                 collinear, successful = precisely_identify_collinearity(tmp)
                 if not successful:
                     raise ValueError(
-                        f"Failed to compute the QR decomposition of [w,z"+str(zz)+"] while checking for collinearity issues. "
+                        f"Failed to compute the QR decomposition of [w,z"+str(zz)+"] while checking for collinearity "
+                        f"issues. "
                         f"{common_message}"
                     )
                 if collinear.any():
@@ -588,14 +582,10 @@ class Problem(ProblemEconomy):
             output(self)
 
 
-
-
 class InitialProgress(object):
     """Structured information about initial estimation progress."""
 
     problem: ProblemEconomy
-    
-    
 
     def __init__(
             self, problem: ProblemEconomy 
@@ -603,7 +593,6 @@ class InitialProgress(object):
         """Store initial progress information, computing the projected gradient and the reduced Hessian."""
         self.problem = problem
         
-
 
 class Progress(InitialProgress):
     """Structured information about estimation progress."""
@@ -619,10 +608,11 @@ class Progress(InitialProgress):
     TRV: Array
     F: Array
     MCS_pvalues: Array
-    
 
     def __init__(
-            self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array, mc: Array, taus: Array, g: Array, Q: Array, RV_num: Array, RV_denom: Array, TRV: Array, F: Array, MCS_pvalues: Array
+            self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
+            mc: Array, taus: Array, g: Array, Q: Array, RV_num: Array, RV_denom: Array, TRV: Array, F: Array,
+            MCS_pvalues: Array
             ) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
         super().__init__(
@@ -640,5 +630,4 @@ class Progress(InitialProgress):
         self.TRV = TRV
         self.F = F
         self.MCS_pvalues = MCS_pvalues
-
 
