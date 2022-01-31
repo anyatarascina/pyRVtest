@@ -36,9 +36,7 @@ class ProblemResults(Results):
 
     """
 
-   
     Delta: Array
-    
 
     def __init__(
             self, progress: 'Progress'
@@ -64,11 +62,11 @@ class ProblemResults(Results):
             tmp =  "\n\n".join([self._format_Fstats_notes(zz)])
             out = "\n\n".join([out,tmp])    
         return out
+
     def _format_RVstats(self, zz: int) -> str:
         """Formation information about the formulations of the economy as a string."""
 
         # construct the data
-        
         data: List[List[str]] = []
         for kk in range(len(self.markups)):
             data.append([str(kk)] + [round(self.TRV[zz][kk,i],3) for i in range(len(self.markups))])
@@ -78,12 +76,11 @@ class ProblemResults(Results):
 
         return format_table(header, *data, title="RV test statistics - Instruments {0}".format(zz))    
 
+    # TODO: change this function name to lowercase
     def _format_Fstats_notes(self, zz: int) -> str:
 
         """Formation information about the formulations of the economy as a string."""
         # get critical values
-
-    
         CVall_s = pd.read_csv(DATA.F_CRITVALS_SIZE)
         ind = CVall_s['K'] == len(self.g[zz][0])
         tmp = np.array(CVall_s['r_075'])
@@ -112,20 +109,27 @@ class ProblemResults(Results):
         cvs.append(['......95% max power:'] + [str(cv_p95)])                                          
         cvs.append(['......75% max power:'] + [str(cv_p75)]) 
         cvs.append(['......50% max power:'] + [str(cv_p50)])                                          
-                                           
-                                                      
-        # construct the data
 
+        # construct the data
         data: List[List[str]] = []
         for kk in range(len(self.markups)):
-            data.append([str(kk)] + [round(self.TRV[zz][kk,i],3) for i in range(len(self.markups))] + [str(kk)] +  [round(self.F[zz][kk,i],1) for i in range(len(self.markups))] + [str(kk)] + [str(round(self.MCS_pvalues[zz][kk][0],3))])
+            # TODO: check pep8 for these next 2 blocks
+            data.append(
+                [str(kk)] + [round(self.TRV[zz][kk, i], 3) for i in range(len(self.markups))] + [str(kk)]
+                + [round(self.F[zz][kk, i], 1) for i in range(len(self.markups))] + [str(kk)]
+                + [str(round(self.MCS_pvalues[zz][kk][0], 3))]
+            )
         
         # construct the header
-        header =  [" TRV: "] + [f"  " for i in range(len(self.markups))]+ [" F-stats: "] + [f"  " for i in range(len(self.markups))] + [" MCS: "] + [" "]
-        subheader = [" models "] + [f" {i} " for i in range(len(self.markups))]+ [" models "] + [f" {i} " for i in range(len(self.markups))] + ["models"] +  ["MCS p-values"] 
-        return format_table_notes_sub(header, subheader, *data, title="Testing Results - Instruments z{0}".format(zz), notes = cvs, line_indices =[len(self.markups),2*len(self.markups)+1])    
+        header = [" TRV: "] + [f"  " for i in range(len(self.markups))] + [" F-stats: "] \
+            + [f"  " for i in range(len(self.markups))] + [" MCS: "] + [" "]
+        subheader = [" models "] + [f" {i} " for i in range(len(self.markups))] + [" models "] \
+            + [f" {i} " for i in range(len(self.markups))] + ["models"] + ["MCS p-values"]
+        return format_table_notes_sub(
+            header, subheader, *data, title="Testing Results - Instruments z{0}".format(zz), notes=cvs,
+            line_indices=[len(self.markups),2*len(self.markups)+1]
+        )
 
-    
     def to_dict(
             self, attributes: Sequence[str] = (
                 'Delta'
@@ -150,8 +154,6 @@ class ProblemResults(Results):
         """
         return {k: getattr(self, k) for k in attributes}
 
-    
-
     def _coerce_matrices(self, matrices: Any, market_ids: Array) -> Array:
         """Coerce array-like stacked matrices into a stacked matrix and validate it."""
         matrices = np.c_[np.asarray(matrices, options.dtype)]
@@ -161,4 +163,3 @@ class ProblemResults(Results):
             raise ValueError(f"matrices must be {rows} by {columns}.")
         return matrices
 
-    
