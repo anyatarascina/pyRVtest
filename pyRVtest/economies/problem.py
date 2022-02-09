@@ -1,27 +1,21 @@
 """Economy-level BLP problem functionality."""
 
 import abc
-import collections.abc
-import functools
 import time
 import statsmodels.api as sm 
-from typing import Any, Dict, Hashable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Mapping, Optional, Sequence
 import math
 import numpy as np
 import itertools
 from scipy.linalg import inv, fractional_matrix_power
 from scipy.stats import norm
 from .economy import Economy
-from .. import exceptions, options
+from .. import options
 from ..configurations.formulation import Formulation, ModelFormulation
 from ..primitives import Models, Products
 from ..results.problem_results import ProblemResults
-from ..utilities.algebra import precisely_identify_collinearity, precisely_invert
-from ..utilities.basics import (
-    Array, Bounds, Error, RecArray, SolverStats, format_number, format_seconds, format_table, generate_items, output,
-    update_matrices, compute_finite_differences
-)
-from pyblp.results.problem_results import ProblemResults as pyblpProblemResults
+from ..utilities.algebra import precisely_identify_collinearity
+from ..utilities.basics import Array, RecArray, format_seconds, output
 from ..construction import build_markups_all
 
 
@@ -31,8 +25,8 @@ class ProblemEconomy(Economy):
     @abc.abstractmethod
     def __init__(
             self, cost_formulation: Formulation, instrument_formulation: Sequence[Formulation], 
-            model_formulations: Sequence[ModelFormulation],
-            products: RecArray, models: RecArray, demand_results: Mapping, markups: RecArray) -> None:
+            model_formulations: Sequence[ModelFormulation], products: RecArray, models: RecArray,
+            demand_results: Mapping, markups: RecArray) -> None:
         """Initialize the underlying economy with product and agent data."""
         super().__init__(
             cost_formulation, instrument_formulation, model_formulations, products, models, demand_results, markups
@@ -66,6 +60,7 @@ class ProblemEconomy(Economy):
         L = self.L
         Dict_K = self.Dict_K 
         markups = self.markups
+        # TODO: not sure why these vars are initialized like this
         markups_upstream = [None]*M
         markups_downstream = [None]*M
         mc = [None]*M
@@ -77,10 +72,10 @@ class ProblemEconomy(Economy):
 
         if markups[0] is None:
             print('Computing Markups ... ')
-            markups, markups_downstream, markups_upstream = build_markups_all(self.products, self.demand_results,
-                self.models.models_downstream, self.models.ownership_downstream,
-                self.models.models_upstream, self.models.ownership_upstream,
-                self.models.VI)
+            markups, markups_downstream, markups_upstream = build_markups_all(
+                self.products, self.demand_results, self.models.models_downstream, self.models.ownership_downstream,
+                self.models.models_upstream, self.models.ownership_upstream, self.models.VI
+            )
 
         for kk in range(M):
             mc[kk] = self.products.prices - markups[kk]
@@ -117,7 +112,7 @@ class ProblemEconomy(Economy):
                 if self.demand_results.problem.products.dtype.fields['X1'][2][jj] == 'prices':
                     price_col = jj
 
-            XD = np.delete(self.demand_results.problem.products.X1,price_col,1)
+            XD = np.delete(self.demand_results.problem.products.X1, price_col, 1)
             WD = self.demand_results.updated_W
             h = self.demand_results.moments
             
@@ -202,17 +197,19 @@ class ProblemEconomy(Economy):
                         self.demand_results.pi[jj, ll] = tmp_pi - eps/2
                         delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
-                        markups_l, md, ml = build_markups_all(self.products, self.demand_results,
-                            self.models.models_downstream, self.models.ownership_downstream,
-                            self.models.models_upstream, self.models.ownership_upstream,
-                            self.models.VI)
+                        markups_l, md, ml = build_markups_all(
+                            self.products, self.demand_results, self.models.models_downstream,
+                            self.models.ownership_downstream, self.models.models_upstream,
+                            self.models.ownership_upstream, self.models.VI
+                        )
                         self.demand_results.pi[jj, ll] = tmp_pi + eps/2
                         delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
-                        markups_u, mu, mu = build_markups_all(self.products, self.demand_results,
-                            self.models.models_downstream, self.models.ownership_downstream,
-                            self.models.models_upstream, self.models.ownership_upstream,
-                            self.models.VI)
+                        markups_u, mu, mu = build_markups_all(
+                            self.products, self.demand_results, self.models.models_downstream,
+                            self.models.ownership_downstream, self.models.models_upstream,
+                            self.models.ownership_upstream, self.models.VI
+                        )
                         for kk in range(M):
                             diff_markups = (markups_u[kk]-markups_l[kk])/eps
                             diff_markups, me = self._absorb_cost_ids(diff_markups)
@@ -228,15 +225,17 @@ class ProblemEconomy(Economy):
                 if self.demand_results.beta_labels[jj] == 'prices':
                     tmp_alpha = self.demand_results.beta[jj]
                     self.demand_results.beta[jj] = tmp_alpha - eps/2
-                    markups_l, md, ml = build_markups_all(self.products, self.demand_results,
-                        self.models.models_downstream, self.models.ownership_downstream,
-                        self.models.models_upstream, self.models.ownership_upstream,
-                        self.models.VI)
+                    markups_l, md, ml = build_markups_all(
+                        self.products, self.demand_results, self.models.models_downstream,
+                        self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
+                        self.models.VI
+                    )
                     self.demand_results.beta[jj] = tmp_alpha + eps/2
-                    markups_u, mu, mu = build_markups_all(self.products, self.demand_results,
-                        self.models.models_downstream, self.models.ownership_downstream,
-                        self.models.models_upstream, self.models.ownership_upstream,
-                        self.models.VI)
+                    markups_u, mu, mu = build_markups_all(
+                        self.products, self.demand_results, self.models.models_downstream,
+                        self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
+                        self.models.VI
+                    )
                     for kk in range(M):
                         diff_markups = (markups_u[kk]-markups_l[kk])/eps
                         diff_markups, me = self._absorb_cost_ids(diff_markups)
@@ -261,20 +260,20 @@ class ProblemEconomy(Economy):
             if self._absorb_cost_ids is not None:
                 Z_orth, Z_errors = self._absorb_cost_ids(Z)
                 
-            tmp = sm.OLS(Z_orth,self.products.w).fit()    
+            tmp = sm.OLS(Z_orth, self.products.w).fit()
             Z_orth = tmp.resid     
-            Z_orth = np.reshape(Z_orth,[N,K])
+            Z_orth = np.reshape(Z_orth, [N, K])
 
             # get the GMM measure of fit Q_m for each model
             g = [None]*M
             Q = [None]*M
-            WMinv =  1/N*(Z_orth.T@Z_orth)
+            WMinv = 1/N*(Z_orth.T@Z_orth)
             WMinv = np.reshape(WMinv, [K, K])
 
             # TODO: what is this and why is it commented?
             WM = inv(WMinv)
-            #WM = precisely_invert(WMinv)
-            #WM = WM[0]
+            # WM = precisely_invert(WMinv)
+            # WM = WM[0]
 
             for kk in range(M):
                 g[kk] = 1/N*(Z_orth.T@(prices_orth-markups_orth[kk])) 
@@ -282,11 +281,11 @@ class ProblemEconomy(Economy):
                 Q[kk] = g[kk].T@WM@g[kk] 
 
             # compute the pairwise RV numerator
-            RV_num = np.zeros((M,M))
+            RV_num = np.zeros((M, M))
             for kk in range(M):
                 for jj in range(kk):
                     if jj < kk:
-                        RV_num[jj,kk] = math.sqrt(N)*(Q[jj]-Q[kk])     
+                        RV_num[jj, kk] = math.sqrt(N) * (Q[jj] - Q[kk])
             
             # compute the pairwise RV denominator
             RV_denom = np.zeros((M, M))
@@ -298,7 +297,7 @@ class ProblemEconomy(Economy):
             psi = [None]*M
             dmd_adj = [None]*M
             for kk in range(M):
-                psi[kk] = np.zeros([N,K])
+                psi[kk] = np.zeros([N, K])
                 psi_bar = WM12@g[kk]-.5*WM34@(WMinv)@WM34@g[kk]   
                 WM34Z = Z_orth@WM34
                 WM34Zg = WM34Z@g[kk]
@@ -345,15 +344,15 @@ class ProblemEconomy(Economy):
                         COV_MCS[kk, kk] = g[kk].T@WM12@VRV_22@WM12@g[kk]
                         COV_MCS[jj, jj] = g[jj].T@WM12@VRV_11@WM12@g[jj]
                         
-                        RV_denom[jj,kk] = math.sqrt(sigma2)
+                        RV_denom[jj, kk] = math.sqrt(sigma2)
                 
             Ncombos = np.shape(all_combos)[0]
-            Sigma_MCS = np.zeros([Ncombos,Ncombos])
+            Sigma_MCS = np.zeros([Ncombos, Ncombos])
             for ii in range(Ncombos):
                 tmp3 = all_combos[ii][0]
                 tmp4 = all_combos[ii][1]
                 
-                Var_MCS[ii] = RV_denom[tmp3,tmp4]/2
+                Var_MCS[ii] = RV_denom[tmp3, tmp4]/2
                 for jj in range(Ncombos):
                     tmp1 = all_combos[jj][0]
                     tmp2 = all_combos[jj][1]
@@ -413,22 +412,22 @@ class ProblemEconomy(Economy):
                         sig_12 = 1/K*np.trace(VAR_12@WMinv)
                         sig2_12 = sig_12**2
 
-                        temp =  (sig2_1-sig2_2)*(sig2_1-sig2_2)
+                        temp = (sig2_1-sig2_2)*(sig2_1-sig2_2)
                         rho2 = temp/((sig2_1+sig2_2)*(sig2_1+sig2_2)-4*sig2_12)
-                        F[jj,kk] = (1-rho2)*N/(2*K)*(sig2_2*g[jj].T@WM@g[jj] + sig2_1*g[kk].T@WM@g[kk] - 2*sig_12*g[jj].T@WM@g[kk])/(sig2_1*sig2_2-sig2_12) 
+                        F[jj, kk] = (1-rho2)*N/(2*K)*(sig2_2*g[jj].T@WM@g[jj] + sig2_1*g[kk].T@WM@g[kk] - 2*sig_12*g[jj].T@WM@g[kk])/(sig2_1*sig2_2-sig2_12)
                     if jj >= kk:
-                        F[jj,kk] = "NaN"
+                        F[jj, kk] = "NaN"
 
-            MCS_pvalues = np.ones([M,1])
+            MCS_pvalues = np.ones([M, 1])
 
             np.random.seed(123)
                 
             stop = 0
             while stop == 0:
                 if np.shape(M_MCS)[0] == 2:
-                    TRVmax = TRV[M_MCS[0],M_MCS[1]]
+                    TRVmax = TRV[M_MCS[0], M_MCS[1]]
 
-                    if np.sign(TRVmax)>= 0:
+                    if np.sign(TRVmax) >= 0:
                         em = M_MCS[0]
                         TRVmax = -TRVmax
                     else:
@@ -455,7 +454,7 @@ class ProblemEconomy(Economy):
                     index = np.argmax(abs(TRV_MCS))
                     TRVmax = TRV_MCS[index]
 
-                    if np.sign(TRVmax)>= 0:
+                    if np.sign(TRVmax) >= 0:
                         em = tmp1[index]
                     else:
                         em = tmp2[index]
@@ -465,7 +464,7 @@ class ProblemEconomy(Economy):
                     cov = Sigma_MCS[Sig_idx[:, None], Sig_idx]
                     Ndraws = 99999
                     simTRV = np.random.multivariate_normal(mean, cov, (Ndraws))
-                    maxsimTRV = np.amax(abs(simTRV),1)
+                    maxsimTRV = np.amax(abs(simTRV), 1)
 
                     MCS_pvalues[em] = np.mean(maxsimTRV > TRVmax)
                     M_MCS = np.delete(M_MCS,np.where(M_MCS == em))
