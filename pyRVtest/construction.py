@@ -7,13 +7,12 @@ from numpy.linalg import inv
 
 from . import exceptions, options
 from .configurations.formulation import Formulation
-from .utilities.basics import Array, Groups, RecArray, extract_matrix, interact_ids, structure_matrices, get_indices
-from .utilities.algebra import precisely_invert
+from .utilities.basics import Array, Groups, RecArray, extract_matrix, interact_ids, get_indices
 
 
 def build_ownership_testing(
-    product_data: Mapping, firm_col: str,
-    kappa_specification: Optional[Union[str, Callable[[Any, Any], float]]] = None) -> Array:
+        product_data: Mapping, firm_col: str,
+        kappa_specification: Optional[Union[str, Callable[[Any, Any], float]]] = None) -> Array:
     r"""Build ownership matrices, :math:`O`.
 
     Ownership or product holding matrices are defined by their cooperation matrix counterparts, :math:`\kappa`. For each
@@ -41,7 +40,7 @@ def build_ownership_testing(
         ``product_data``.
 
         The default specification, ``lambda: f, g: int(f == g)``, constructs traditional ownership matrices. That is,
-        :math:`\kappa = I`, the identify matrix, implies that :math:`\mathscr{H}_{jk}` is :math:`1` if the same firm
+        :math:`\kappa = I`, the identity matrix, implies that :math:`\mathscr{H}_{jk}` is :math:`1` if the same firm
         produces products :math:`j` and :math:`k`, and is :math:`0` otherwise.
 
         If ``firm_ids`` happen to be indices for an actual :math:`\kappa` matrix, ``lambda f, g: kappa[f, g]`` will
@@ -95,7 +94,9 @@ def build_ownership_testing(
         raise ValueError("The market_ids field of product_data must be one-dimensional.")
     if callable(kappa_specification):
         if firm_ids is None:
-            raise KeyError("product_data must have a field named firm_col when kappa_specification is not a special case.")
+            raise KeyError(
+                "product_data must have a field named firm_col when kappa_specification is not a special case."
+            )
         if firm_ids.shape[1] > 1:
             raise ValueError("The firm_ids field of product_data must be one-dimensional.")
 
@@ -486,9 +487,10 @@ def data_to_dict(data: RecArray, ignore_empty: bool = True) -> Dict[str, Array]:
     return mapping
 
 
-def build_markups_all(products: RecArray, demand_results: Mapping, model_downstream: Array, ownership_downstream: Array,
+def build_markups_all(
+        products: RecArray, demand_results: Mapping, model_downstream: Array, ownership_downstream: Array,
         model_upstream: Optional[Array] = None,  ownership_upstream: Optional[Array] = None,
-        vertical_integration: Optional[Array] = None)-> Array:
+        vertical_integration: Optional[Array] = None) -> Array:
     r"""This function computes markups for a large set of standard models. These include:
             - standard bertrand with ownership matrix based on firm id
             - price setting with arbitrary ownership matrix (e.g. profit weight model)
@@ -528,25 +530,29 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
     """
     # initialize
     N = np.size(products.prices)
-    elas = demand_results.compute_elasticities()
-    M = len(model_downstream)
-    markups = [None]*M
-    markups_upstream = [None]*M
-    markups_downstream = [None]*M
-    for kk in range(M):
-        markups_downstream[kk] = np.zeros((N, 1))
-        markups_upstream[kk] = np.zeros((N, 1))
-    mkts = np.unique(products.market_ids)
+    elasticity = demand_results.compute_elasticities()
+    number_models = len(model_downstream)
+    markets = np.unique(products.market_ids)
+
+    # TODO: why initialize markups like this? can I just initialize this as a nested array?
+    markups = [None] * number_models
+    markups_upstream = [None] * number_models
+    markups_downstream = [None] * number_models
+    for i in range(number_models):
+        markups_downstream[i] = np.zeros((N, 1))
+        markups_upstream[i] = np.zeros((N, 1))
 
     # TODO: make sure this is the desired condition
     if model_upstream is not None:
 
-        CP = demand_results.compute_probabilities()
-        
+        # get choice probabilities from pyblp results
+        choice_probabilities = demand_results.compute_probabilities()
+
+        # TODO: I think I can move this chunk into a new function
         # get alpha for each draw
         NS_all = len(demand_results.problem.agents)
-        sigma_price = np.zeros((NS_all,1))
-        pi_price = np.zeros((NS_all,1))
+        sigma_price = np.zeros((NS_all, 1))
+        pi_price = np.zeros((NS_all, 1))
 
         for kk in range(len(demand_results.beta)):
             if demand_results.beta_labels[kk] == 'prices':
@@ -556,27 +562,28 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
                 if demand_results.sigma_labels[kk] == 'prices':
                     if not np.all((demand_results.sigma[kk] == 0)):
                         sigma_price = demand_results.problem.agents.nodes@np.transpose(demand_results.sigma[kk])
-                        sigma_price = sigma_price.reshape(NS_all,1)
+                        sigma_price = sigma_price.reshape(NS_all, 1)
                     if demand_results.problem.D > 0:
                         if not np.all((demand_results.pi[kk] == 0)):
                             pi_price = demand_results.problem.agents.demographics@np.transpose(demand_results.pi[kk])
-                            pi_price = pi_price.reshape(NS_all,1)
+                            pi_price = pi_price.reshape(NS_all, 1)
         alpha_i = alpha + sigma_price + pi_price
 
     # compute markups market-by-market
     # TODO: maybe have separate function for markup computations
-    for mm in mkts:
-        ind_mm = np.where(demand_results.problem.products['market_ids'] == mm)[0] 
-        p = products.prices[ind_mm]
-        s = products.shares[ind_mm]
-        elas_mm = elas[ind_mm]
-        elas_mm = elas_mm[:, ~np.isnan(elas_mm).all(axis=0)]
-        dsdp = elas_mm*np.outer(s,1/p)        
+    # TODO: why is market index mm? can I change it to t? and then have ind_mm be market_t, elasticity_t etc
+    for t in markets:
+        t_index = np.where(demand_results.problem.products['market_ids'] == t)[0]
+        p = products.prices[t_index]
+        s = products.shares[t_index]
+        t_elasticity = elasticity[t_index]
+        t_elasticity = t_elasticity[:, ~np.isnan(t_elasticity).all(axis=0)]
+        dsdp = t_elasticity * np.outer(s, 1/p)
         
-        for kk in range(M):
+        for kk in range(number_models):
             # compute downstream markups
             # TODO: move this chunk into a function
-            O_mm = ownership_downstream[kk][ind_mm]
+            O_mm = ownership_downstream[kk][t_index]
             O_mm = O_mm[:, ~np.isnan(O_mm).all(axis=0)]
             if model_downstream[kk] == 'bertrand':
                 markups_mm = -inv(O_mm*dsdp)@s
@@ -584,15 +591,15 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
                 markups_mm = -(O_mm*inv(dsdp))@s
             elif model_downstream[kk] == 'monopoly':
                 markups_mm = -inv(dsdp)@s
-            markups_downstream[kk][ind_mm] = markups_mm 
+            markups_downstream[kk][t_index] = markups_mm
 
         # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
-        if not all(model_upstream[ll] is None for ll in range(M)):
-            P_ii = CP[ind_mm]
+        if not all(model_upstream[ll] is None for ll in range(number_models)):
+            P_ii = choice_probabilities[t_index]
             P_ii = P_ii[:, ~np.isnan(P_ii).all(axis=0)]
             J = len(p)
 
-            indA_mm = np.where(demand_results.problem.agents['market_ids'] == mm)[0]
+            indA_mm = np.where(demand_results.problem.agents['market_ids'] == t)[0]
             alpha_mi = np.repeat(np.transpose(alpha_i[indA_mm]), J, axis=0)
             alpha2_mi = alpha_mi**2
 
@@ -623,18 +630,18 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
                     # TODO: could these variables names be improved at all?
                     s_iis_jis_ki = (alpha2_mi*P_ii)@(P_ij*P_ik*Weights_a)
                     
-                    d2s_idpjpk = (2*s_iis_jis_ki-tmp1-tmp2-tmp3+tmp4)    
+                    d2s_idpjpk = (2 * s_iis_jis_ki - tmp1 - tmp2 - tmp3 + tmp4)
                     g[kk] = np.transpose(markups_mm)@(O_mm*d2s_idpjpk)
                 
                 g = np.transpose(g)
                 G = dsdp + H + g 
                 dpdp_u = inv(G)@H
                 dsdp_u = np.transpose(dpdp_u)@dsdp
-                for ii in range(M):
+                for ii in range(number_models):
                     if not model_upstream[ii] is None:
                         # compute downstream markups
                         # TODO: move this chunk into a function
-                        Ou_mm = ownership_upstream[ii][ind_mm]
+                        Ou_mm = ownership_upstream[ii][t_index]
                         Ou_mm = Ou_mm[:, ~np.isnan(Ou_mm).all(axis=0)]
                         if model_upstream[ii] == 'bertrand':
                             markups_umm = -inv(Ou_mm*dsdp_u)@s
@@ -642,16 +649,28 @@ def build_markups_all(products: RecArray, demand_results: Mapping, model_downstr
                             markups_umm = -(Ou_mm*inv(dsdp_u))@s
                         elif model_upstream[ii] == 'monopoly':
                             markups_umm = -inv(dsdp_u)@s
-                        markups_upstream[ii][ind_mm] = markups_umm
+                        markups_upstream[ii][t_index] = markups_umm
 
     # compute total markups as sum of upstream and downstream markups, taking into account vertical integration
-    for kk in range(M):
+    for kk in range(number_models):
         if vertical_integration[kk] is None:
             vi = np.ones((N, 1))
         else:
             vi = (vertical_integration[kk]-1)**2
-        markups[kk] = markups_downstream[kk] + vi*markups_upstream[kk]
+        markups[kk] = markups_downstream[kk] + vi * markups_upstream[kk]
     return markups, markups_downstream, markups_upstream
 
 
-
+# TODO: edit and test
+def compute_markups(t_index, number_models, model_type, ownership_matrix, dsdp, s, markups):
+    for i in range(number_models):
+        t_ownership = ownership_matrix[i][t_index]
+        t_ownership = t_ownership[:, ~np.isnan(t_ownership).all(axis=0)]
+        if model_type[i] == 'bertrand':
+            markups_mm = -inv(t_ownership * dsdp) @ s
+        elif model_type[i] == 'cournot':
+            markups_mm = -(t_ownership * inv(dsdp)) @ s
+        elif model_type[i] == 'monopoly':
+            markups_mm = -inv(dsdp) @ s
+        markups[i][t_index] = markups_mm
+    return markups
