@@ -23,7 +23,7 @@ def test_nevo_method1():
     # use pyblp package for demand estimation
     pyblp_problem = pyblp.Problem(
         product_formulations=(
-            pyblp.Formulation('0 + prices ', absorb = 'C(product_ids)'),
+            pyblp.Formulation('0 + prices ', absorb='C(product_ids)'),
             pyblp.Formulation('1 + prices + sugar + mushy'),
             ),
         agent_formulation=pyblp.Formulation('0 + income + income_squared + age + child'),
