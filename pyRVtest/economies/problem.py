@@ -15,7 +15,7 @@ from ..configurations.formulation import Formulation, ModelFormulation
 from ..primitives import Models, Products
 from ..results.problem_results import ProblemResults
 from ..utilities.algebra import precisely_identify_collinearity
-from ..utilities.basics import Array, RecArray, format_seconds, output
+from ..utilities.basics import Array, RecArray, format_seconds, output, HideOutput
 from ..construction import build_markups_all
 
 
@@ -155,8 +155,10 @@ class ProblemEconomy(Economy):
                         # reduce sigma by small increment
                         self.demand_results.sigma[jj, ll] = tmp_sig - eps/2
 
+
                         # update delta
-                        delta_new = self.demand_results.compute_delta()
+                        with HideOutput():
+                            delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
                         
                         # recompute markups
@@ -170,7 +172,8 @@ class ProblemEconomy(Economy):
                         self.demand_results.sigma[jj, ll] = tmp_sig + eps/2
 
                         # update delta
-                        delta_new = self.demand_results.compute_delta()
+                        with HideOutput():
+                            delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
                         
                         # recompute markups
@@ -195,7 +198,8 @@ class ProblemEconomy(Economy):
                     if not self.demand_results.pi[jj, ll] == 0:
                         tmp_pi = self.demand_results.pi[jj, ll]
                         self.demand_results.pi[jj, ll] = tmp_pi - eps/2
-                        delta_new = self.demand_results.compute_delta()
+                        with HideOutput():
+                            delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
                         markups_l, md, ml = build_markups_all(
                             self.products, self.demand_results, self.models.models_downstream,
@@ -203,7 +207,8 @@ class ProblemEconomy(Economy):
                             self.models.ownership_upstream, self.models.VI
                         )
                         self.demand_results.pi[jj, ll] = tmp_pi + eps/2
-                        delta_new = self.demand_results.compute_delta()
+                        with HideOutput():
+                            delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
                         markups_u, mu, mu = build_markups_all(
                             self.products, self.demand_results, self.models.models_downstream,
