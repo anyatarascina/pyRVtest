@@ -1,14 +1,15 @@
 """Primitive data structures that constitute the foundation of the BLP model."""
 
 import abc
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
 from . import options
 from .configurations.formulation import ColumnFormulation, Formulation, ModelFormulation
-from .utilities.basics import Array, Data, Groups, RecArray, extract_matrix, structure_matrices, output
+from .utilities.basics import Array, Groups, RecArray, extract_matrix, structure_matrices
 from . import construction
+
 
 class Products(object):
     r"""Product data structured as a record array.
@@ -27,7 +28,6 @@ class Products(object):
     prices: Array
     Z: Array
     w: Array
-    
 
     def __new__(
             cls, cost_formulation: Formulation,
@@ -62,21 +62,18 @@ class Products(object):
             if not all(isinstance(f, Formulation) for f in instrument_formulation):
                 raise TypeError("Each formulation in instrument_formulation must be a Formulation.")
 
-        #if not isinstance(instrument_formulation, Formulation):
+        # if not isinstance(instrument_formulation, Formulation):
         #    raise TypeError("instrument_formulation must be a Formulation instance or None.")
         if instrument_formulation is None:
             raise ValueError("The formulation for instruments for testing must be specified.")
         
         # build Z
-
-        
         Instr = {}
         if L == 1:
             tmp_Z, tmp_Z_formulation, tmp_Z_data = instrument_formulation._build_matrix(product_data)
             for kk in tmp_Z_formulation:
                 if kk in w_data:
                     raise NameError("Z must be excluded from marginal cost.")
-
 
             Instr["Z0"] = tmp_Z
             Instr["Z0_formulation"] = tmp_Z_formulation
@@ -89,12 +86,9 @@ class Products(object):
                     if kk in w_data:
                         raise NameError("Z must be excluded from marginal cost.")
 
-
                 Instr["Z{0}".format(zz)] = tmp_Z
                 Instr["Z{0}_formulation".format(zz)] = tmp_Z_formulation
                 Instr["Z{0}_data".format(zz)] = tmp_Z_data
-
-
 
         # load fixed effect IDs
         cost_ids = None
@@ -163,14 +157,14 @@ class Products(object):
         })
         
         for zz in range(L):
-            product_mapping.update({
-                (tuple(Instr["Z{0}_formulation".format(zz)]), 'Z{0}'.format(zz)): (Instr["Z{0}".format(zz)], options.dtype),
-            })
+            product_mapping.update({(tuple(Instr["Z{0}_formulation".format(zz)]), 'Z{0}'.format(zz)): (Instr["Z{0}".format(zz)], options.dtype)})
 
         # structure and validate variables underlying X1, X2, and X3
         underlying_data = {k: (v, options.dtype) for k, v in {**w_data}.items() if k != 'shares'}
         for zz in range(L):
-            underlying_data.update({k: (v, options.dtype) for k, v in {**Instr["Z{0}_data".format(zz)]}.items() if k != 'shares'})
+            underlying_data.update(
+                {k: (v, options.dtype) for k, v in {**Instr["Z{0}_data".format(zz)]}.items() if k != 'shares'}
+            )
         invalid_names = set(underlying_data) & {k if isinstance(k, str) else k[1] for k in product_mapping}
         if invalid_names:
             raise NameError(f"These reserved names in product_formulations are invalid: {list(invalid_names)}.")
@@ -193,7 +187,6 @@ class Models(object):
 
         # data structures may be empty
 
-
         # validate the model formulations
         if not all(isinstance(f, ModelFormulation) or f is None for f in model_formulations):
             raise TypeError("Each formulation in model_formulations must be a ModelFormulation instance or None.")
@@ -202,15 +195,15 @@ class Models(object):
             raise ValueError("At least two model formulations must be specified.")
 
         omatrices_downstream = [None]*M
-        omatrices_upstream   = [None]*M
+        omatrices_upstream = [None]*M
         firmids_downstream = [None]*M
-        firmids_upstream   = [None]*M
-        VI  = [None]*M
-        VI_ind  = [None]*M
+        firmids_upstream = [None]*M
+        VI = [None]*M
+        VI_ind = [None]*M
         models_upstream = [None]*M
         models_downstream = [None]*M
 
-        # Make ownership matrices and extract vertical integration 
+        # make ownership matrices and extract vertical integration
         for kk in range(M):
             model = model_formulations[kk]._build_matrix(product_data)
             models_downstream[kk] = model["model_downstream"]
@@ -218,17 +211,25 @@ class Models(object):
                 models_upstream[kk] = model["model_upstream"]  
             
             if model["model_downstream"] == "monopoly":
-                omatrices_downstream[kk] = construction.build_ownership_testing(product_data,model["ownership_downstream"],'monopoly')
+                omatrices_downstream[kk] = construction.build_ownership_testing(
+                    product_data, model["ownership_downstream"], 'monopoly'
+                )
                 firmids_downstream[kk] = "monopoly"
             else:
-                omatrices_downstream[kk] = construction.build_ownership_testing(product_data,model["ownership_downstream"],model["kappa_specification_downstream"])
+                omatrices_downstream[kk] = construction.build_ownership_testing(
+                    product_data, model["ownership_downstream"], model["kappa_specification_downstream"]
+                )
                 firmids_downstream[kk] = model["ownership_downstream"]
             
-            if model["model_upstream"]  == "monopoly":
-                omatrices_upstream[kk] = construction.build_ownership_testing(product_data,model["ownership_upstream"],'monopoly')
-                firmids_upstream[kk] = "monopoly"                
+            if model["model_upstream"] == "monopoly":
+                omatrices_upstream[kk] = construction.build_ownership_testing(
+                    product_data, model["ownership_upstream"], 'monopoly'
+                )
+                firmids_upstream[kk] = "monopoly"
             elif model["ownership_upstream"] is not None:
-                omatrices_upstream[kk] = construction.build_ownership_testing(product_data,model["ownership_upstream"],model["kappa_specification_upstream"])
+                omatrices_upstream[kk] = construction.build_ownership_testing(
+                    product_data, model["ownership_upstream"], model["kappa_specification_upstream"]
+                )
                 firmids_upstream[kk] = model["ownership_upstream"]
 
             if model["vertical_integration"] is not None:
@@ -242,7 +243,7 @@ class Models(object):
             'firmids_upstream': firmids_upstream,
             'ownership_downstream': omatrices_downstream,
             'ownership_upstream': omatrices_upstream,
-            'VI': VI,'VI_ind': VI_ind}) 
+            'VI': VI, 'VI_ind': VI_ind})
 
         return models_mapping
 
@@ -268,8 +269,7 @@ class Container(abc.ABC):
         while stop == 0:
             if 'Z{0}'.format(zz) in self.products.dtype.fields:
                 self._Z_formulation = self.products.dtype.fields['Z{0}'.format(zz)][2]
-                self.Dict_Z_formulation.update({"_Z{0}_formulation".format(zz):self._Z_formulation})
+                self.Dict_Z_formulation.update({"_Z{0}_formulation".format(zz): self._Z_formulation})
                 zz = zz + 1 
             else:
                 stop = 1
-
