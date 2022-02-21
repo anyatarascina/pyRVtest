@@ -39,7 +39,8 @@ class Economy(Container, StringRepresentation):
 
     @abc.abstractmethod
     def __init__(
-            self, cost_formulation: Formulation, instrument_formulation: Formulation, model_formulations: Sequence[Optional[ModelFormulation]], 
+            self, cost_formulation: Formulation, instrument_formulation: Formulation,
+            model_formulations: Sequence[Optional[ModelFormulation]],
             products: RecArray, models: RecArray, demand_results: Mapping, markups: RecArray) -> None:
         """Store information about formulations and data. Any fixed effects should be absorbed after initialization."""
 
@@ -63,7 +64,8 @@ class Economy(Container, StringRepresentation):
             self.L = len(self.instrument_formulation)
         else:
             self.L = 1
-        
+
+        # TODO: why zz?
         for zz in range(self.L):
             self.Dict_K.update({"K{0}".format(zz): self.products["Z{0}".format(zz)].shape[1]})  
         
@@ -90,7 +92,7 @@ class Economy(Container, StringRepresentation):
 
     def __str__(self) -> str:
         """Format economy information as a string."""
-        return "\n\n".join([self._format_dimensions(), self._format_formulations(), self._format_modelformulations()])
+        return "\n\n".join([self._format_dimensions(), self._format_formulations(), self._format_model_formulations()])
 
     def _format_dimensions(self) -> str:
         """Format information about the nonzero dimensions of the economy as a string."""
