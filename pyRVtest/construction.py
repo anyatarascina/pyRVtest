@@ -7,7 +7,7 @@ from numpy.linalg import inv
 
 from . import exceptions, options
 from .configurations.formulation import Formulation
-from .utilities.basics import Array, Groups, RecArray, extract_matrix, interact_ids, get_indices
+from .utilities.basics import Array, Groups, RecArray, extract_matrix, interact_ids, get_indices, HideOutput
 
 
 def build_ownership_testing(
@@ -489,8 +489,9 @@ def data_to_dict(data: RecArray, ignore_empty: bool = True) -> Dict[str, Array]:
 
 def build_markups_all(
         products: RecArray, demand_results: Mapping, model_downstream: Array, ownership_downstream: Array,
-        model_upstream: Optional[Array] = None,  ownership_upstream: Optional[Array] = None,
-        vertical_integration: Optional[Array] = None) -> Array:
+        model_upstream: Optional[Array] = None, ownership_upstream: Optional[Array] = None,
+        vertical_integration: Optional[Array] = None, custom_model: Optional[Array] = None,
+        custom_markup_formula: Optional[Array] = None) -> Array:
     r"""This function computes markups for a large set of standard models. These include:
             - standard bertrand with ownership matrix based on firm id
             - price setting with arbitrary ownership matrix (e.g. profit weight model)
@@ -519,6 +520,8 @@ def build_markups_all(
         TODO: not sure where this one comes from
         store_prod_ids = vector indicating which product_ids are vertically integrated (ie store brands) .  Default is
         missing and no vertical integration.
+        custom_model: Optional[Array]
+        custom_markup_formula: Optional[Array]
         Returns
         -------
         `ndarray`
@@ -530,11 +533,13 @@ def build_markups_all(
     """
     # initialize
     N = np.size(products.prices)
-    elasticity = demand_results.compute_elasticities()
+    with HideOutput():
+        elasticity = demand_results.compute_elasticities()
     number_models = len(model_downstream)
     markets = np.unique(products.market_ids)
 
-    # TODO: why initialize markups like this? can I just initialize this as a nested array?
+    # TODO: is there a better way to initialize these?
+    # initialize markups
     markups = [None] * number_models
     markups_upstream = [None] * number_models
     markups_downstream = [None] * number_models
@@ -542,135 +547,151 @@ def build_markups_all(
         markups_downstream[i] = np.zeros((N, 1))
         markups_upstream[i] = np.zeros((N, 1))
 
-    # TODO: make sure this is the desired condition
     if model_upstream is not None:
+        # get choice probabilities from pyblp results, suppress time output
+        with HideOutput():
+            choice_probabilities = demand_results.compute_probabilities()
 
-        # get choice probabilities from pyblp results
-        choice_probabilities = demand_results.compute_probabilities()
-
-        # TODO: I think I can move this chunk into a new function
-        # get alpha for each draw
-        NS_all = len(demand_results.problem.agents)
-        sigma_price = np.zeros((NS_all, 1))
-        pi_price = np.zeros((NS_all, 1))
-
-        for kk in range(len(demand_results.beta)):
-            if demand_results.beta_labels[kk] == 'prices':
-                alpha = demand_results.beta[kk]
-        if demand_results.problem.K2 > 0:
-            for kk in range(len(demand_results.sigma)):
-                if demand_results.sigma_labels[kk] == 'prices':
-                    if not np.all((demand_results.sigma[kk] == 0)):
-                        sigma_price = demand_results.problem.agents.nodes@np.transpose(demand_results.sigma[kk])
-                        sigma_price = sigma_price.reshape(NS_all, 1)
-                    if demand_results.problem.D > 0:
-                        if not np.all((demand_results.pi[kk] == 0)):
-                            pi_price = demand_results.problem.agents.demographics@np.transpose(demand_results.pi[kk])
-                            pi_price = pi_price.reshape(NS_all, 1)
-        alpha_i = alpha + sigma_price + pi_price
+        # compute alpha i
+        alpha_i = compute_alpha(demand_results)
 
     # compute markups market-by-market
-    # TODO: maybe have separate function for markup computations
-    # TODO: why is market index mm? can I change it to t? and then have ind_mm be market_t, elasticity_t etc
     for t in markets:
-        t_index = np.where(demand_results.problem.products['market_ids'] == t)[0]
-        p = products.prices[t_index]
-        s = products.shares[t_index]
-        t_elasticity = elasticity[t_index]
-        t_elasticity = t_elasticity[:, ~np.isnan(t_elasticity).all(axis=0)]
-        dsdp = t_elasticity * np.outer(s, 1/p)
-        
-        for kk in range(number_models):
-            # compute downstream markups
-            # TODO: move this chunk into a function
-            O_mm = ownership_downstream[kk][t_index]
-            O_mm = O_mm[:, ~np.isnan(O_mm).all(axis=0)]
-            if model_downstream[kk] == 'bertrand':
-                markups_mm = -inv(O_mm*dsdp)@s
-            elif model_downstream[kk] == 'cournot':
-                markups_mm = -(O_mm*inv(dsdp))@s
-            elif model_downstream[kk] == 'monopoly':
-                markups_mm = -inv(dsdp)@s
-            markups_downstream[kk][t_index] = markups_mm
+        index_t = np.where(demand_results.problem.products['market_ids'] == t)[0]
+        prices_t = products.prices[index_t]
+        shares_t = products.shares[index_t]
+        elasticity_t = elasticity[index_t]
+        elasticity_t = elasticity_t[:, ~np.isnan(elasticity_t).all(axis=0)]
+        retailer_response_matrix = elasticity_t * np.outer(shares_t, 1 / prices_t)
+
+        # compute downstream markups
+        markups_downstream, markups_t, retailer_ownership_matrix = compute_markups(
+            index_t, number_models, model_downstream, ownership_downstream, retailer_response_matrix, shares_t,
+            markups_downstream, markup_type='downstream', custom_model=custom_model,
+            custom_markup_formula=custom_markup_formula
+        )
 
         # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
         if not all(model_upstream[ll] is None for ll in range(number_models)):
-            P_ii = choice_probabilities[t_index]
-            P_ii = P_ii[:, ~np.isnan(P_ii).all(axis=0)]
-            J = len(p)
+            probabilities_t = choice_probabilities[index_t]
+            probabilities_t = probabilities_t[:, ~np.isnan(probabilities_t).all(axis=0)]
+            J = len(prices_t)
 
-            indA_mm = np.where(demand_results.problem.agents['market_ids'] == t)[0]
-            alpha_mi = np.repeat(np.transpose(alpha_i[indA_mm]), J, axis=0)
-            alpha2_mi = alpha_mi**2
+            # add comment
+            agent_index = np.where(demand_results.problem.agents['market_ids'] == t)[0]
+            alpha_mi = np.repeat(np.transpose(alpha_i[agent_index]), J, axis=0)
+            alpha_mi_squared = alpha_mi ** 2
 
-            H = np.transpose(O_mm*dsdp)
+            # add comment, not exactly sure what these objects are
+            H = np.transpose(retailer_ownership_matrix * retailer_response_matrix)
             g = np.zeros((J, J))
 
+            # TODO: could these variables names be improved at all?
+            # TODO: needs to be commented
             if len(demand_results.rho) == 0:
-                Weights = demand_results.problem.agents.weights[indA_mm]
-                NS = len(Weights)
-                Weights = Weights.reshape(NS, 1)
-                Weights_a = np.repeat(Weights, J, axis=1)
-                
-                for kk in range(J):      
+                agent_weights = demand_results.problem.agents.weights[agent_index]
+                NS = len(agent_weights)
+                agent_weights = agent_weights.reshape(NS, 1)
+                Weights_a = np.repeat(agent_weights, J, axis=1)
+
+                for j in range(J):
+                    # add comment
                     tmp1 = np.zeros((J, J))
                     tmp4 = np.zeros((J, J))
-                    P_ik = P_ii[kk].reshape(NS, 1)
-                    s_iis_ik= (alpha2_mi*P_ii)@(P_ik*Weights) 
+                    P_ik = probabilities_t[j].reshape(NS, 1)
+                    s_iis_ik = (alpha_mi_squared * probabilities_t) @ (P_ik * agent_weights)
 
-                    tmp1[kk] = np.transpose(s_iis_ik)      # corresponds to i = k, put integ(s_jls_kl)  in kth row
-                    tmp2 = np.transpose(tmp1)              # corresponds to j = k, put integ(s_jls_kl) in kth col
-                    tmp3 = np.diagflat(s_iis_ik)           # corresponds to i = j, put integ(s_ils_kl) on main diag
-                    a2s = (alpha2_mi*P_ii)@Weights
-                    tmp4[kk, kk] = a2s[kk]                 # corresponds to i = j = k, matrix of zeros with s_i at (k,k)
+                    # add comment
+                    tmp1[j] = np.transpose(s_iis_ik)  # corresponds to i = k, put integ(s_jls_kl)  in kth row
+                    transposed = np.transpose(tmp1)   # corresponds to j = k, put integ(s_jls_kl) in kth col
+                    tmp3 = np.diagflat(s_iis_ik)      # corresponds to i = j, put integ(s_ils_kl) on main diag
+                    a2s = (alpha_mi_squared * probabilities_t) @ agent_weights
+                    tmp4[j, j] = a2s[j]               # corresponds to i = j = k, matrix of zeros with s_i at (k,k)
 
+                    # add comment
                     P_ik = np.repeat(P_ik, J, axis=1)
-                    P_ij = np.transpose(P_ii)
+                    P_ij = np.transpose(probabilities_t)
+                    s_iis_jis_ki = (alpha_mi_squared * probabilities_t) @ (P_ij * P_ik * Weights_a)
+                    d2s_idpjpk = (2 * s_iis_jis_ki - tmp1 - transposed - tmp3 + tmp4)
+                    g[j] = np.transpose(markups_t) @ (retailer_ownership_matrix * d2s_idpjpk)
 
-                    # TODO: could these variables names be improved at all?
-                    s_iis_jis_ki = (alpha2_mi*P_ii)@(P_ij*P_ik*Weights_a)
-                    
-                    d2s_idpjpk = (2 * s_iis_jis_ki - tmp1 - tmp2 - tmp3 + tmp4)
-                    g[kk] = np.transpose(markups_mm)@(O_mm*d2s_idpjpk)
-                
-                g = np.transpose(g)
-                G = dsdp + H + g 
-                dpdp_u = inv(G)@H
-                dsdp_u = np.transpose(dpdp_u)@dsdp
-                for ii in range(number_models):
-                    if not model_upstream[ii] is None:
-                        # compute downstream markups
-                        # TODO: move this chunk into a function
-                        Ou_mm = ownership_upstream[ii][t_index]
-                        Ou_mm = Ou_mm[:, ~np.isnan(Ou_mm).all(axis=0)]
-                        if model_upstream[ii] == 'bertrand':
-                            markups_umm = -inv(Ou_mm*dsdp_u)@s
-                        elif model_upstream[ii] == 'cournot':
-                            markups_umm = -(Ou_mm*inv(dsdp_u))@s
-                        elif model_upstream[ii] == 'monopoly':
-                            markups_umm = -inv(dsdp_u)@s
-                        markups_upstream[ii][t_index] = markups_umm
+                # solve for derivatives of all prices with respect to the wholesale prices
+                g_transpose = np.transpose(g)
+                G = retailer_response_matrix + H + g_transpose
+                delta_p = inv(G) @ H
+
+                # solve for matrix of cross-price elasticities of derived demand and the effects of cost pass-through
+                manufacturer_response_matrix = np.transpose(delta_p) @ retailer_response_matrix
+
+                # compute upstream markups
+                markups_upstream, markups_t, manufacturer_ownership_matrix = compute_markups(
+                    index_t, number_models, model_upstream, ownership_upstream, manufacturer_response_matrix, shares_t,
+                    markups_upstream, markup_type='upstream', custom_model=custom_model,
+                    custom_markup_formula=custom_markup_formula
+                )
 
     # compute total markups as sum of upstream and downstream markups, taking into account vertical integration
-    for kk in range(number_models):
-        if vertical_integration[kk] is None:
+    for i in range(number_models):
+        if vertical_integration[i] is None:
             vi = np.ones((N, 1))
         else:
-            vi = (vertical_integration[kk]-1)**2
-        markups[kk] = markups_downstream[kk] + vi * markups_upstream[kk]
+            vi = (vertical_integration[i] - 1) ** 2
+        markups[i] = markups_downstream[i] + vi * markups_upstream[i]
     return markups, markups_downstream, markups_upstream
 
 
 # TODO: edit and test
-def compute_markups(t_index, number_models, model_type, ownership_matrix, dsdp, s, markups):
+def compute_markups(
+        index, number_models, model_type, type_ownership_matrix, response_matrix, shares, markups, markup_type,
+        custom_model, custom_markup_formula
+):
+    """TODO: add docstring"""
     for i in range(number_models):
-        t_ownership = ownership_matrix[i][t_index]
-        t_ownership = t_ownership[:, ~np.isnan(t_ownership).all(axis=0)]
-        if model_type[i] == 'bertrand':
-            markups_mm = -inv(t_ownership * dsdp) @ s
-        elif model_type[i] == 'cournot':
-            markups_mm = -(t_ownership * inv(dsdp)) @ s
-        elif model_type[i] == 'monopoly':
-            markups_mm = -inv(dsdp) @ s
-        markups[i][t_index] = markups_mm
-    return markups
+        if (markup_type == 'downstream') or (markup_type == 'upstream' and not model_type[i] is None):
+
+            # construct ownership matrix
+            ownership_matrix = type_ownership_matrix[i][index]
+            ownership_matrix = ownership_matrix[:, ~np.isnan(ownership_matrix).all(axis=0)]
+
+            # maps each model to its corresponding markup formula, with option for own formula
+            model_markup_formula = {
+                'bertrand': -inv(ownership_matrix * response_matrix) @ shares,
+                'cournot': -(ownership_matrix * inv(response_matrix)) @ shares,
+                'monopoly': -inv(response_matrix) @ shares
+            }
+            if custom_model is not None:
+                model_markup_formula[custom_model] = custom_markup_formula
+
+            # compute markup for desired model
+            markups[i][index] = model_markup_formula[model_type[i]]
+
+    return markups, model_markup_formula[model_type[i]], ownership_matrix
+
+
+def compute_alpha(demand_results):
+    """Get alpha for each draw."""
+
+    # initialize
+    number_agents = len(demand_results.problem.agents)
+    sigma_price = np.zeros((number_agents, 1))
+    pi_price = np.zeros((number_agents, 1))
+
+    # add comment
+    for j in range(len(demand_results.beta)):
+        if demand_results.beta_labels[j] == 'prices':
+            alpha = demand_results.beta[j]
+
+    # add comment
+    if demand_results.problem.K2 > 0:
+        for j in range(len(demand_results.sigma)):
+            if demand_results.sigma_labels[j] == 'prices':
+                if not np.all((demand_results.sigma[j] == 0)):
+                    sigma_price = demand_results.problem.agents.nodes @ np.transpose(demand_results.sigma[j])
+                    sigma_price = sigma_price.reshape(number_agents, 1)
+                if demand_results.problem.D > 0:
+                    if not np.all((demand_results.pi[j] == 0)):
+                        pi_price = demand_results.problem.agents.demographics @ np.transpose(demand_results.pi[j])
+                        pi_price = pi_price.reshape(number_agents, 1)
+
+    # return alpha i
+    return alpha + sigma_price + pi_price
