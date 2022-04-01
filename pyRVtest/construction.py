@@ -487,11 +487,12 @@ def data_to_dict(data: RecArray, ignore_empty: bool = True) -> Dict[str, Array]:
     return mapping
 
 
+# TODO: need to be able to pass custom model for upstream and downstream. is there a better way to pass this info in
+#   general? aka as a dictionary?
 def build_markups_all(
         products: RecArray, demand_results: Mapping, model_downstream: Array, ownership_downstream: Array,
         model_upstream: Optional[Array] = None, ownership_upstream: Optional[Array] = None,
-        vertical_integration: Optional[Array] = None, custom_model: Optional[Array] = None,
-        custom_markup_formula: Optional[Array] = None) -> Array:
+        vertical_integration: Optional[Array] = None, custom_model_specification: Optional[dict] = None) -> Array:
     r"""This function computes markups for a large set of standard models. These include:
             - standard bertrand with ownership matrix based on firm id
             - price setting with arbitrary ownership matrix (e.g. profit weight model)
@@ -508,7 +509,7 @@ def build_markups_all(
         demand_results : `Mapping`
             results structure from pyBLP demand estimation
         model_downstream: Array
-            Can be one of ['bertrand', 'cournot', 'monopoly']. If model_upstream not specified, this is model without
+            Can be one of ['bertrand', 'cournot', 'monopoly']. If model_upstream not specified, this is a model without
             vertical integration.
         ownership_downstream: Array
             (optional, default is standard ownership) ownership matrix for price or quantity setting
@@ -517,11 +518,9 @@ def build_markups_all(
         ownership_upstream: Optional[Array]
             (optional, default is standard ownership) ownership matrix for price or quantity setting of upstream firms
         vertical_integration: Optional[Array]
-        TODO: not sure where this one comes from
-        store_prod_ids = vector indicating which product_ids are vertically integrated (ie store brands) .  Default is
+        TODO: ask about this variable
+        store_prod_ids: vector indicating which product_ids are vertically integrated (ie store brands) .  Default is
         missing and no vertical integration.
-        custom_model: Optional[Array]
-        custom_markup_formula: Optional[Array]
         Returns
         -------
         `ndarray`
@@ -531,6 +530,8 @@ def build_markups_all(
         For models without vertical integration, firm_ids must be defined in product_data for vi models, and
         firm_ids_upstream and firm_ids (=firm_ids_downstream) must be defined.
     """
+    # TODO: add error if model is other custom model and custom markup can't be None
+
     # initialize
     N = np.size(products.prices)
     with HideOutput():
@@ -567,8 +568,7 @@ def build_markups_all(
         # compute downstream markups
         markups_downstream, markups_t, retailer_ownership_matrix = compute_markups(
             index_t, number_models, model_downstream, ownership_downstream, retailer_response_matrix, shares_t,
-            markups_downstream, markup_type='downstream', custom_model=custom_model,
-            custom_markup_formula=custom_markup_formula
+            markups_downstream, custom_model_specification, markup_type='downstream'
         )
 
         # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
@@ -586,8 +586,7 @@ def build_markups_all(
             H = np.transpose(retailer_ownership_matrix * retailer_response_matrix)
             g = np.zeros((J, J))
 
-            # TODO: could these variables names be improved at all?
-            # TODO: needs to be commented
+            # TODO: needs to be commented, and variables renamed
             if len(demand_results.rho) == 0:
                 agent_weights = demand_results.problem.agents.weights[agent_index]
                 NS = len(agent_weights)
@@ -626,8 +625,7 @@ def build_markups_all(
                 # compute upstream markups
                 markups_upstream, markups_t, manufacturer_ownership_matrix = compute_markups(
                     index_t, number_models, model_upstream, ownership_upstream, manufacturer_response_matrix, shares_t,
-                    markups_upstream, markup_type='upstream', custom_model=custom_model,
-                    custom_markup_formula=custom_markup_formula
+                    markups_upstream, custom_model_specification, markup_type='upstream'
                 )
 
     # compute total markups as sum of upstream and downstream markups, taking into account vertical integration
@@ -640,14 +638,19 @@ def build_markups_all(
     return markups, markups_downstream, markups_upstream
 
 
-# TODO: edit and test
 def compute_markups(
-        index, number_models, model_type, type_ownership_matrix, response_matrix, shares, markups, markup_type,
-        custom_model, custom_markup_formula
+        index, number_models, model_type, type_ownership_matrix, response_matrix, shares, markups,
+        custom_model_specification, markup_type
 ):
-    """TODO: add docstring"""
+    """Compute markups for some standard models including Bertrand, Cournot, and Monopoly. Allow user to pass in their
+    own markup function as well.
+    """
     for i in range(number_models):
         if (markup_type == 'downstream') or (markup_type == 'upstream' and not model_type[i] is None):
+
+            # pull out custom model information
+            if custom_model_specification[i] is not None:
+                custom_model, custom_model_formula = next(iter(custom_model_specification[i].items()))
 
             # construct ownership matrix
             ownership_matrix = type_ownership_matrix[i][index]
@@ -655,21 +658,22 @@ def compute_markups(
 
             # maps each model to its corresponding markup formula, with option for own formula
             model_markup_formula = {
-                'bertrand': -inv(ownership_matrix * response_matrix) @ shares,
+                # 'bertrand': -inv(ownership_matrix * response_matrix) @ shares,
                 'cournot': -(ownership_matrix * inv(response_matrix)) @ shares,
                 'monopoly': -inv(response_matrix) @ shares
             }
-            if custom_model is not None:
-                model_markup_formula[custom_model] = custom_markup_formula
 
             # compute markup for desired model
+            if custom_model_specification[i] is not None:
+                model_markup_formula[custom_model] = eval(custom_model_formula)
+                model_type[i] = custom_model
             markups[i][index] = model_markup_formula[model_type[i]]
 
     return markups, model_markup_formula[model_type[i]], ownership_matrix
 
 
 def compute_alpha(demand_results):
-    """Get alpha for each draw."""
+    """Use the demand results from pyBLP to compute alpha for each draw."""
 
     # initialize
     number_agents = len(demand_results.problem.agents)

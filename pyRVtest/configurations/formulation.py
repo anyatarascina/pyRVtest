@@ -265,7 +265,7 @@ class ModelFormulation(object):
     ----------
     model_ downstream : `str`
         model of conduct downstream (or if no vertical structure, the model of conduct) "bertrand", "couront", "monopoly".
-    model_upsream : `str, optional`
+    model_upstream : `str, optional`
         model of conduct upstream. "bertrand", "couront", "monopoly"
     absorb_method : `str, optional`
         Method by which fixed effects will be absorbed. For a full list of supported methods, refer to the
@@ -298,8 +298,9 @@ class ModelFormulation(object):
     """
 
     def __init__(
-            self, model_downstream: str, model_upstream: Optional[str] = None, ownership_downstream: Optional[str] = None,
-            ownership_upstream: Optional[str] = None, vertical_integration: Optional[str] = None, 
+            self, model_downstream: str, model_upstream: Optional[str] = None,
+            ownership_downstream: Optional[str] = None, ownership_upstream: Optional[str] = None,
+            custom_model_specification: Optional[dict] = None, vertical_integration: Optional[str] = None,
             kappa_specification_downstream: Optional[Union[str, Callable[[Any, Any], float]]] = None,
             kappa_specification_upstream: Optional[Union[str, Callable[[Any, Any], float]]] = None) -> None:
         """Parse the formula into patsy terms and SymPy expressions. In the process, validate it as much as possible
@@ -307,25 +308,26 @@ class ModelFormulation(object):
         """
 
         # validate the parameters   
-        if model_downstream not in {'monopoly', 'cournot', 'bertrand'}:
-            raise TypeError("model_downstream must be monopoly, bertrand, or cournot.")
-        if model_upstream is not None and model_upstream not in {'monopoly', 'cournot', 'bertrand'}:
-            raise TypeError("model_upstream must be monopoly, bertrand, or cournot.")
+        if model_downstream not in {'monopoly', 'cournot', 'bertrand', 'other'}:
+            raise TypeError("model_downstream must be monopoly, bertrand, cournot, or other.")
+        if model_upstream is not None and model_upstream not in {'monopoly', 'cournot', 'bertrand', 'other'}:
+            raise TypeError("model_upstream must be monopoly, bertrand, cournot, or other..")
         if model_upstream is not None and model_downstream in {'cournot'} and model_upstream in {'cournot'}:
             raise TypeError("model_upstream and model_downstream cannot both be cournot.")    
-        if ownership_downstream is not None and  not isinstance(ownership_downstream, str):
+        if ownership_downstream is not None and not isinstance(ownership_downstream, str):
             raise TypeError("ownership_downstream must be a None or a str.")
-        if ownership_upstream is not None and  not isinstance(ownership_upstream, str):
+        if ownership_upstream is not None and not isinstance(ownership_upstream, str):
             raise TypeError("ownership_upstream must be a None or a str.")
-        if model_upstream is not None and  not isinstance(ownership_upstream, str):
+        if model_upstream is not None and not isinstance(ownership_upstream, str):
             raise TypeError("ownership_upstream must be a str when upstream model defined.")    
-        if vertical_integration is not None and  not isinstance(vertical_integration, str):
+        if vertical_integration is not None and not isinstance(vertical_integration, str):
             raise TypeError("vertical_integration must be a None or a str.")
 
         _model_downstream: str
         _model_upstream: Optional[str]
         _ownership_downstream: Optional[str]
         _ownership_upstream: Optional[str]
+        _custom_model_specification: Optional[dict]
         _vertical_integration: Optional[str]
         _kappa_specification_downstream: Optional[Union[str, Callable[[Any, Any], float]]]
         _kappa_specification_upstream: Optional[Union[str, Callable[[Any, Any], float]]]
@@ -335,13 +337,18 @@ class ModelFormulation(object):
         self._model_upstream = model_upstream
         self._ownership_downstream = ownership_downstream
         self._ownership_upstream = ownership_upstream
+        self._custom_model_specification = custom_model_specification
         self._vertical_integration = vertical_integration
         self._kappa_specification_downstream = kappa_specification_downstream
         self._kappa_specification_upstream = kappa_specification_upstream
 
     def __reduce__(self) -> Tuple[Type['Formulation'], Tuple]:
         """Handle pickling."""
-        return (self.__class__, (self._model_downstream, self._model_upstream, self._ownership_downstream, self._ownership_upstream, self._vertical_integration, self._kappa_specification_downstream, self._kappa_specification_upstream))
+        return (self.__class__, (
+            self._model_downstream, self._model_upstream, self._ownership_downstream, self._ownership_upstream,
+            self._custom_model_specification, self._vertical_integration, self._custom_model_specification,
+            self._kappa_specification_downstream, self._kappa_specification_upstream
+        ))
 
     def __str__(self) -> str:
         """Format the terms as a string."""
@@ -356,13 +363,14 @@ class ModelFormulation(object):
            
         model_mapping: Dict[Union[str, Array]] = {}
         model_mapping.update({
-            'model_downstream': (self._model_downstream),
-            'model_upstream': (self._model_upstream),
-            'ownership_downstream': (self._ownership_downstream),
-            'ownership_upstream': (self._ownership_upstream),
-            'vertical_integration': (self._vertical_integration),
-            'kappa_specification_downstream': (self._kappa_specification_downstream),
-            'kappa_specification_upstream': (self._kappa_specification_upstream)
+            'model_downstream': self._model_downstream,
+            'model_upstream': self._model_upstream,
+            'ownership_downstream': self._ownership_downstream,
+            'ownership_upstream': self._ownership_upstream,
+            'custom_model_specification': self._custom_model_specification,
+            'vertical_integration': self._vertical_integration,
+            'kappa_specification_downstream': self._kappa_specification_downstream,
+            'kappa_specification_upstream': self._kappa_specification_upstream
         })
 
         return model_mapping

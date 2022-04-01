@@ -157,6 +157,7 @@ class Products(object):
         })
         
         for zz in range(L):
+            # TODO: format this line
             product_mapping.update({(tuple(Instr["Z{0}_formulation".format(zz)]), 'Z{0}'.format(zz)): (Instr["Z{0}".format(zz)], options.dtype)})
 
         # structure and validate variables underlying X1, X2, and X3
@@ -191,7 +192,7 @@ class Models(object):
         if not all(isinstance(f, ModelFormulation) or f is None for f in model_formulations):
             raise TypeError("Each formulation in model_formulations must be a ModelFormulation instance or None.")
         M = len(model_formulations)
-        if M<2:
+        if M < 2:
             raise ValueError("At least two model formulations must be specified.")
 
         omatrices_downstream = [None]*M
@@ -202,10 +203,13 @@ class Models(object):
         VI_ind = [None]*M
         models_upstream = [None]*M
         models_downstream = [None]*M
+        custom_model = [None] * M
 
         # make ownership matrices and extract vertical integration
         for kk in range(M):
             model = model_formulations[kk]._build_matrix(product_data)
+
+            # TODO: allow for different way to enter data
             models_downstream[kk] = model["model_downstream"]
             if model["model_upstream"] is not None:
                 models_upstream[kk] = model["model_upstream"]  
@@ -231,10 +235,10 @@ class Models(object):
                     product_data, model["ownership_upstream"], model["kappa_specification_upstream"]
                 )
                 firmids_upstream[kk] = model["ownership_upstream"]
-
             if model["vertical_integration"] is not None:
                 VI[kk] = extract_matrix(product_data, model["vertical_integration"])
                 VI_ind[kk] = model["vertical_integration"]
+            custom_model[kk] = model["custom_model_specification"]
 
         models_mapping = pd.Series({
             'models_downstream': models_downstream,
@@ -243,7 +247,10 @@ class Models(object):
             'firmids_upstream': firmids_upstream,
             'ownership_downstream': omatrices_downstream,
             'ownership_upstream': omatrices_upstream,
-            'VI': VI, 'VI_ind': VI_ind})
+            'VI': VI,
+            'VI_ind': VI_ind,
+            'custom_model_specification': custom_model
+        })
 
         return models_mapping
 

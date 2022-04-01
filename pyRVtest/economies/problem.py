@@ -74,7 +74,8 @@ class ProblemEconomy(Economy):
             print('Computing Markups ... ')
             markups, markups_downstream, markups_upstream = build_markups_all(
                 self.products, self.demand_results, self.models.models_downstream, self.models.ownership_downstream,
-                self.models.models_upstream, self.models.ownership_upstream, self.models.VI
+                self.models.models_upstream, self.models.ownership_upstream, self.models.VI,
+                self.models.custom_model_specification
             )
 
         for kk in range(M):
@@ -155,7 +156,6 @@ class ProblemEconomy(Economy):
                         # reduce sigma by small increment
                         self.demand_results.sigma[jj, ll] = tmp_sig - eps/2
 
-
                         # update delta
                         with HideOutput():
                             delta_new = self.demand_results.compute_delta()
@@ -165,7 +165,7 @@ class ProblemEconomy(Economy):
                         markups_l, md, ml = build_markups_all(
                             self.products, self.demand_results, self.models.models_downstream,
                             self.models.ownership_downstream, self.models.models_upstream,
-                            self.models.ownership_upstream, self.models.VI
+                            self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
                         )
 
                         # increase sigma by small increment
@@ -180,7 +180,7 @@ class ProblemEconomy(Economy):
                         markups_u, mu, mu = build_markups_all(
                             self.products, self.demand_results, self.models.models_downstream,
                             self.models.ownership_downstream, self.models.models_upstream,
-                            self.models.ownership_upstream, self.models.VI
+                            self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
                         )
                         
                         # compute first difference approximation of derivative of markups
@@ -204,7 +204,7 @@ class ProblemEconomy(Economy):
                         markups_l, md, ml = build_markups_all(
                             self.products, self.demand_results, self.models.models_downstream,
                             self.models.ownership_downstream, self.models.models_upstream,
-                            self.models.ownership_upstream, self.models.VI
+                            self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
                         )
                         self.demand_results.pi[jj, ll] = tmp_pi + eps/2
                         with HideOutput():
@@ -213,7 +213,7 @@ class ProblemEconomy(Economy):
                         markups_u, mu, mu = build_markups_all(
                             self.products, self.demand_results, self.models.models_downstream,
                             self.models.ownership_downstream, self.models.models_upstream,
-                            self.models.ownership_upstream, self.models.VI
+                            self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
                         )
                         for kk in range(M):
                             diff_markups = (markups_u[kk]-markups_l[kk])/eps
@@ -233,13 +233,13 @@ class ProblemEconomy(Economy):
                     markups_l, md, ml = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
-                        self.models.VI
+                        self.models.VI, self.models.custom_model_specification
                     )
                     self.demand_results.beta[jj] = tmp_alpha + eps/2
                     markups_u, mu, mu = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
-                        self.models.VI
+                        self.models.VI, self.models.custom_model_specification
                     )
                     for kk in range(M):
                         diff_markups = (markups_u[kk]-markups_l[kk])/eps
