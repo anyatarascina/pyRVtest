@@ -32,13 +32,20 @@ class ProblemEconomy(Economy):
             cost_formulation, instrument_formulation, model_formulations, products, models, demand_results, markups
         )
 
-    # TODO: there must be a way to parse this out into multiple functions. very long and messy right now
-    # TODO: needs to be commented
     def solve(
             self, method: str = 'both', demand_adjustment: str = 'no', se_type: str = 'unadjusted') -> ProblemResults:
         r"""Solve the problem.
 
-        # TODO: add docstring
+        # TODO: add general overview
+
+        Parameters
+        ----------
+        method: `str`
+            Configuration that allows user to select method? # TODO: what is unused argument both?
+        demand_adjustment: `str'
+            Configuration that specifies whether or not to compute a two-step demand adjustment?
+        se_type: `str'
+            Configuration that specifies what kind of errors to compute... Is this optional?
 
         """
 
@@ -54,22 +61,24 @@ class ProblemEconomy(Economy):
         if se_type == 'clustered' and np.shape(self.products.clustering_ids)[1] !=1:
             raise ValueError("product_data.clustering_ids must be specified with se_type 'clustered'.")
  
-        # compute the markups
+        # initialize constants and precomputed values
         M = self.M
         N = self.N
         L = self.L
-        Dict_K = self.Dict_K 
+        Dict_K = self.Dict_K  # TODO: why is this assigned but not used?
         markups = self.markups
-        # TODO: not sure why these vars are initialized like this
-        markups_upstream = [None]*M
-        markups_downstream = [None]*M
-        mc = [None]*M
-        markups_orth = [None]*M
-        mc_orth = [None]*M
-        taus = [None]*M
-        markups_errors = [None]*M
-        mc_errors = [None]*M
 
+        # initialize variables to be computed as all zeroes
+        markups_upstream = [None] * M
+        markups_downstream = [None] * M
+        marginal_cost = [None] * M
+        markups_orthogonal = [None] * M
+        marginal_cost_orthogonal = [None] * M
+        tau_list = [None] * M
+        markups_errors = [None] * M
+        marginal_cost_errors = [None] * M
+
+        # if there are no markups, compute them
         if markups[0] is None:
             print('Computing Markups ... ')
             markups, markups_downstream, markups_upstream = build_markups_all(
@@ -78,89 +87,93 @@ class ProblemEconomy(Economy):
                 self.models.custom_model_specification
             )
 
-        for kk in range(M):
-            mc[kk] = self.products.prices - markups[kk]
+        # for each model, use computed markups to compute the marginal costs
+        for m in range(M):
+            marginal_cost[m] = self.products.prices - markups[m]
 
         # if demand_adjustment is yes, get finite differences approx to the derivative of markups wrt theta
-        # TODO: add this feature
+        # TODO: add this feature?
 
         # absorb any cost fixed effects from prices, markups, and instruments
         if self._absorb_cost_ids is not None:
             output("Absorbing cost-side fixed effects ...")
             self.products.w, w_errors = self._absorb_cost_ids(self.products.w)
-            prices_orth, prices_errors = self._absorb_cost_ids(self.products.prices)
+            prices_orthogonal, prices_errors = self._absorb_cost_ids(self.products.prices)
             
-            for kk in range(M):
-                markups_orth[kk], markups_errors[kk] = self._absorb_cost_ids(markups[kk])
-                mc_orth[kk], mc_errors[kk] = self._absorb_cost_ids(mc[kk])
+            for m in range(M):
+                markups_orthogonal[m], markups_errors[m] = self._absorb_cost_ids(markups[m])
+                marginal_cost_orthogonal[m], marginal_cost_errors[m] = self._absorb_cost_ids(marginal_cost[m])
 
         # residualize prices, markups, and instruments w.r.t cost shifters w and recover the tau parameters in cost
         #   regression on w
-        tmp = sm.OLS(prices_orth, self.products.w).fit()
-        prices_orth = tmp.resid
-        prices_orth = np.reshape(prices_orth, [N, 1])
-        
-        for kk in range(M):
-            tmp = sm.OLS(markups_orth[kk], self.products.w).fit()
-            markups_orth[kk] = tmp.resid
-            markups_orth[kk] = np.reshape(markups_orth[kk], [N, 1])
-            tmp = sm.OLS(mc_orth[kk], self.products.w).fit()
-            taus[kk] = tmp.params
+        # TODO: if above if condition is false, then prices_orthogonal not assigned...
+        results = sm.OLS(prices_orthogonal, self.products.w).fit()
+        prices_orthogonal = np.reshape(results.resid, [N, 1])
+        for m in range(M):
+            results = sm.OLS(markups_orthogonal[m], self.products.w).fit()
+            markups_orthogonal[m] = np.reshape(results.resid, [N, 1])
+            results = sm.OLS(marginal_cost_orthogonal[m], self.products.w).fit()
+            tau_list[m] = results.params
 
+        # if user specifies demand adjustment,
         if demand_adjustment == 'yes':
             ZD = self.demand_results.problem.products.ZD
-            for jj in range(len(self.demand_results.problem.products.dtype.fields['X1'][2])):
-                if self.demand_results.problem.products.dtype.fields['X1'][2][jj] == 'prices':
-                    price_col = jj
+            for i in range(len(self.demand_results.problem.products.dtype.fields['X1'][2])):
+                if self.demand_results.problem.products.dtype.fields['X1'][2][i] == 'prices':
+                    price_col = i
 
+            # initialize variables for two-step standard error adjustment
             XD = np.delete(self.demand_results.problem.products.X1, price_col, 1)
             WD = self.demand_results.updated_W
             h = self.demand_results.moments
-            
+
+            # comment here
+            # TODO: rename these variables?
             dy_dtheta = np.append(
                 self.demand_results.xi_by_theta_jacobian, -self.demand_results.problem.products.prices, 1
             )
             dy_dtheta = self.demand_results.problem._absorb_demand_ids(dy_dtheta)
-            dy_dtheta = np.reshape(dy_dtheta[0], [N, len(self.demand_results.theta)+1])
-
+            dy_dtheta = np.reshape(dy_dtheta[0], [N, len(self.demand_results.theta) + 1])
             if np.shape(XD)[1] == 0:
                 dxi_dtheta = dy_dtheta
             else:    
-                dxi_dtheta = dy_dtheta - XD@inv(XD.T@ZD@WD@ZD.T@XD)@(XD.T@ZD@WD@ZD.T@dy_dtheta)
-            
-            H = 1/N*(np.transpose(ZD)@dxi_dtheta)
-            
+                dxi_dtheta = dy_dtheta - XD @ inv(XD.T @ ZD @ WD @ ZD.T @ XD) @ (XD.T @ ZD @ WD @ ZD.T @ dy_dtheta)
+
+            # compute the gradient of the GMM moment function
+            H = 1 / N * (np.transpose(ZD) @ dxi_dtheta)
             H_prime = np.transpose(H)
-            H_primeWD = H_prime@WD
-            hi = ZD*self.demand_results.xi
+            H_primeWD = H_prime @ WD
+
+            # something else
+            h_i = ZD * self.demand_results.xi
             K2 = self.demand_results.problem.K2
             D = self.demand_results.problem.D
 
             # build adjustment to psi for each model
-            eps = options.finite_differences_epsilon
-            Gm = [None]*M
-            grad_markups = [None]*M
+            epsilon = options.finite_differences_epsilon
+            G_m = [None]*M
+            gradient_markups = [None]*M
 
             # get numerical derivatives of markups wrt theta, alpha
-            for kk in range(M):
-                grad_markups[kk] = np.zeros((N, len(self.demand_results.theta)+1))
+            for m in range(M):
+                gradient_markups[m] = np.zeros((N, len(self.demand_results.theta)+1))
 
-            # sigma
-            ind_theta = 0
-            delta_est = self.demand_results.delta
-            for jj in range(K2):
-                for ll in range(K2):
-                    if not self.demand_results.sigma[jj, ll] == 0:
-                        tmp_sig = self.demand_results.sigma[jj, ll]
+            # compute sigma
+            theta_index = 0
+            delta_estimate = self.demand_results.delta
+            for i in range(K2):
+                for j in range(K2):
+                    if not self.demand_results.sigma[i, j] == 0:
+                        sigma_initial = self.demand_results.sigma[i, j]
 
                         # reduce sigma by small increment
-                        self.demand_results.sigma[jj, ll] = tmp_sig - eps/2
+                        self.demand_results.sigma[i, j] = sigma_initial - epsilon / 2
 
                         # update delta
                         with HideOutput():
                             delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
-                        
+
                         # recompute markups
                         markups_l, md, ml = build_markups_all(
                             self.products, self.demand_results, self.models.models_downstream,
@@ -169,94 +182,107 @@ class ProblemEconomy(Economy):
                         )
 
                         # increase sigma by small increment
-                        self.demand_results.sigma[jj, ll] = tmp_sig + eps/2
+                        self.demand_results.sigma[i, j] = sigma_initial + epsilon / 2
 
                         # update delta
                         with HideOutput():
                             delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
-                        
+
                         # recompute markups
                         markups_u, mu, mu = build_markups_all(
                             self.products, self.demand_results, self.models.models_downstream,
                             self.models.ownership_downstream, self.models.models_upstream,
                             self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
                         )
-                        
-                        # compute first difference approximation of derivative of markups
-                        for kk in range(M):
-                            diff_markups = (markups_u[kk]-markups_l[kk])/eps
-                            diff_markups, me = self._absorb_cost_ids(diff_markups)
-                            tmp = sm.OLS(diff_markups, self.products.w).fit()
-                            grad_markups[kk][:, ind_theta] = tmp.resid
-                        self.demand_results.sigma[jj, ll] = tmp_sig
-                        ind_theta = ind_theta+1
 
-            # pi
-            for jj in range(K2):
-                for ll in range(D):
-                    if not self.demand_results.pi[jj, ll] == 0:
-                        tmp_pi = self.demand_results.pi[jj, ll]
-                        self.demand_results.pi[jj, ll] = tmp_pi - eps/2
+                        # compute first difference approximation of derivative of markups
+                        gradient_markups = self._compute_first_difference_markups(
+                            markups_u, markups_l, epsilon, theta_index, gradient_markups
+                        )
+
+                        self.demand_results.sigma[i, j] = sigma_initial
+                        theta_index = theta_index+1
+
+            # compute pi
+            for i in range(K2):
+                for j in range(D):
+
+                    # if results for pi are not zero
+                    if not self.demand_results.pi[i, j] == 0:
+                        pi_initial = self.demand_results.pi[i, j]
+
+                        self.demand_results.pi[i, j] = pi_initial - epsilon / 2
                         with HideOutput():
                             delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
+
+                        # recompute markups
                         markups_l, md, ml = build_markups_all(
                             self.products, self.demand_results, self.models.models_downstream,
                             self.models.ownership_downstream, self.models.models_upstream,
                             self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
                         )
-                        self.demand_results.pi[jj, ll] = tmp_pi + eps/2
+
+                        # TODO: this block of code is the same as above
+                        self.demand_results.pi[i, j] = pi_initial + epsilon / 2
                         with HideOutput():
                             delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
+
                         markups_u, mu, mu = build_markups_all(
                             self.products, self.demand_results, self.models.models_downstream,
                             self.models.ownership_downstream, self.models.models_upstream,
                             self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
                         )
-                        for kk in range(M):
-                            diff_markups = (markups_u[kk]-markups_l[kk])/eps
-                            diff_markups, me = self._absorb_cost_ids(diff_markups)
-                            tmp = sm.OLS(diff_markups, self.products.w).fit()
-                            grad_markups[kk][:, ind_theta] = tmp.resid
-                        self.demand_results.pi[jj, ll] = tmp_pi
-                        ind_theta = ind_theta+1                
-            
-            self.demand_results.delta = delta_est             
+
+                        # compute first differences for the markups
+                        gradient_markups = self._compute_first_difference_markups(
+                            markups_u, markups_l, epsilon,theta_index, gradient_markups
+                        )
+
+                        self.demand_results.pi[i, j] = pi_initial
+                        theta_index = theta_index + 1
+            self.demand_results.delta = delta_estimate
                 
-            # alpha
-            for jj in range(len(self.demand_results.beta)):
-                if self.demand_results.beta_labels[jj] == 'prices':
-                    tmp_alpha = self.demand_results.beta[jj]
-                    self.demand_results.beta[jj] = tmp_alpha - eps/2
+            # compute alpha
+            for i in range(len(self.demand_results.beta)):
+                if self.demand_results.beta_labels[i] == 'prices':
+                    alpha_initial = self.demand_results.beta[i]
+
+                    # perturb alpha in the negative direction and recompute markups
+                    self.demand_results.beta[i] = alpha_initial - epsilon / 2
                     markups_l, md, ml = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
                         self.models.VI, self.models.custom_model_specification
                     )
-                    self.demand_results.beta[jj] = tmp_alpha + eps/2
+
+                    # perturb alpha in the positive direction and recompute markups
+                    self.demand_results.beta[i] = alpha_initial + epsilon / 2
                     markups_u, mu, mu = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
                         self.models.VI, self.models.custom_model_specification
                     )
-                    for kk in range(M):
-                        diff_markups = (markups_u[kk]-markups_l[kk])/eps
-                        diff_markups, me = self._absorb_cost_ids(diff_markups)
-                        tmp = sm.OLS(diff_markups, self.products.w).fit()
-                        grad_markups[kk][:, ind_theta] = tmp.resid
-                    self.demand_results.beta[jj] = tmp_alpha
-                    ind_theta = ind_theta+1 
 
-        g_ALL = [None]*L
-        Q_ALL = [None]*L
-        RV_num_ALL = [None]*L
-        RV_denom_ALL = [None]*L
-        TRV_ALL = [None]*L
-        F_ALL = [None]*L
-        MCS_pvalues_ALL = [None]*L
-    
+                    gradient_markups = self._compute_first_difference_markups(
+                        markups_u, markups_l, epsilon, theta_index, gradient_markups
+                    )
+
+                    self.demand_results.beta[i] = alpha_initial
+                    theta_index = theta_index+1
+
+        # initialize empty lists to store statistic related values for each model
+        g_list = [None] * L
+        Q_list = [None] * L
+        RV_numerator_list = [None] * L
+        RV_denominator_list = [None] * L
+        test_statistic_RV_list = [None] * L
+        F_statistic_list = [None] * L
+        MCS_p_values_list = [None] * L
+
+        # for each ? what is L?
         for zz in range(L):
             Z = self.products["Z{0}".format(zz)]
             K = np.shape(Z)[1]
@@ -264,74 +290,74 @@ class ProblemEconomy(Economy):
             # absorb any cost fixed effects from prices, markups, and instruments
             if self._absorb_cost_ids is not None:
                 Z_orth, Z_errors = self._absorb_cost_ids(Z)
-                
             tmp = sm.OLS(Z_orth, self.products.w).fit()
             Z_orth = tmp.resid     
             Z_orth = np.reshape(Z_orth, [N, K])
 
-            # get the GMM measure of fit Q_m for each model
-            g = [None]*M
-            Q = [None]*M
-            WMinv = 1/N*(Z_orth.T@Z_orth)
-            WMinv = np.reshape(WMinv, [K, K])
+            # initialize variables to store GMM measure of fit Q_m for each model
+            g = [None] * M
+            Q = [None] * M
 
-            # TODO: what is this and why is it commented?
+            # compute the weight matrix
+            WMinv = 1 / N * (Z_orth.T @ Z_orth)
+            WMinv = np.reshape(WMinv, [K, K])
             WM = inv(WMinv)
+            # TODO: what is this and why is it commented?
             # WM = precisely_invert(WMinv)
             # WM = WM[0]
 
-            for kk in range(M):
-                g[kk] = 1/N*(Z_orth.T@(prices_orth-markups_orth[kk])) 
-                g[kk] = np.reshape(g[kk], [K, 1])
-                Q[kk] = g[kk].T@WM@g[kk] 
+            # for each model compute GMM measure of fit
+            for m in range(M):
+                g[m] = 1 / N * (Z_orth.T @ (prices_orthogonal-markups_orthogonal[m]))
+                g[m] = np.reshape(g[m], [K, 1])
+                Q[m] = g[m].T @ WM @ g[m]
 
             # compute the pairwise RV numerator
             RV_num = np.zeros((M, M))
-            for kk in range(M):
-                for jj in range(kk):
-                    if jj < kk:
-                        RV_num[jj, kk] = math.sqrt(N) * (Q[jj] - Q[kk])
+            for m in range(M):
+                for i in range(m):
+                    if i < m:
+                        RV_num[i, m] = math.sqrt(N) * (Q[i] - Q[m])
             
             # compute the pairwise RV denominator
             RV_denom = np.zeros((M, M))
             COV_MCS = np.zeros((M, M))
-            WM14 = fractional_matrix_power(WM, 0.25)
+            WM14 = fractional_matrix_power(WM, 0.25)  # TODO: why is this not used?
             WM12 = fractional_matrix_power(WM, 0.5)
             WM34 = fractional_matrix_power(WM, 0.75)
 
-            psi = [None]*M
-            dmd_adj = [None]*M
-            for kk in range(M):
-                psi[kk] = np.zeros([N, K])
-                psi_bar = WM12@g[kk]-.5*WM34@(WMinv)@WM34@g[kk]   
-                WM34Z = Z_orth@WM34
-                WM34Zg = WM34Z@g[kk]
-                psi_i = ((prices_orth-markups_orth[kk])*Z_orth)@WM12-0.5*WM34Zg*(Z_orth@WM34.T)
-                psi[kk] = psi_i-np.transpose(psi_bar)
+            psi = [None] * M
+            dmd_adj = [None] * M
+            for m in range(M):
+                psi[m] = np.zeros([N, K])
+                psi_bar = WM12 @ g[m] - .5 * WM34 @ (WMinv) @ WM34 @ g[m]
+                WM34Z = Z_orth @ WM34
+                WM34Zg = WM34Z @ g[m]
+                psi_i = ((prices_orthogonal - markups_orthogonal[m]) * Z_orth) @ WM12 - 0.5 * WM34Zg * (Z_orth @ WM34.T)
+                psi[m] = psi_i - np.transpose(psi_bar)
                 if demand_adjustment == 'yes':
-                    G_k = -1/N*np.transpose(Z_orth)@grad_markups[kk]
-                    Gm[kk] = G_k
-                    dmd_adj[kk] = WM12@Gm[kk]@inv(H_primeWD@H)@H_primeWD
-                    psi[kk] = psi[kk] - (hi-np.transpose(h))@np.transpose(dmd_adj[kk])
+                    G_k = -1 / N * np.transpose(Z_orth) @ gradient_markups[m]
+                    G_m[m] = G_k
+                    dmd_adj[m] = WM12 @ G_m[m] @ inv(H_primeWD @ H) @ H_primeWD
+                    psi[m] = psi[m] - (h_i - np.transpose(h)) @ np.transpose(dmd_adj[m])
 
             M_MCS = np.array(range(M))
             all_combos = list(itertools.combinations(M_MCS, 2))
             Var_MCS = np.zeros([np.shape(all_combos)[0], 1])
 
             # vii = 0
-            for kk in range(M):
-                for jj in range(kk):
-                    if jj < kk:  
-                        VRV_11 = 1/N*psi[jj].T@psi[jj]       
-                        VRV_22 = 1/N*psi[kk].T@psi[kk] 
-                        VRV_12 = 1/N*psi[jj].T@psi[kk] 
+            for m in range(M):
+                for i in range(m):
+                    if i < m:
+                        VRV_11 = 1 / N * psi[i].T @ psi[i]
+                        VRV_22 = 1 / N * psi[m].T @ psi[m]
+                        VRV_12 = 1 / N * psi[i].T @ psi[m]
                         if se_type == 'clustered':
-                            cids = np.unique(self.products.clustering_ids)
-                            for ll in cids:
-                                ind_kk = np.where(self.products.clustering_ids == ll)[0]
-                                psi1_l = psi[jj][ind_kk, :]
-                                psi2_l = psi[kk][ind_kk, :]
-                                
+                            cluster_ids = np.unique(self.products.clustering_ids)
+                            for j in cluster_ids:
+                                ind_kk = np.where(self.products.clustering_ids == j)[0]
+                                psi1_l = psi[i][ind_kk, :]
+                                psi2_l = psi[m][ind_kk, :]
                                 psi1_c = psi1_l
                                 psi2_c = psi2_l
                                 
@@ -339,163 +365,171 @@ class ProblemEconomy(Economy):
                                     psi1_c = np.roll(psi1_c, 1, axis=0)
                                     psi2_c = np.roll(psi2_c, 1, axis=0)
                                  
-                                    VRV_11 = VRV_11 + 1/N*psi1_l.T@psi1_c
-                                    VRV_22 = VRV_22 + 1/N*psi2_l.T@psi2_c
-                                    VRV_12 = VRV_12 + 1/N*psi1_l.T@psi2_c    
-                        sigma2 = 4*(g[jj].T@WM12@VRV_11@WM12@g[jj]+g[kk].T@WM12@VRV_22@WM12@g[kk]-2*g[jj].T@WM12@VRV_12@WM12@g[kk])
-                        
-                        COV_MCS[jj, kk] = g[jj].T@WM12@VRV_12@WM12@g[kk]
-                        COV_MCS[kk, jj] = COV_MCS[jj, kk]
-                        COV_MCS[kk, kk] = g[kk].T@WM12@VRV_22@WM12@g[kk]
-                        COV_MCS[jj, jj] = g[jj].T@WM12@VRV_11@WM12@g[jj]
-                        
-                        RV_denom[jj, kk] = math.sqrt(sigma2)
-                
-            Ncombos = np.shape(all_combos)[0]
-            Sigma_MCS = np.zeros([Ncombos, Ncombos])
-            for ii in range(Ncombos):
+                                    VRV_11 = VRV_11 + 1 / N * psi1_l.T @ psi1_c
+                                    VRV_22 = VRV_22 + 1 / N * psi2_l.T @ psi2_c
+                                    VRV_12 = VRV_12 + 1 / N * psi1_l.T @ psi2_c
+                        sigma2 = 4 * (g[i].T @ WM12 @ VRV_11 @ WM12 @ g[i] + g[m].T @ WM12 @ VRV_22 @ WM12 @ g[m] - 2 * g[i].T @ WM12 @ VRV_12 @ WM12 @ g[m])
+
+                        COV_MCS[i, m] = g[i].T @ WM12 @ VRV_12 @ WM12 @ g[m]
+                        COV_MCS[m, i] = COV_MCS[i, m]
+                        COV_MCS[m, m] = g[m].T @ WM12 @ VRV_22 @ WM12 @ g[m]
+                        COV_MCS[i, i] = g[i].T @ WM12 @ VRV_11 @ WM12 @ g[i]
+
+                        RV_denom[i, m] = math.sqrt(sigma2)
+
+            # TODO: what is this block?
+            N_combos = np.shape(all_combos)[0]
+            Sigma_MCS = np.zeros([N_combos, N_combos])
+            for ii in range(N_combos):
                 tmp3 = all_combos[ii][0]
                 tmp4 = all_combos[ii][1]
-                
                 Var_MCS[ii] = RV_denom[tmp3, tmp4]/2
-                for jj in range(Ncombos):
-                    tmp1 = all_combos[jj][0]
-                    tmp2 = all_combos[jj][1]
-                    Sigma_MCS[jj, ii] = COV_MCS[tmp1, tmp3]-COV_MCS[tmp2, tmp3] - COV_MCS[tmp1, tmp4] + COV_MCS[tmp2, tmp4]
-            
-            Sigma_MCS = Sigma_MCS/(Var_MCS@Var_MCS.T)
+                for i in range(N_combos):
+                    tmp1 = all_combos[i][0]
+                    tmp2 = all_combos[i][1]
+                    Sigma_MCS[i, ii] = COV_MCS[tmp1, tmp3] - COV_MCS[tmp2, tmp3] - COV_MCS[tmp1, tmp4] + COV_MCS[tmp2, tmp4]
+            Sigma_MCS = Sigma_MCS / (Var_MCS@Var_MCS.T)
                 
             # compute the pairwise RV test statistic
-            TRV = np.zeros((M,M))
-            for kk in range(M):
-                for jj in range(M):
-                    if jj < kk:  
-                        TRV[jj, kk] = RV_num[jj, kk]/RV_denom[jj, kk]
-                    if jj >= kk:
-                        TRV[jj, kk] = "NaN"
+            test_statistic_RV = np.zeros((M, M))
+            for m in range(M):
+                for i in range(M):
+                    if i < m:
+                        test_statistic_RV[i, m] = RV_num[i, m] / RV_denom[i, m]
+                    if i >= m:
+                        test_statistic_RV[i, m] = "NaN"
 
-            # compute the pairwise F-statistic
+            # compute the pairwise F-statistic for each model
             F = np.zeros((M, M))
             pi = np.zeros((K, M))
-            phi = [None]*M
-
-            for kk in range(M):
-                tmp = sm.OLS(prices_orth-markups_orth[kk],Z_orth).fit() 
-                pi[:,kk] = tmp.params
-                e = np.reshape(tmp.resid,[N,1])
-                phi[kk] = (e*Z_orth)@WM
+            phi = [None] * M
+            for m in range(M):
+                ols_results = sm.OLS(prices_orthogonal - markups_orthogonal[m], Z_orth).fit()
+                pi[:, m] = ols_results.params
+                e = np.reshape(ols_results.resid, [N, 1])
+                phi[m] = (e * Z_orth) @ WM
                 
                 if demand_adjustment == 'yes':
-                    phi[kk] = phi[kk] - (hi-np.transpose(h))@np.transpose(WM12@dmd_adj[kk])
+                    phi[m] = phi[m] - (h_i-np.transpose(h)) @ np.transpose(WM12 @ dmd_adj[m])
 
-            for kk in range(M):
-                for jj in range(M):
-                    if jj < kk:  
-                        VAR_11 = 1/N*phi[jj].T@phi[jj]       
-                        VAR_22 = 1/N*phi[kk].T@phi[kk] 
-                        VAR_12 = 1/N*phi[jj].T@phi[kk] 
+            # TODO: parts of this block are repeated but with phi instead of psi - can I throw this into a function?
+            # TODO: what is phi and what is psi?
+            for m in range(M):
+                for i in range(M):
+                    if i < m:
+                        VAR_11 = 1 / N * phi[i].T @ phi[i]
+                        VAR_22 = 1 / N * phi[m].T @ phi[m]
+                        VAR_12 = 1 / N * phi[i].T @ phi[m]
                         if se_type == 'clustered':
-                            cids = np.unique(self.products.clustering_ids)
-                            for ll in cids:
-                                ind_kk = np.where(self.products.clustering_ids == ll)[0]
-                                phi1_l = phi[jj][ind_kk,:]
-                                phi2_l = phi[kk][ind_kk,:]
+                            cluster_ids = np.unique(self.products.clustering_ids)
+                            for j in cluster_ids:
+                                ind_kk = np.where(self.products.clustering_ids == j)[0]
                                 
+                                phi1_l = phi[i][ind_kk, :]
+                                phi2_l = phi[m][ind_kk, :]
                                 phi1_c = phi1_l
                                 phi2_c = phi2_l
                                 
-                                for ii in range(len(ind_kk)-1):
-                                    phi1_c = np.roll(phi1_c,1,axis=0)
-                                    phi2_c = np.roll(phi2_c,1,axis=0)
+                                for ii in range(len(ind_kk) - 1):
+                                    phi1_c = np.roll(phi1_c, 1, axis=0)
+                                    phi2_c = np.roll(phi2_c, 1, axis=0)
                                  
-                                    VAR_11 = VAR_11 + 1/N*phi1_l.T@phi1_c
-                                    VAR_22 = VAR_22 + 1/N*phi2_l.T@phi2_c
-                                    VAR_12 = VAR_12 + 1/N*phi1_l.T@phi2_c
+                                    VAR_11 = VAR_11 + 1 / N * phi1_l.T @ phi1_c
+                                    VAR_22 = VAR_22 + 1 / N * phi2_l.T @ phi2_c
+                                    VAR_12 = VAR_12 + 1 / N * phi1_l.T @ phi2_c
 
-                        sig2_1 = 1/K*np.trace(VAR_11@WMinv)
-                        sig2_2 = 1/K*np.trace(VAR_22@WMinv)      
-                        sig_12 = 1/K*np.trace(VAR_12@WMinv)
+                        sig2_1 = 1 / K * np.trace(VAR_11 @ WMinv)
+                        sig2_2 = 1 / K * np.trace(VAR_22 @ WMinv)
+                        sig_12 = 1 / K * np.trace(VAR_12 @ WMinv)
                         sig2_12 = sig_12**2
 
-                        temp = (sig2_1-sig2_2)*(sig2_1-sig2_2)
-                        rho2 = temp/((sig2_1+sig2_2)*(sig2_1+sig2_2)-4*sig2_12)
-                        F[jj, kk] = (1-rho2)*N/(2*K)*(sig2_2*g[jj].T@WM@g[jj] + sig2_1*g[kk].T@WM@g[kk] - 2*sig_12*g[jj].T@WM@g[kk])/(sig2_1*sig2_2-sig2_12)
-                    if jj >= kk:
-                        F[jj, kk] = "NaN"
+                        numerator = (sig2_1 - sig2_2) * (sig2_1 - sig2_2)
+                        denominator = ((sig2_1 + sig2_2) * (sig2_1 + sig2_2) - 4 * sig2_12)
+                        rho2 = numerator / denominator
+                        F[i, m] = (1 - rho2) * N / (2 * K) * (sig2_2 * g[i].T @ WM @ g[i] + sig2_1 * g[m].T @ WM @ g[m] - 2 * sig_12 * g[i].T @ WM @ g[m]) / (sig2_1 * sig2_2 - sig2_12)
+                    if i >= m:
+                        F[i, m] = "NaN"
 
             MCS_pvalues = np.ones([M, 1])
 
+            # set a random seed
+            # TODO: why?
             np.random.seed(123)
                 
-            stop = 0
-            while stop == 0:
+            converged = 0
+            while converged == 0:
                 if np.shape(M_MCS)[0] == 2:
-                    TRVmax = TRV[M_MCS[0], M_MCS[1]]
-
-                    if np.sign(TRVmax) >= 0:
+                    TRV_max = test_statistic_RV[M_MCS[0], M_MCS[1]]
+                    if np.sign(TRV_max) >= 0:
                         em = M_MCS[0]
-                        TRVmax = -TRVmax
+                        TRV_max = -TRV_max
                     else:
                         em = M_MCS[1]
+                    MCS_pvalues[em] = 2 * norm.cdf(TRV_max)
 
-                    MCS_pvalues[em] = 2*norm.cdf(TRVmax)
-
-                    stop = 1
-                else:      
-
+                    converged = 1
+                else:
                     combos = list(itertools.combinations(M_MCS, 2))
                     tmp1 = []
                     tmp2 = []
                     
-                    Ncombos = np.shape(combos)[0]
-                    Sig_idx = np.empty(Ncombos, dtype=int)
-                    for ii in range(Ncombos):
+                    N_combos = np.shape(combos)[0]
+                    Sig_idx = np.empty(N_combos, dtype=int)
+                    for ii in range(N_combos):
                         tmp1.append(combos[ii][0])
                         tmp2.append(combos[ii][1])
 
                         Sig_idx[ii] = all_combos.index(combos[ii])
 
-                    TRV_MCS = TRV[tmp1,tmp2]
+                    TRV_MCS = test_statistic_RV[tmp1, tmp2]
                     index = np.argmax(abs(TRV_MCS))
-                    TRVmax = TRV_MCS[index]
+                    TRV_max = TRV_MCS[index]
 
-                    if np.sign(TRVmax) >= 0:
+                    if np.sign(TRV_max) >= 0:
                         em = tmp1[index]
                     else:
                         em = tmp2[index]
-                        TRVmax = -TRVmax
+                        TRV_max = -TRV_max
                        
                     mean = np.zeros([np.shape(combos)[0]]) 
                     cov = Sigma_MCS[Sig_idx[:, None], Sig_idx]
-                    Ndraws = 99999
+                    Ndraws = 99999  # TODO: why is this set here?
                     simTRV = np.random.multivariate_normal(mean, cov, (Ndraws))
                     maxsimTRV = np.amax(abs(simTRV), 1)
 
-                    MCS_pvalues[em] = np.mean(maxsimTRV > TRVmax)
-                    M_MCS = np.delete(M_MCS,np.where(M_MCS == em))
+                    MCS_pvalues[em] = np.mean(maxsimTRV > TRV_max)
+                    M_MCS = np.delete(M_MCS, np.where(M_MCS == em))
 
-            g_ALL[zz] = g
-            Q_ALL[zz] = Q
-            RV_num_ALL[zz] = RV_num
-            RV_denom_ALL[zz] = RV_denom
-            TRV_ALL[zz] = TRV
-            F_ALL[zz] = F
-            MCS_pvalues_ALL[zz] = MCS_pvalues
+            g_list[zz] = g
+            Q_list[zz] = Q
+            RV_numerator_list[zz] = RV_num
+            RV_denominator_list[zz] = RV_denom
+            test_statistic_RV_list[zz] = test_statistic_RV
+            F_statistic_list[zz] = F
+            MCS_p_values_list[zz] = MCS_pvalues
 
+        # return results
         results = ProblemResults(Progress(
-            self, markups, markups_downstream, markups_upstream, mc, taus, g_ALL, Q_ALL, RV_num_ALL, RV_denom_ALL,
-            TRV_ALL, F_ALL, MCS_pvalues_ALL)
-        )
+            self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
+            RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list
+        ))
         step_end_time = time.time()
-        tot_time = step_end_time-step_start_time
-        print('Total Time is ... ' + str(tot_time))
+        total_time = step_end_time-step_start_time
+        print('Total Time is ... ' + str(total_time))
         output("")
         output(results)
         return results
-        
+
+    def _compute_first_difference_markups(self, markups_u, markups_l, epsilon, theta_index, gradient_markups):
+        for m in range(self.M):
+            diff_markups = (markups_u[m] - markups_l[m]) / epsilon
+            diff_markups, me = self._absorb_cost_ids(diff_markups)
+            ols_result = sm.OLS(diff_markups, self.products.w).fit()
+            gradient_markups[m][:, theta_index] = ols_result.resid
+        return gradient_markups
+
 
 class Problem(ProblemEconomy):
-#class Problem(ProblemEconomy):
     r"""A BLP-type problem.
 
     
@@ -603,20 +637,20 @@ class Progress(InitialProgress):
     markups: Array
     markups_downstream: Array
     markups_upstream: Array
-    taus: Array
+    tau_list: Array
     mc: Array
     g: Array
     Q: Array
-    RV_num: Array
-    RV_denom: Array
-    TRV: Array
+    RV_numerator: Array
+    RV_denominator: Array
+    test_statistic_RV: Array
     F: Array
     MCS_pvalues: Array
 
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
-            mc: Array, taus: Array, g: Array, Q: Array, RV_num: Array, RV_denom: Array, TRV: Array, F: Array,
-            MCS_pvalues: Array
+            mc: Array, taus: Array, g: Array, Q: Array, RV_num: Array, RV_denom: Array, test_statistic_RV: Array,
+            F: Array, MCS_pvalues: Array
             ) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
         super().__init__(
@@ -625,13 +659,12 @@ class Progress(InitialProgress):
         self.markups = markups
         self.markups_downstream = markups_downstream
         self.markups_upstream = markups_upstream
-        self.taus = taus
+        self.tau_list = taus
         self.mc = mc
         self.g = g
         self.Q = Q
-        self.RV_num = RV_num
-        self.RV_denom = RV_denom
-        self.TRV = TRV
+        self.RV_numerator = RV_num
+        self.RV_denominator = RV_denom
+        self.test_statistic_RV = test_statistic_RV
         self.F = F
         self.MCS_pvalues = MCS_pvalues
-
