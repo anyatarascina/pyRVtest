@@ -658,7 +658,7 @@ def compute_markups(
 
             # maps each model to its corresponding markup formula, with option for own formula
             model_markup_formula = {
-                # 'bertrand': -inv(ownership_matrix * response_matrix) @ shares,
+                'bertrand': -inv(ownership_matrix * response_matrix) @ shares,
                 'cournot': -(ownership_matrix * inv(response_matrix)) @ shares,
                 'monopoly': -inv(response_matrix) @ shares
             }

@@ -44,6 +44,7 @@ def test_nevo_method1():
     product_data["clustering_ids"] = product_data.market_ids
 
     # new testing problem
+    # TODO: allow separate custom formulas for upstream and downstream
     testing_problem_new = pyRV.Problem(
         cost_formulation=(
             pyRV.Formulation('1 + sugar', absorb='C(firm_ids)')
@@ -55,10 +56,19 @@ def test_nevo_method1():
             ),
         model_formulations=(
             pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids'),
-            pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
+            pyRV.ModelFormulation(model_downstream='bertrand',ownership_downstream='firm_ids'),
             pyRV.ModelFormulation(model_downstream='cournot', ownership_downstream='firm_ids'),
-            pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='bertrand',  ownership_upstream='firm_ids'),
-            pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids', model_upstream='monopoly',  ownership_upstream='firm_ids')
+            pyRV.ModelFormulation(
+                model_downstream='monopoly',
+                ownership_downstream='firm_ids',
+                model_upstream='bertrand',
+                ownership_upstream='firm_ids'
+            ),
+            pyRV.ModelFormulation(
+                model_downstream='monopoly',
+                ownership_downstream='firm_ids',
+                model_upstream='monopoly',
+                ownership_upstream='firm_ids')
             ),
         product_data=product_data,
         demand_results=pyblp_results
