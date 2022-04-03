@@ -79,16 +79,16 @@ class Products(object):
             Instr["Z0_formulation"] = tmp_Z_formulation
             Instr["Z0_data"] = tmp_Z_data
         elif L > 1:
-            for zz in range(L):
-                tmp_Z, tmp_Z_formulation, tmp_Z_data = instrument_formulation[zz]._build_matrix(product_data)
+            for l in range(L):
+                tmp_Z, tmp_Z_formulation, tmp_Z_data = instrument_formulation[l]._build_matrix(product_data)
 
                 for kk in tmp_Z_formulation:
                     if kk in w_data:
                         raise NameError("Z must be excluded from marginal cost.")
 
-                Instr["Z{0}".format(zz)] = tmp_Z
-                Instr["Z{0}_formulation".format(zz)] = tmp_Z_formulation
-                Instr["Z{0}_data".format(zz)] = tmp_Z_data
+                Instr["Z{0}".format(l)] = tmp_Z
+                Instr["Z{0}_formulation".format(l)] = tmp_Z_formulation
+                Instr["Z{0}_data".format(l)] = tmp_Z_data
 
         # load fixed effect IDs
         cost_ids = None
@@ -152,19 +152,17 @@ class Products(object):
             'shares': (shares, options.dtype),
             'prices': (prices, options.dtype)
         })
-        product_mapping.update({
-            (tuple(w_formulation), 'w'): (w, options.dtype),
-        })
-        
-        for zz in range(L):
-            # TODO: format this line
-            product_mapping.update({(tuple(Instr["Z{0}_formulation".format(zz)]), 'Z{0}'.format(zz)): (Instr["Z{0}".format(zz)], options.dtype)})
+        product_mapping.update({(tuple(w_formulation), 'w'): (w, options.dtype), })
+        for l in range(L):
+            product_mapping.update({
+                (tuple(Instr["Z{0}_formulation".format(l)]), 'Z{0}'.format(l)): (Instr["Z{0}".format(l)], options.dtype)
+            })
 
         # structure and validate variables underlying X1, X2, and X3
         underlying_data = {k: (v, options.dtype) for k, v in {**w_data}.items() if k != 'shares'}
-        for zz in range(L):
+        for l in range(L):
             underlying_data.update(
-                {k: (v, options.dtype) for k, v in {**Instr["Z{0}_data".format(zz)]}.items() if k != 'shares'}
+                {k: (v, options.dtype) for k, v in {**Instr["Z{0}_data".format(l)]}.items() if k != 'shares'}
             )
         invalid_names = set(underlying_data) & {k if isinstance(k, str) else k[1] for k in product_mapping}
         if invalid_names:
@@ -182,8 +180,7 @@ class Models(object):
     """
 
     def __new__(
-            cls, model_formulations: Sequence[Optional[ModelFormulation]],
-            product_data: Mapping) -> RecArray:
+            cls, model_formulations: Sequence[Optional[ModelFormulation]], product_data: Mapping) -> RecArray:
         """Structure agent data."""
 
         # data structures may be empty
@@ -195,50 +192,50 @@ class Models(object):
         if M < 2:
             raise ValueError("At least two model formulations must be specified.")
 
-        omatrices_downstream = [None]*M
-        omatrices_upstream = [None]*M
-        firmids_downstream = [None]*M
-        firmids_upstream = [None]*M
-        VI = [None]*M
-        VI_ind = [None]*M
-        models_upstream = [None]*M
-        models_downstream = [None]*M
+        omatrices_downstream = [None] * M
+        omatrices_upstream = [None] * M
+        firmids_downstream = [None] * M
+        firmids_upstream = [None] * M
+        VI = [None] * M
+        VI_ind = [None] * M
+        models_upstream = [None] * M
+        models_downstream = [None] * M
         custom_model = [None] * M
 
         # make ownership matrices and extract vertical integration
-        for kk in range(M):
-            model = model_formulations[kk]._build_matrix(product_data)
+        for m in range(M):
+            model = model_formulations[m]._build_matrix(product_data)
 
             # TODO: allow for different way to enter data
-            models_downstream[kk] = model["model_downstream"]
+            models_downstream[m] = model["model_downstream"]
             if model["model_upstream"] is not None:
-                models_upstream[kk] = model["model_upstream"]  
+                models_upstream[m] = model["model_upstream"]
             
             if model["model_downstream"] == "monopoly":
-                omatrices_downstream[kk] = construction.build_ownership_testing(
+                omatrices_downstream[m] = construction.build_ownership_testing(
                     product_data, model["ownership_downstream"], 'monopoly'
                 )
-                firmids_downstream[kk] = "monopoly"
+                firmids_downstream[m] = "monopoly"
             else:
-                omatrices_downstream[kk] = construction.build_ownership_testing(
+                omatrices_downstream[m] = construction.build_ownership_testing(
                     product_data, model["ownership_downstream"], model["kappa_specification_downstream"]
                 )
-                firmids_downstream[kk] = model["ownership_downstream"]
+                firmids_downstream[m] = model["ownership_downstream"]
             
             if model["model_upstream"] == "monopoly":
-                omatrices_upstream[kk] = construction.build_ownership_testing(
+                omatrices_upstream[m] = construction.build_ownership_testing(
                     product_data, model["ownership_upstream"], 'monopoly'
                 )
-                firmids_upstream[kk] = "monopoly"
+                firmids_upstream[m] = "monopoly"
             elif model["ownership_upstream"] is not None:
-                omatrices_upstream[kk] = construction.build_ownership_testing(
+                omatrices_upstream[m] = construction.build_ownership_testing(
                     product_data, model["ownership_upstream"], model["kappa_specification_upstream"]
                 )
-                firmids_upstream[kk] = model["ownership_upstream"]
+                firmids_upstream[m] = model["ownership_upstream"]
             if model["vertical_integration"] is not None:
-                VI[kk] = extract_matrix(product_data, model["vertical_integration"])
-                VI_ind[kk] = model["vertical_integration"]
-            custom_model[kk] = model["custom_model_specification"]
+                VI[m] = extract_matrix(product_data, model["vertical_integration"])
+                VI_ind[m] = model["vertical_integration"]
+            custom_model[m] = model["custom_model_specification"]
 
         models_mapping = pd.Series({
             'models_downstream': models_downstream,
@@ -270,13 +267,9 @@ class Container(abc.ABC):
         self.products = products
         self.models = models
         self._w_formulation = self.products.dtype.fields['w'][2]
-        stop = 0
-        zz = 0
-        
-        while stop == 0:
-            if 'Z{0}'.format(zz) in self.products.dtype.fields:
-                self._Z_formulation = self.products.dtype.fields['Z{0}'.format(zz)][2]
-                self.Dict_Z_formulation.update({"_Z{0}_formulation".format(zz): self._Z_formulation})
-                zz = zz + 1 
-            else:
-                stop = 1
+
+        i = 0
+        while 'Z{0}'.format(i) in self.products.dtype.fields:
+            self._Z_formulation = self.products.dtype.fields['Z{0}'.format(i)][2]
+            self.Dict_Z_formulation.update({"_Z{0}_formulation".format(i): self._Z_formulation})
+            i += 1

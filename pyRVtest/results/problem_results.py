@@ -46,13 +46,13 @@ class ProblemResults(Results):
         self.markups = progress.markups
         self.markups_downstream = progress.markups_downstream
         self.markups_upstream = progress.markups_upstream
-        self.taus = progress.taus
+        self.taus = progress.tau_list
         self.mc = progress.mc
         self.g = progress.g
         self.Q = progress.Q
-        self.RV_num = progress.RV_num
-        self.RV_denom = progress.RV_denom
-        self.TRV = progress.TRV
+        self.RV_num = progress.RV_numerator
+        self.RV_denom = progress.RV_denominator
+        self.TRV = progress.test_statistic_RV
         self.F = progress.F
         self.MCS_pvalues = progress.MCS_pvalues
 
