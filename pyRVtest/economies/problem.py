@@ -1,6 +1,8 @@
 """Economy-level BLP problem functionality."""
 
 import abc
+import contextlib
+import os
 import time
 import statsmodels.api as sm 
 from typing import Mapping, Optional, Sequence
@@ -15,7 +17,7 @@ from ..configurations.formulation import Formulation, ModelFormulation
 from ..primitives import Models, Products
 from ..results.problem_results import ProblemResults
 from ..utilities.algebra import precisely_identify_collinearity
-from ..utilities.basics import Array, RecArray, format_seconds, output, HideOutput
+from ..utilities.basics import Array, RecArray, format_seconds, output
 from ..construction import build_markups_all
 
 
@@ -54,22 +56,24 @@ class ProblemEconomy(Economy):
         step_start_time = time.time()
 
         # validate settings
+        # TODO: change demand adjustment to bool?
         if demand_adjustment not in {'yes', 'no'}:
             raise TypeError("demand_adjustment must be 'yes' or 'no'.")
         if se_type not in {'robust', 'unadjusted', 'clustered'}:
             raise ValueError("se_type must be 'robust', 'unadjusted', or 'clustered'.")
-        if se_type == 'clustered' and np.shape(self.products.clustering_ids)[1] !=1:
+        if se_type == 'clustered' and np.shape(self.products.clustering_ids)[1] != 1:
             raise ValueError("product_data.clustering_ids must be specified with se_type 'clustered'.")
  
         # initialize constants and precomputed values
         M = self.M
         N = self.N
         L = self.L
-        Dict_K = self.Dict_K  # TODO: why is this assigned but not used?
+        Dict_K = self.Dict_K  # TODO: why is this assigned but not used? what is it?
         markups = self.markups
 
-        # initialize variables to be computed as all zeroes
-        markups_upstream = [None] * M
+        # initialize variables to be computed
+        # TODO: is there any reason that these are lists instead of arrays?
+        markups_upstream = np.zeros(M)  # [None] * M
         markups_downstream = [None] * M
         marginal_cost = [None] * M
         markups_orthogonal = [None] * M
@@ -99,7 +103,6 @@ class ProblemEconomy(Economy):
             output("Absorbing cost-side fixed effects ...")
             self.products.w, w_errors = self._absorb_cost_ids(self.products.w)
             prices_orthogonal, prices_errors = self._absorb_cost_ids(self.products.prices)
-            
             for m in range(M):
                 markups_orthogonal[m], markups_errors[m] = self._absorb_cost_ids(markups[m])
                 marginal_cost_orthogonal[m], marginal_cost_errors[m] = self._absorb_cost_ids(marginal_cost[m])
@@ -117,7 +120,7 @@ class ProblemEconomy(Economy):
 
         # if user specifies demand adjustment,
         if demand_adjustment == 'yes':
-            ZD = self.demand_results.problem.products.ZD
+            ZD = self.demand_results.problem.products.ZD # TODO: what is ZD?
             for i in range(len(self.demand_results.problem.products.dtype.fields['X1'][2])):
                 if self.demand_results.problem.products.dtype.fields['X1'][2][i] == 'prices':
                     price_col = i
@@ -129,20 +132,22 @@ class ProblemEconomy(Economy):
 
             # comment here
             # TODO: rename these variables?
-            dy_dtheta = np.append(
+            partial_y_theta = np.append(
                 self.demand_results.xi_by_theta_jacobian, -self.demand_results.problem.products.prices, 1
             )
-            dy_dtheta = self.demand_results.problem._absorb_demand_ids(dy_dtheta)
-            dy_dtheta = np.reshape(dy_dtheta[0], [N, len(self.demand_results.theta) + 1])
+            # TODO: figure out why this is giving a warning
+            partial_y_theta = self.demand_results.problem._absorb_demand_ids(partial_y_theta)
+            partial_y_theta = np.reshape(partial_y_theta[0], [N, len(self.demand_results.theta) + 1])
             if np.shape(XD)[1] == 0:
-                dxi_dtheta = dy_dtheta
-            else:    
-                dxi_dtheta = dy_dtheta - XD @ inv(XD.T @ ZD @ WD @ ZD.T @ XD) @ (XD.T @ ZD @ WD @ ZD.T @ dy_dtheta)
+                partial_xi_theta = partial_y_theta
+            else:
+                product = XD @ inv(XD.T @ ZD @ WD @ ZD.T @ XD) @ (XD.T @ ZD @ WD @ ZD.T @ partial_y_theta)
+                partial_xi_theta = partial_y_theta - product
 
             # compute the gradient of the GMM moment function
-            H = 1 / N * (np.transpose(ZD) @ dxi_dtheta)
+            H = 1 / N * (np.transpose(ZD) @ partial_xi_theta)
             H_prime = np.transpose(H)
-            H_primeWD = H_prime @ WD
+            H_prime_wd = H_prime @ WD
 
             # something else
             h_i = ZD * self.demand_results.xi
@@ -170,7 +175,7 @@ class ProblemEconomy(Economy):
                         self.demand_results.sigma[i, j] = sigma_initial - epsilon / 2
 
                         # update delta
-                        with HideOutput():
+                        with contextlib.redirect_stdout(open(os.devnull, 'w')):
                             delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
 
@@ -185,7 +190,7 @@ class ProblemEconomy(Economy):
                         self.demand_results.sigma[i, j] = sigma_initial + epsilon / 2
 
                         # update delta
-                        with HideOutput():
+                        with contextlib.redirect_stdout(open(os.devnull, 'w')):
                             delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
 
@@ -213,7 +218,7 @@ class ProblemEconomy(Economy):
                         pi_initial = self.demand_results.pi[i, j]
 
                         self.demand_results.pi[i, j] = pi_initial - epsilon / 2
-                        with HideOutput():
+                        with contextlib.redirect_stdout(open(os.devnull, 'w')):
                             delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
 
@@ -226,7 +231,7 @@ class ProblemEconomy(Economy):
 
                         # TODO: this block of code is the same as above
                         self.demand_results.pi[i, j] = pi_initial + epsilon / 2
-                        with HideOutput():
+                        with contextlib.redirect_stdout(open(os.devnull, 'w')):
                             delta_new = self.demand_results.compute_delta()
                         self.demand_results.delta = delta_new
 
@@ -282,100 +287,111 @@ class ProblemEconomy(Economy):
         F_statistic_list = [None] * L
         MCS_p_values_list = [None] * L
 
-        # for each ? what is L?
+        # for each instrument
         for zz in range(L):
-            Z = self.products["Z{0}".format(zz)]
-            K = np.shape(Z)[1]
+            instruments = self.products["Z{0}".format(zz)]
+            K = np.shape(instruments)[1]
 
             # absorb any cost fixed effects from prices, markups, and instruments
             if self._absorb_cost_ids is not None:
-                Z_orth, Z_errors = self._absorb_cost_ids(Z)
-            tmp = sm.OLS(Z_orth, self.products.w).fit()
-            Z_orth = tmp.resid     
-            Z_orth = np.reshape(Z_orth, [N, K])
+                # TODO: can absorb_cost_ids be None? bc in that case, it seems like the initial Z_orth is never assigned
+                Z_orth, Z_errors = self._absorb_cost_ids(instruments)
+            Z_residual = sm.OLS(Z_orth, self.products.w).fit().resid
+            Z_orth = np.reshape(Z_residual, [N, K])
 
             # initialize variables to store GMM measure of fit Q_m for each model
             g = [None] * M
             Q = [None] * M
 
             # compute the weight matrix
-            WMinv = 1 / N * (Z_orth.T @ Z_orth)
-            WMinv = np.reshape(WMinv, [K, K])
-            WM = inv(WMinv)
-            # TODO: what is this and why is it commented?
-            # WM = precisely_invert(WMinv)
-            # WM = WM[0]
+            W_inverse = 1 / N * (Z_orth.T @ Z_orth)
+            W_inverse = np.reshape(W_inverse, [K, K])
+            # TODO: commented Jeff's precisely invert before - should we use that or not?
+            weight_matrix = inv(W_inverse)
 
             # for each model compute GMM measure of fit
             for m in range(M):
-                g[m] = 1 / N * (Z_orth.T @ (prices_orthogonal-markups_orthogonal[m]))
+                g[m] = 1 / N * (Z_orth.T @ (prices_orthogonal - markups_orthogonal[m]))
                 g[m] = np.reshape(g[m], [K, 1])
-                Q[m] = g[m].T @ WM @ g[m]
+                Q[m] = g[m].T @ weight_matrix @ g[m]
 
             # compute the pairwise RV numerator
-            RV_num = np.zeros((M, M))
+            RV_numerator = np.zeros((M, M))
             for m in range(M):
                 for i in range(m):
                     if i < m:
-                        RV_num[i, m] = math.sqrt(N) * (Q[i] - Q[m])
-            
-            # compute the pairwise RV denominator
-            RV_denom = np.zeros((M, M))
-            COV_MCS = np.zeros((M, M))
-            WM14 = fractional_matrix_power(WM, 0.25)  # TODO: why is this not used?
-            WM12 = fractional_matrix_power(WM, 0.5)
-            WM34 = fractional_matrix_power(WM, 0.75)
+                        RV_numerator[i, m] = math.sqrt(N) * (Q[i] - Q[m])
 
-            psi = [None] * M
+            # TODO: okay, here is where it gets bad
+            # compute the pairwise RV denominator
+            RV_denominator = np.zeros((M, M))
+            covariance_marginal_costs = np.zeros((M, M))
+
+            # take powers of the weighting matrix
+            W_12 = fractional_matrix_power(weight_matrix, 0.5)
+            W_34 = fractional_matrix_power(weight_matrix, 0.75)
+
+            # compute psi to be used in the variance covariance estimator
+            psi = np.zeros([M, N, K])
             dmd_adj = [None] * M
             for m in range(M):
-                psi[m] = np.zeros([N, K])
-                psi_bar = WM12 @ g[m] - .5 * WM34 @ (WMinv) @ WM34 @ g[m]
-                WM34Z = Z_orth @ WM34
+                psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
+                WM34Z = Z_orth @ W_34
                 WM34Zg = WM34Z @ g[m]
-                psi_i = ((prices_orthogonal - markups_orthogonal[m]) * Z_orth) @ WM12 - 0.5 * WM34Zg * (Z_orth @ WM34.T)
+                psi_i = ((prices_orthogonal - markups_orthogonal[m]) * Z_orth) @ W_12 - 0.5 * WM34Zg * (Z_orth @ W_34.T)
                 psi[m] = psi_i - np.transpose(psi_bar)
+
+                # make a demand adjustment
                 if demand_adjustment == 'yes':
                     G_k = -1 / N * np.transpose(Z_orth) @ gradient_markups[m]
                     G_m[m] = G_k
-                    dmd_adj[m] = WM12 @ G_m[m] @ inv(H_primeWD @ H) @ H_primeWD
+                    dmd_adj[m] = W_12 @ G_m[m] @ inv(H_prime_wd @ H) @ H_prime_wd
                     psi[m] = psi[m] - (h_i - np.transpose(h)) @ np.transpose(dmd_adj[m])
 
             M_MCS = np.array(range(M))
             all_combos = list(itertools.combinations(M_MCS, 2))
             Var_MCS = np.zeros([np.shape(all_combos)[0], 1])
 
-            # vii = 0
+            # compute vii = 0 - whatever that means?
+            # TODO: is this actually the variance covariance matrix?
             for m in range(M):
                 for i in range(m):
                     if i < m:
-                        VRV_11 = 1 / N * psi[i].T @ psi[i]
-                        VRV_22 = 1 / N * psi[m].T @ psi[m]
-                        VRV_12 = 1 / N * psi[i].T @ psi[m]
+                        # fill the initial variance covariance matrix
+                        variance_covariance = 1 / N * np.array([
+                            psi[i].T @ psi[i], psi[m].T @ psi[m], psi[i].T @ psi[m]
+                        ])
                         if se_type == 'clustered':
                             cluster_ids = np.unique(self.products.clustering_ids)
                             for j in cluster_ids:
                                 ind_kk = np.where(self.products.clustering_ids == j)[0]
                                 psi1_l = psi[i][ind_kk, :]
                                 psi2_l = psi[m][ind_kk, :]
+
+                                # TODO: not sure what the point of these two is?
                                 psi1_c = psi1_l
                                 psi2_c = psi2_l
-                                
+
+                                # update the variance covariance matrix
                                 for ii in range(len(ind_kk)-1):
                                     psi1_c = np.roll(psi1_c, 1, axis=0)
                                     psi2_c = np.roll(psi2_c, 1, axis=0)
-                                 
-                                    VRV_11 = VRV_11 + 1 / N * psi1_l.T @ psi1_c
-                                    VRV_22 = VRV_22 + 1 / N * psi2_l.T @ psi2_c
-                                    VRV_12 = VRV_12 + 1 / N * psi1_l.T @ psi2_c
-                        sigma2 = 4 * (g[i].T @ WM12 @ VRV_11 @ WM12 @ g[i] + g[m].T @ WM12 @ VRV_22 @ WM12 @ g[m] - 2 * g[i].T @ WM12 @ VRV_12 @ WM12 @ g[m])
+                                    update = 1 / N * np.array([
+                                        psi1_l.T @ psi1_c, psi2_l.T @ psi2_c, psi1_l.T @ psi2_c
+                                    ])
+                                    variance_covariance = variance_covariance + update
 
-                        COV_MCS[i, m] = g[i].T @ WM12 @ VRV_12 @ WM12 @ g[m]
-                        COV_MCS[m, i] = COV_MCS[i, m]
-                        COV_MCS[m, m] = g[m].T @ WM12 @ VRV_22 @ WM12 @ g[m]
-                        COV_MCS[i, i] = g[i].T @ WM12 @ VRV_11 @ WM12 @ g[i]
+                        # compute the sigma
+                        weighted_variance = W_12 @ variance_covariance @ W_12
+                        sigma2 = 4 * (g[i].T @ weighted_variance[0] @ g[i] + g[m].T @ weighted_variance[1] @ g[m] - 2 * g[i].T @ weighted_variance[2] @ g[m])
 
-                        RV_denom[i, m] = math.sqrt(sigma2)
+                        # compute the covariance matrix for marginal costs
+                        covariance_marginal_costs[i, m] = g[i].T @ W_12 @ variance_covariance[2] @ W_12 @ g[m]
+                        covariance_marginal_costs[m, i] = covariance_marginal_costs[i, m]
+                        covariance_marginal_costs[m, m] = g[m].T @ W_12 @ variance_covariance[1] @ W_12 @ g[m]
+                        covariance_marginal_costs[i, i] = g[i].T @ W_12 @ variance_covariance[0] @ W_12 @ g[i]
+
+                        RV_denominator[i, m] = math.sqrt(sigma2)
 
             # TODO: what is this block?
             N_combos = np.shape(all_combos)[0]
@@ -383,11 +399,11 @@ class ProblemEconomy(Economy):
             for ii in range(N_combos):
                 tmp3 = all_combos[ii][0]
                 tmp4 = all_combos[ii][1]
-                Var_MCS[ii] = RV_denom[tmp3, tmp4]/2
+                Var_MCS[ii] = RV_denominator[tmp3, tmp4]/2
                 for i in range(N_combos):
                     tmp1 = all_combos[i][0]
                     tmp2 = all_combos[i][1]
-                    Sigma_MCS[i, ii] = COV_MCS[tmp1, tmp3] - COV_MCS[tmp2, tmp3] - COV_MCS[tmp1, tmp4] + COV_MCS[tmp2, tmp4]
+                    Sigma_MCS[i, ii] = covariance_marginal_costs[tmp1, tmp3] - covariance_marginal_costs[tmp2, tmp3] - covariance_marginal_costs[tmp1, tmp4] + covariance_marginal_costs[tmp2, tmp4]
             Sigma_MCS = Sigma_MCS / (Var_MCS@Var_MCS.T)
                 
             # compute the pairwise RV test statistic
@@ -395,8 +411,8 @@ class ProblemEconomy(Economy):
             for m in range(M):
                 for i in range(M):
                     if i < m:
-                        test_statistic_RV[i, m] = RV_num[i, m] / RV_denom[i, m]
-                    if i >= m:
+                        test_statistic_RV[i, m] = RV_numerator[i, m] / RV_denominator[i, m]
+                    else:
                         test_statistic_RV[i, m] = "NaN"
 
             # compute the pairwise F-statistic for each model
@@ -407,10 +423,10 @@ class ProblemEconomy(Economy):
                 ols_results = sm.OLS(prices_orthogonal - markups_orthogonal[m], Z_orth).fit()
                 pi[:, m] = ols_results.params
                 e = np.reshape(ols_results.resid, [N, 1])
-                phi[m] = (e * Z_orth) @ WM
+                phi[m] = (e * Z_orth) @ weight_matrix
                 
                 if demand_adjustment == 'yes':
-                    phi[m] = phi[m] - (h_i-np.transpose(h)) @ np.transpose(WM12 @ dmd_adj[m])
+                    phi[m] = phi[m] - (h_i-np.transpose(h)) @ np.transpose(W_12 @ dmd_adj[m])
 
             # TODO: parts of this block are repeated but with phi instead of psi - can I throw this into a function?
             # TODO: what is phi and what is psi?
@@ -438,15 +454,15 @@ class ProblemEconomy(Economy):
                                     VAR_22 = VAR_22 + 1 / N * phi2_l.T @ phi2_c
                                     VAR_12 = VAR_12 + 1 / N * phi1_l.T @ phi2_c
 
-                        sig2_1 = 1 / K * np.trace(VAR_11 @ WMinv)
-                        sig2_2 = 1 / K * np.trace(VAR_22 @ WMinv)
-                        sig_12 = 1 / K * np.trace(VAR_12 @ WMinv)
+                        sig2_1 = 1 / K * np.trace(VAR_11 @ W_inverse)
+                        sig2_2 = 1 / K * np.trace(VAR_22 @ W_inverse)
+                        sig_12 = 1 / K * np.trace(VAR_12 @ W_inverse)
                         sig2_12 = sig_12**2
 
                         numerator = (sig2_1 - sig2_2) * (sig2_1 - sig2_2)
                         denominator = ((sig2_1 + sig2_2) * (sig2_1 + sig2_2) - 4 * sig2_12)
                         rho2 = numerator / denominator
-                        F[i, m] = (1 - rho2) * N / (2 * K) * (sig2_2 * g[i].T @ WM @ g[i] + sig2_1 * g[m].T @ WM @ g[m] - 2 * sig_12 * g[i].T @ WM @ g[m]) / (sig2_1 * sig2_2 - sig2_12)
+                        F[i, m] = (1 - rho2) * N / (2 * K) * (sig2_2 * g[i].T @ weight_matrix @ g[i] + sig2_1 * g[m].T @ weight_matrix @ g[m] - 2 * sig_12 * g[i].T @ weight_matrix @ g[m]) / (sig2_1 * sig2_2 - sig2_12)
                     if i >= m:
                         F[i, m] = "NaN"
 
@@ -502,8 +518,8 @@ class ProblemEconomy(Economy):
 
             g_list[zz] = g
             Q_list[zz] = Q
-            RV_numerator_list[zz] = RV_num
-            RV_denominator_list[zz] = RV_denom
+            RV_numerator_list[zz] = RV_numerator
+            RV_denominator_list[zz] = RV_denominator
             test_statistic_RV_list[zz] = test_statistic_RV
             F_statistic_list[zz] = F
             MCS_p_values_list[zz] = MCS_pvalues

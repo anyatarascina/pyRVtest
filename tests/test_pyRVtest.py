@@ -56,7 +56,7 @@ def test_nevo_method1():
             ),
         model_formulations=(
             pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids'),
-            pyRV.ModelFormulation(model_downstream='bertrand',ownership_downstream='firm_ids'),
+            pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
             pyRV.ModelFormulation(model_downstream='cournot', ownership_downstream='firm_ids'),
             pyRV.ModelFormulation(
                 model_downstream='monopoly',

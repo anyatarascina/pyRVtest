@@ -1,5 +1,7 @@
 """Data construction."""
 
+import contextlib
+import os
 from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Union
 
 import numpy as np
@@ -7,7 +9,7 @@ from numpy.linalg import inv
 
 from . import exceptions, options
 from .configurations.formulation import Formulation
-from .utilities.basics import Array, Groups, RecArray, extract_matrix, interact_ids, get_indices, HideOutput
+from .utilities.basics import Array, Groups, RecArray, extract_matrix, interact_ids, get_indices
 
 
 def build_ownership_testing(
@@ -534,7 +536,7 @@ def build_markups_all(
 
     # initialize
     N = np.size(products.prices)
-    with HideOutput():
+    with contextlib.redirect_stdout(open(os.devnull, 'w')):
         elasticity = demand_results.compute_elasticities()
     number_models = len(model_downstream)
     markets = np.unique(products.market_ids)
@@ -550,7 +552,7 @@ def build_markups_all(
 
     if model_upstream is not None:
         # get choice probabilities from pyblp results, suppress time output
-        with HideOutput():
+        with contextlib.redirect_stdout(open(os.devnull, 'w')):
             choice_probabilities = demand_results.compute_probabilities()
 
         # compute alpha i

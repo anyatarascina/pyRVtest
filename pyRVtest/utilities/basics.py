@@ -691,14 +691,3 @@ class NumericalErrorDetector(object):
             self.detected = self.error()
         self.detected._messages.add(message)
 
-
-class HideOutput(object):
-    """Suppresses function output."""
-
-    def __enter__(self):
-        self._original_stdout = sys.stdout
-        sys.stdout = open(os.devnull, 'w')
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        sys.stdout.close()
-        sys.stdout = self._original_stdout
