@@ -54,7 +54,7 @@ class ProblemResults(Results):
         self.RV_denom = progress.RV_denominator
         self.TRV = progress.test_statistic_RV
         self.F = progress.F
-        self.MCS_pvalues = progress.MCS_pvalues
+        self.MCS_pvalues = progress.MCS_p_values
 
     def __str__(self) -> str:
         """Format economy information as a string."""

@@ -266,7 +266,7 @@ class ModelFormulation(object):
     model_ downstream : `str`
         model of conduct downstream (or if no vertical structure, the model of conduct) "bertrand", "couront", "monopoly".
     model_upstream : `str, optional`
-        model of conduct upstream. "bertrand", "couront", "monopoly"
+        model of conduct upstream. "bertrand", "cournot", "monopoly"
     absorb_method : `str, optional`
         Method by which fixed effects will be absorbed. For a full list of supported methods, refer to the
         ``residualize_method`` argument of :func:`pyhdfe.create`.

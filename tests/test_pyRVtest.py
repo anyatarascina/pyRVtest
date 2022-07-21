@@ -74,7 +74,7 @@ def test_nevo_method1():
         demand_results=pyblp_results
         )
     testing_results_new = testing_problem_new.solve(
-        demand_adjustment='yes',
+        demand_adjustment=True,
         se_type='clustered'
         )
 

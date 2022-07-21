@@ -114,11 +114,11 @@ class Economy(Container, StringRepresentation):
 
         # construct the data
         named_formulations = [(self._w_formulation, "w: Marginal Cost")]
-        # TODO: why were there a bunch of pounds signs here?
-        for zz in range(self.L):
-            named_formulations.append(
-                (self.Dict_Z_formulation["_Z{0}_formulation".format(zz)], "z{0}: Instruments".format(zz))
-            )
+        for instruments in range(self.L):
+            named_formulations.append((
+                self.Dict_Z_formulation["_Z{0}_formulation".format(instruments)],
+                "z{0}: Instruments".format(instruments)
+            ))
         data: List[List[str]] = []
         for formulations, name in named_formulations:
             if any(formulations):
@@ -173,7 +173,7 @@ class Economy(Container, StringRepresentation):
             collinear, successful = precisely_identify_collinearity(self.products[name])
             common_message = "To disable collinearity checks, set options.collinear_atol = options.collinear_rtol = 0."
             for zz in range(len(self.Dict_Z_formulation)):
-                if (name in {'w', 'Z{0}'.format(zz)}):
+                if name in {'w', 'Z{0}'.format(zz)}:
                     common_message = f"Absorbed fixed effects may be creating collinearity problems. {common_message}"
             if not successful:
                 raise ValueError(
