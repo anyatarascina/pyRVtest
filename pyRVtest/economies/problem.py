@@ -94,9 +94,6 @@ class ProblemEconomy(Economy):
         # for each model, use computed markups to compute the marginal costs
         marginal_cost = self.products.prices - markups
 
-        # if demand_adjustment is True, get finite differences approx to the derivative of markups wrt theta
-        # TODO: add this feature? or is this comment for the block below
-
         # absorb any cost fixed effects from prices, markups, and instruments
         # TODO: are the errors used anywhere?
         if self._absorb_cost_ids is not None:
@@ -118,9 +115,9 @@ class ProblemEconomy(Economy):
             results = sm.OLS(marginal_cost_orthogonal[m], self.products.w).fit()
             tau_list[m] = results.params
 
-        # if user specifies demand adjustment,
+        # if user specifies demand adjustment, account for two-step estimation in the standard errors by computing the
+        #   finite differences approximation to the derivative of markups with respect to theta
         if demand_adjustment:
-
             ZD = self.demand_results.problem.products.ZD
             for i in range(len(self.demand_results.problem.products.dtype.fields['X1'][2])):
                 if self.demand_results.problem.products.dtype.fields['X1'][2][i] == 'prices':
@@ -161,94 +158,83 @@ class ProblemEconomy(Economy):
             for m in range(M):
                 gradient_markups[m] = np.zeros((N, len(self.demand_results.theta) + 1))
 
+            # TODO: for which of the following can I use the compute pertubations function?
             # compute sigma
             theta_index = 0
             delta_estimate = self.demand_results.delta
-            for i in range(K2):
-                for j in range(K2):
-                    if not self.demand_results.sigma[i, j] == 0:
-                        sigma_initial = self.demand_results.sigma[i, j]
+            for (i, j) in itertools.product(range(K2), range(K2)):
+                if not self.demand_results.sigma[i, j] == 0:
+                    sigma_initial = self.demand_results.sigma[i, j]
 
-                        # reduce sigma by small increment
-                        self.demand_results.sigma[i, j] = sigma_initial - epsilon / 2
+                    # reduce sigma by small increment
+                    self.demand_results.sigma[i, j] = sigma_initial - epsilon / 2
 
-                        # update delta
-                        with contextlib.redirect_stdout(open(os.devnull, 'w')):
-                            delta_new = self.demand_results.compute_delta()
-                        self.demand_results.delta = delta_new
+                    # update delta
+                    with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                        delta_new = self.demand_results.compute_delta()
+                    self.demand_results.delta = delta_new
 
-                        # recompute markups
-                        markups_l, md, ml = build_markups_all(
-                            self.products, self.demand_results, self.models.models_downstream,
-                            self.models.ownership_downstream, self.models.models_upstream,
-                            self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
-                        )
+                    # recompute markups
+                    markups_l, md, ml = build_markups_all(
+                        self.products, self.demand_results, self.models.models_downstream,
+                        self.models.ownership_downstream, self.models.models_upstream,
+                        self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
+                    )
 
-                        # increase sigma by small increment
-                        self.demand_results.sigma[i, j] = sigma_initial + epsilon / 2
+                    # increase sigma by small increment
+                    self.demand_results.sigma[i, j] = sigma_initial + epsilon / 2
 
-                        # update delta
-                        with contextlib.redirect_stdout(open(os.devnull, 'w')):
-                            delta_new = self.demand_results.compute_delta()
-                        self.demand_results.delta = delta_new
+                    # update delta
+                    with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                        delta_new = self.demand_results.compute_delta()
+                    self.demand_results.delta = delta_new
 
-                        # recompute markups
-                        markups_u, mu, mu = build_markups_all(
-                            self.products, self.demand_results, self.models.models_downstream,
-                            self.models.ownership_downstream, self.models.models_upstream,
-                            self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
-                        )
+                    # recompute markups
+                    markups_u, mu, mu = build_markups_all(
+                        self.products, self.demand_results, self.models.models_downstream,
+                        self.models.ownership_downstream, self.models.models_upstream,
+                        self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
+                    )
 
-                        # compute first difference approximation of derivative of markups
-                        gradient_markups = self._compute_first_difference_markups(
-                            markups_u, markups_l, epsilon, theta_index, gradient_markups
-                        )
+                    # compute first difference approximation of derivative of markups
+                    gradient_markups = self._compute_first_difference_markups(
+                        markups_u, markups_l, epsilon, theta_index, gradient_markups
+                    )
 
-                        self.demand_results.sigma[i, j] = sigma_initial
-                        theta_index = theta_index+1
+                    self.demand_results.sigma[i, j] = sigma_initial
+                    theta_index = theta_index+1
 
-            # loop over nonlinear demand characteristics and demographics, and compute pi
-            for i in range(K2):
-                for j in range(D):
-
-                    # if results for pi are not zero
-                    if not self.demand_results.pi[i, j] == 0:
-
-                        # recompute markups with perturbatins
-                        pi_initial = self.demand_results.pi[i, j]
-                        perturbations = [pi_initial - epsilon / 2, pi_initial + epsilon / 2]
-                        markups_l, md, ml = self._compute_perturbation(i, j, perturbations[0])
-                        markups_u, mu, mu = self._compute_perturbation(i, j, perturbations[1])
-
-                        # compute first differences for the markups
-                        gradient_markups = self._compute_first_difference_markups(
-                            markups_u, markups_l, epsilon, theta_index, gradient_markups
-                        )
-                        self.demand_results.pi[i, j] = pi_initial
-                        theta_index = theta_index + 1
+            # loop over nonlinear demand characteristics and demographics, and recompute markups with perturbations if
+            #   the demand results for pi are not zero
+            for (i, j) in itertools.product(range(K2), range(D)):
+                if not self.demand_results.pi[i, j] == 0:
+                    pi_initial = self.demand_results.pi[i, j]
+                    perturbations = [pi_initial - epsilon / 2, pi_initial + epsilon / 2]
+                    markups_l, md, ml = self._compute_perturbation(i, j, perturbations[0])
+                    markups_u, mu, mu = self._compute_perturbation(i, j, perturbations[1])
+                    gradient_markups = self._compute_first_difference_markups(
+                        markups_u, markups_l, epsilon, theta_index, gradient_markups
+                    )
+                    self.demand_results.pi[i, j] = pi_initial
+                    theta_index = theta_index + 1
             self.demand_results.delta = delta_estimate
                 
-            # compute alpha
+            # if __, perturb alpha in negative (positive) direction and recompute markups
             for i in range(len(self.demand_results.beta)):
                 if self.demand_results.beta_labels[i] == 'prices':
                     alpha_initial = self.demand_results.beta[i]
-
-                    # perturb alpha in the negative direction and recompute markups
                     self.demand_results.beta[i] = alpha_initial - epsilon / 2
                     markups_l, md, ml = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
                         self.models.VI, self.models.custom_model_specification
                     )
-
-                    # perturb alpha in the positive direction and recompute markups
                     self.demand_results.beta[i] = alpha_initial + epsilon / 2
                     markups_u, mu, mu = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
                         self.models.VI, self.models.custom_model_specification
                     )
-
                     gradient_markups = self._compute_first_difference_markups(
                         markups_u, markups_l, epsilon, theta_index, gradient_markups
                     )
@@ -332,33 +318,12 @@ class ProblemEconomy(Economy):
             Var_MCS = np.zeros([number_combinations, 1])
 
             # compute vii = 0 - whatever that means?
-            # TODO: is this actually the variance covariance matrix?
             for m in range(M):
                 for i in range(m):
                     if i < m:
                         # fill the initial variance covariance matrix
-                        variance_covariance = 1 / N * np.array([
-                            psi[i].T @ psi[i], psi[m].T @ psi[m], psi[i].T @ psi[m]
-                        ])
-                        if se_type == 'clustered':
-                            cluster_ids = np.unique(self.products.clustering_ids)
-                            for j in cluster_ids:
-                                ind_kk = np.where(self.products.clustering_ids == j)[0]
-                                psi1_l = psi[i][ind_kk, :]
-                                psi2_l = psi[m][ind_kk, :]
-
-                                # TODO: not sure what the point of these two is? initializing?
-                                psi1_c = psi1_l
-                                psi2_c = psi2_l
-
-                                # update the variance covariance matrix
-                                for ii in range(len(ind_kk)-1):
-                                    psi1_c = np.roll(psi1_c, 1, axis=0)
-                                    psi2_c = np.roll(psi2_c, 1, axis=0)
-                                    update = 1 / N * np.array([
-                                        psi1_l.T @ psi1_c, psi2_l.T @ psi2_c, psi1_l.T @ psi2_c
-                                    ])
-                                    variance_covariance = variance_covariance + update
+                        # TODO: is this actually the variance covariance matrix?
+                        variance_covariance = self._compute_variance_covariance(m, i, N, se_type, psi)
 
                         # compute the sigma
                         weighted_variance = W_12 @ variance_covariance @ W_12
@@ -374,18 +339,6 @@ class ProblemEconomy(Economy):
 
             # TODO: what is this block?
             Sigma_MCS = np.zeros([number_combinations, number_combinations])
-
-            # for ii in range(number_combinations):
-            #     tmp3 = all_combinations[ii][0]
-            #     tmp4 = all_combinations[ii][1]
-            #     Var_MCS[ii] = RV_denominator[tmp3, tmp4]/2
-            #     for i in range(number_combinations):
-            #         tmp1 = all_combinations[i][0]
-            #         tmp2 = all_combinations[i][1]
-            #         Sigma_MCS[i, ii] = covariance_mc[tmp1, tmp3] - covariance_mc[tmp2, tmp3] - covariance_mc[tmp1, tmp4] + covariance_mc[tmp2, tmp4]
-            # Sigma_MCS = Sigma_MCS / (Var_MCS@Var_MCS.T)
-
-            # TODO: check that this works
             for index1, value1 in enumerate(all_combinations):
                 Var_MCS[index1] = RV_denominator[value1[0], value1[1]] / 2
                 for index2, value2 in enumerate(all_combinations):
@@ -414,34 +367,12 @@ class ProblemEconomy(Economy):
                 if demand_adjustment:
                     phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ dmd_adj[m])
 
-            # TODO: parts of this block are repeated but with phi instead of psi - can I throw this into a function?
             # TODO: what is phi and what is psi?
             for (m, i) in itertools.product(range(M), range(M)):
                 if i < m:
-                    VAR_11 = 1 / N * phi[i].T @ phi[i]
-                    VAR_22 = 1 / N * phi[m].T @ phi[m]
-                    VAR_12 = 1 / N * phi[i].T @ phi[m]
-                    if se_type == 'clustered':
-                        cluster_ids = np.unique(self.products.clustering_ids)
-                        for j in cluster_ids:
-                            ind_kk = np.where(self.products.clustering_ids == j)[0]
-
-                            phi1_l = phi[i][ind_kk, :]
-                            phi2_l = phi[m][ind_kk, :]
-                            phi1_c = phi1_l
-                            phi2_c = phi2_l
-
-                            for ii in range(len(ind_kk) - 1):
-                                phi1_c = np.roll(phi1_c, 1, axis=0)
-                                phi2_c = np.roll(phi2_c, 1, axis=0)
-
-                                VAR_11 = VAR_11 + 1 / N * phi1_l.T @ phi1_c
-                                VAR_22 = VAR_22 + 1 / N * phi2_l.T @ phi2_c
-                                VAR_12 = VAR_12 + 1 / N * phi1_l.T @ phi2_c
-
-                    # TODO: everything below this is also in the loop
+                    variance = self._compute_variance_covariance(m, i, N, se_type, phi)
                     sigma = 1 / K * np.array([
-                        np.trace(VAR_11 @ W_inverse), np.trace(VAR_22 @ W_inverse), np.trace(VAR_12 @ W_inverse)
+                        np.trace(variance[0] @ W_inverse), np.trace(variance[2] @ W_inverse), np.trace(variance[1] @ W_inverse)
                     ])
                     numerator = (sigma[0] - sigma[1]) * (sigma[0] - sigma[1])
                     denominator = ((sigma[0] + sigma[1]) * (sigma[0] + sigma[1]) - 4 * sigma[2]**2)
@@ -454,37 +385,33 @@ class ProblemEconomy(Economy):
                 if i >= m:
                     F[i, m] = "NaN"
 
-            MCS_pvalues = np.ones([M, 1])
-
+            # TODO: why? is this just for testing or do we need to keep this in?
             # set a random seed
-            # TODO: why?
             np.random.seed(123)
-                
-            converged = 0
-            while converged == 0:
+
+            # iterating until convergence of what?
+            converged = False
+            MCS_pvalues = np.ones([M, 1])
+            while not converged:
                 if np.shape(M_MCS)[0] == 2:
                     TRV_max = test_statistic_RV[M_MCS[0], M_MCS[1]]
                     if np.sign(TRV_max) >= 0:
-                        em = M_MCS[0]
+                        em = M_MCS[0]  # TODO: what is em?
                         TRV_max = -TRV_max
                     else:
                         em = M_MCS[1]
                     MCS_pvalues[em] = 2 * norm.cdf(TRV_max)
-
-                    converged = 1
+                    converged = True
                 else:
                     combos = list(itertools.combinations(M_MCS, 2))
                     tmp1 = []
                     tmp2 = []
-                    
                     number_combinations = np.shape(combos)[0]
                     Sig_idx = np.empty(number_combinations, dtype=int)
                     for ii in range(number_combinations):
                         tmp1.append(combos[ii][0])
                         tmp2.append(combos[ii][1])
-
                         Sig_idx[ii] = all_combinations.index(combos[ii])
-
                     TRV_MCS = test_statistic_RV[tmp1, tmp2]
                     index = np.argmax(abs(TRV_MCS))
                     TRV_max = TRV_MCS[index]
@@ -497,7 +424,7 @@ class ProblemEconomy(Economy):
                        
                     mean = np.zeros([np.shape(combos)[0]]) 
                     cov = Sigma_MCS[Sig_idx[:, None], Sig_idx]
-                    n_draws = 99999  # TODO: why is this set here?
+                    n_draws = 99999  # TODO: why is this set here? should user have this as an input?
                     simTRV = np.random.multivariate_normal(mean, cov, n_draws)
                     maxsimTRV = np.amax(abs(simTRV), 1)
                     MCS_pvalues[em] = np.mean(maxsimTRV > TRV_max)
@@ -512,6 +439,7 @@ class ProblemEconomy(Economy):
             MCS_p_values_list[instrument] = MCS_pvalues
 
         # return results
+        # TODO: in the future, probably want some kind of output function
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
             RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list
@@ -524,6 +452,7 @@ class ProblemEconomy(Economy):
         return results
 
     def _compute_first_difference_markups(self, markups_u, markups_l, epsilon, theta_index, gradient_markups):
+        """Compute first differences and return the gradient."""
         for m in range(self.M):
             diff_markups = (markups_u[m] - markups_l[m]) / epsilon
             diff_markups, me = self._absorb_cost_ids(diff_markups)
@@ -543,35 +472,29 @@ class ProblemEconomy(Economy):
             self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
         )
 
-    def _not_sure(self, M, N, se_type, var):
+    def _compute_variance_covariance(self, m, i, N, se_type, var):
+        """Compute the variance covariance matrix."""
+        variance_covariance = 1 / N * np.array([
+            var[i].T @ var[i], var[m].T @ var[m], var[i].T @ var[m]
+        ])
+        if se_type == 'clustered':
+            cluster_ids = np.unique(self.products.clustering_ids)
+            for j in cluster_ids:
+                index = np.where(self.products.clustering_ids == j)[0]
+                var1_l = var[i][index, :]
+                var2_l = var[m][index, :]
+                var1_c = var1_l
+                var2_c = var2_l
 
-        # do the loop!
-        for m in range(M):
-            for i in range(m):
-                if i < m:
-                    # fill the initial variance covariance matrix
-                    variance_covariance = 1 / N * np.array([
-                        var[i].T @ var[i], var[m].T @ var[m], var[i].T @ var[m]
+                # update the matrix
+                for k in range(len(index) - 1):
+                    var1_c = np.roll(var1_c, 1, axis=0)
+                    var2_c = np.roll(var2_c, 1, axis=0)
+                    update = 1 / N * np.array([
+                        var1_l.T @ var1_c, var2_l.T @ var2_c, var1_l.T @ var2_c
                     ])
-                    if se_type == 'clustered':
-                        cluster_ids = np.unique(self.products.clustering_ids)
-                        for j in cluster_ids:
-                            ind_kk = np.where(self.products.clustering_ids == j)[0]
-                            var1_l = var[i][ind_kk, :]
-                            var2_l = var[m][ind_kk, :]
-
-                            # TODO: not sure what the point of these two is? initializing?
-                            var1_c = var1_l
-                            var2_c = var2_l
-
-                            # update the variance covariance matrix
-                            for ii in range(len(ind_kk) - 1):
-                                var1_c = np.roll(var1_c, 1, axis=0)
-                                var2_c = np.roll(var2_c, 1, axis=0)
-                                update = 1 / N * np.array([
-                                    var1_l.T @ var1_c, var2_l.T @ var2_c, var1_l.T @ var2_c
-                                ])
-                                variance_covariance = variance_covariance + update
+                    variance_covariance = variance_covariance + update
+        return variance_covariance
 
 
 class Problem(ProblemEconomy):
