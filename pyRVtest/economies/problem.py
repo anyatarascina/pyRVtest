@@ -56,7 +56,6 @@ class ProblemEconomy(Economy):
         step_start_time = time.time()
 
         # validate settings
-        # TODO: change demand adjustment to bool?
         if not isinstance(demand_adjustment, bool):
             raise TypeError("demand_adjustment must be a boolean.")
         if se_type not in {'robust', 'unadjusted', 'clustered'}:
@@ -75,7 +74,7 @@ class ProblemEconomy(Economy):
         # TODO: convert everything to arrays, get rid of looping over models where possible
         markups_upstream = np.zeros(M)
         markups_downstream = np.zeros(M)
-        marginal_cost = np.zeros(M)  # seems like now this doesn't need to be initialized anymore
+        marginal_cost = np.zeros(M)  # TODO: does this need to be initialized anymore?
         markups_orthogonal = [None] * M
         marginal_cost_orthogonal = [None] * M
         tau_list = [None] * M
@@ -106,7 +105,7 @@ class ProblemEconomy(Economy):
 
         # residualize prices, markups, and instruments w.r.t cost shifters w and recover the tau parameters in cost
         #   regression on w
-        # TODO: if above if condition is false, then prices_orthogonal not assigned...
+        # TODO: if above if condition is false, then prices_orthogonal not assigned!
         results = sm.OLS(prices_orthogonal, self.products.w).fit()
         prices_orthogonal = np.reshape(results.resid, [N, 1])
         for m in range(M):
@@ -116,7 +115,7 @@ class ProblemEconomy(Economy):
             tau_list[m] = results.params
 
         # if user specifies demand adjustment, account for two-step estimation in the standard errors by computing the
-        #   finite differences approximation to the derivative of markups with respect to theta
+        #   finite difference approximation to the derivative of markups with respect to theta
         if demand_adjustment:
             ZD = self.demand_results.problem.products.ZD
             for i in range(len(self.demand_results.problem.products.dtype.fields['X1'][2])):
@@ -166,30 +165,22 @@ class ProblemEconomy(Economy):
                 if not self.demand_results.sigma[i, j] == 0:
                     sigma_initial = self.demand_results.sigma[i, j]
 
-                    # reduce sigma by small increment
+                    # reduce sigma by small increment, update delta, and recompute markups
                     self.demand_results.sigma[i, j] = sigma_initial - epsilon / 2
-
-                    # update delta
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
                         delta_new = self.demand_results.compute_delta()
                     self.demand_results.delta = delta_new
-
-                    # recompute markups
                     markups_l, md, ml = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream,
                         self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
                     )
 
-                    # increase sigma by small increment
+                    # increase sigma by small increment, update delta, and recompute markups
                     self.demand_results.sigma[i, j] = sigma_initial + epsilon / 2
-
-                    # update delta
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
                         delta_new = self.demand_results.compute_delta()
                     self.demand_results.delta = delta_new
-
-                    # recompute markups
                     markups_u, mu, mu = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream,
@@ -200,9 +191,8 @@ class ProblemEconomy(Economy):
                     gradient_markups = self._compute_first_difference_markups(
                         markups_u, markups_l, epsilon, theta_index, gradient_markups
                     )
-
                     self.demand_results.sigma[i, j] = sigma_initial
-                    theta_index = theta_index+1
+                    theta_index = theta_index + 1
 
             # loop over nonlinear demand characteristics and demographics, and recompute markups with perturbations if
             #   the demand results for pi are not zero
@@ -242,21 +232,13 @@ class ProblemEconomy(Economy):
                     theta_index = theta_index+1
 
         # initialize empty lists to store statistic related values for each model _np.float64
-        g_list = [None] * L
+        g_list = [None] * L   # TODO: possibly update to g_list = np.zeros((M, L), dtype=options.dtype)
         Q_list = [None] * L
         RV_numerator_list = [None] * L
         RV_denominator_list = [None] * L
         test_statistic_RV_list = [None] * L
         F_statistic_list = [None] * L
         MCS_p_values_list = [None] * L
-
-        # g_list = np.zeros((M, L), dtype=options.dtype)
-        # Q_list = np.zeros(L, dtype=options.dtype)
-        # RV_numerator_list = np.zeros(L, dtype=options.dtype)
-        # RV_denominator_list = np.zeros(L, dtype=options.dtype)
-        # test_statistic_RV_list = np.zeros(L, dtype=options.dtype)
-        # F_statistic_list = np.zeros(L, dtype=options.dtype)
-        # MCS_p_values_list = np.zeros(L, dtype=options.dtype)
 
         # for each instrument
         for instrument in range(L):
@@ -275,8 +257,6 @@ class ProblemEconomy(Economy):
             # TODO: can these be converted to arrays?
             g = [None] * M
             Q = [None] * M
-            # g = np.zeros((M, 2, 1), dtype=options.dtype)
-            # Q = np.zeros((M, 2, 1), dtype=options.dtype)
 
             # compute the weight matrix
             W_inverse = 1 / N * (Z_orthogonal.T @ Z_orthogonal)
@@ -296,11 +276,9 @@ class ProblemEconomy(Economy):
                     if i < m:
                         RV_numerator[i, m] = math.sqrt(N) * (Q[i] - Q[m])
 
-            # compute the pairwise RV denominator
+            # initialize RV statistic denominator and construct weight matrices
             RV_denominator = np.zeros((M, M))
             covariance_mc = np.zeros((M, M))
-
-            # take powers of the weighting matrix
             W_12 = fractional_matrix_power(weight_matrix, 0.5)
             W_34 = fractional_matrix_power(weight_matrix, 0.75)
 
@@ -326,7 +304,7 @@ class ProblemEconomy(Economy):
             number_combinations = np.shape(all_combinations)[0]
             Var_MCS = np.zeros([number_combinations, 1])
 
-            # compute vii = 0 - whatever that means?
+            # compute vii = 0 #TODO: add more descriptive comment
             for m in range(M):
                 for i in range(m):
                     if i < m:
@@ -339,16 +317,17 @@ class ProblemEconomy(Economy):
                             g[m].T @ weighted_variance[1] @ g[m],
                             g[i].T @ weighted_variance[2] @ g[m]
                         ]).flatten()
-                        sigma2 = 4 * (operations.T @ moments)
+                        sigma_squared = 4 * (operations.T @ moments)
 
                         # compute the covariance matrix for marginal costs
-                        covariance_mc[i, m] = g[i].T @ weighted_variance[2] @ g[m]
+                        covariance_mc[i, m] = moments[2]
                         covariance_mc[m, i] = covariance_mc[i, m]
-                        covariance_mc[m, m] = g[m].T @ weighted_variance[1] @ g[m]
-                        covariance_mc[i, i] = g[i].T @ weighted_variance[0] @ g[i]
-                        RV_denominator[i, m] = math.sqrt(sigma2)
+                        covariance_mc[m, m] = moments[1]
+                        covariance_mc[i, i] = moments[0]
+                        RV_denominator[i, m] = math.sqrt(sigma_squared)
 
             # TODO: what is this block?
+            #    rename: Sigma_MCS, Var_MCS
             Sigma_MCS = np.zeros([number_combinations, number_combinations])
             for index1, value1 in enumerate(all_combinations):
                 Var_MCS[index1] = RV_denominator[value1[0], value1[1]] / 2
@@ -390,17 +369,21 @@ class ProblemEconomy(Economy):
                     denominator = ((sigma[0] + sigma[1]) * (sigma[0] + sigma[1]) - 4 * sigma[2] ** 2)
                     rho2 = numerator / denominator
 
-                    # TODO: make this numerator into a vector multiplication
-                    F_numerator = (sigma[1] * g[i].T @ weight_matrix @ g[i] + sigma[0] * g[m].T @ weight_matrix @ g[
-                        m] - 2 * sigma[2] * g[i].T @ weight_matrix @ g[m])
+                    # construct F statistic
+                    operations = np.array([sigma[1], sigma[0], -2 * sigma[2]])
+                    moments = np.array([
+                        g[i].T @ weight_matrix @ g[i],
+                        g[m].T @ weight_matrix @ g[m],
+                        g[i].T @ weight_matrix @ g[m]
+                    ]).flatten()
+                    F_numerator = operations @ moments
                     F_denominator = (sigma[0] * sigma[1] - sigma[2] ** 2)
                     F[i, m] = (1 - rho2) * N / (2 * K) * F_numerator / F_denominator
                 if i >= m:
                     F[i, m] = "NaN"
 
-            # TODO: why? is this just for testing or do we need to keep this in?
             # set a random seed
-            np.random.seed(123)
+            np.random.seed(123) # TODO: is this just for testing?
 
             # construct the model confidence set
             converged = False
