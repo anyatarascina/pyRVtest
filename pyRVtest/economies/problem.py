@@ -241,7 +241,7 @@ class ProblemEconomy(Economy):
                     self.demand_results.beta[i] = alpha_initial
                     theta_index = theta_index+1
 
-        # initialize empty lists to store statistic related values for each model
+        # initialize empty lists to store statistic related values for each model _np.float64
         g_list = [None] * L
         Q_list = [None] * L
         RV_numerator_list = [None] * L
@@ -249,6 +249,14 @@ class ProblemEconomy(Economy):
         test_statistic_RV_list = [None] * L
         F_statistic_list = [None] * L
         MCS_p_values_list = [None] * L
+
+        # g_list = np.zeros((M, L), dtype=options.dtype)
+        # Q_list = np.zeros(L, dtype=options.dtype)
+        # RV_numerator_list = np.zeros(L, dtype=options.dtype)
+        # RV_denominator_list = np.zeros(L, dtype=options.dtype)
+        # test_statistic_RV_list = np.zeros(L, dtype=options.dtype)
+        # F_statistic_list = np.zeros(L, dtype=options.dtype)
+        # MCS_p_values_list = np.zeros(L, dtype=options.dtype)
 
         # for each instrument
         for instrument in range(L):
@@ -267,6 +275,8 @@ class ProblemEconomy(Economy):
             # TODO: can these be converted to arrays?
             g = [None] * M
             Q = [None] * M
+            # g = np.zeros((M, 2, 1), dtype=options.dtype)
+            # Q = np.zeros((M, 2, 1), dtype=options.dtype)
 
             # compute the weight matrix
             W_inverse = 1 / N * (Z_orthogonal.T @ Z_orthogonal)
@@ -296,11 +306,10 @@ class ProblemEconomy(Economy):
 
             # compute psi to be used in the variance covariance estimator
             psi = np.zeros([M, N, K])
-            dmd_adj = [None] * M
+            demand_adjustment = [None] * M
             for m in range(M):
                 psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
-                WM34Z = Z_orthogonal @ W_34
-                WM34Zg = WM34Z @ g[m]
+                WM34Zg = Z_orthogonal @ W_34 @ g[m]
                 psi_i = ((prices_orthogonal - markups_orthogonal[m]) * Z_orthogonal) @ W_12 - 0.5 * WM34Zg * (Z_orthogonal @ W_34.T)
                 psi[m] = psi_i - np.transpose(psi_bar)
 
@@ -308,10 +317,10 @@ class ProblemEconomy(Economy):
                 if demand_adjustment:
                     G_k = -1 / N * np.transpose(Z_orthogonal) @ gradient_markups[m]
                     G_m[m] = G_k
-                    dmd_adj[m] = W_12 @ G_m[m] @ inv(H_prime_wd @ H) @ H_prime_wd
-                    psi[m] = psi[m] - (h_i - np.transpose(h)) @ np.transpose(dmd_adj[m])
+                    demand_adjustment[m] = W_12 @ G_m[m] @ inv(H_prime_wd @ H) @ H_prime_wd
+                    psi[m] = psi[m] - (h_i - np.transpose(h)) @ np.transpose(demand_adjustment[m])
 
-            # initialize 
+            # initialize
             M_MCS = np.array(range(M))
             all_combinations = list(itertools.combinations(M_MCS, 2))
             number_combinations = np.shape(all_combinations)[0]
@@ -321,20 +330,22 @@ class ProblemEconomy(Economy):
             for m in range(M):
                 for i in range(m):
                     if i < m:
-                        # fill the initial variance covariance matrix
-                        # TODO: is this actually the variance covariance matrix?
+                        # TODO: check terminology - is this the variance covariance matrix?
                         variance_covariance = self._compute_variance_covariance(m, i, N, se_type, psi)
-
-                        # compute the sigma
                         weighted_variance = W_12 @ variance_covariance @ W_12
-                        sigma2 = 4 * (g[i].T @ weighted_variance[0] @ g[i] + g[m].T @ weighted_variance[1] @ g[m] - 2 * g[i].T @ weighted_variance[2] @ g[m])
+                        operations = np.array([1, 1, -2])
+                        moments = np.array([
+                            g[i].T @ weighted_variance[0] @ g[i],
+                            g[m].T @ weighted_variance[1] @ g[m],
+                            g[i].T @ weighted_variance[2] @ g[m]
+                        ]).flatten()
+                        sigma2 = 4 * (operations.T @ moments)
 
                         # compute the covariance matrix for marginal costs
                         covariance_mc[i, m] = g[i].T @ weighted_variance[2] @ g[m]
                         covariance_mc[m, i] = covariance_mc[i, m]
                         covariance_mc[m, m] = g[m].T @ weighted_variance[1] @ g[m]
                         covariance_mc[i, i] = g[i].T @ weighted_variance[0] @ g[i]
-
                         RV_denominator[i, m] = math.sqrt(sigma2)
 
             # TODO: what is this block?
@@ -365,22 +376,24 @@ class ProblemEconomy(Economy):
                 e = np.reshape(ols_results.resid, [N, 1])
                 phi[m] = (e * Z_orthogonal) @ weight_matrix
                 if demand_adjustment:
-                    phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ dmd_adj[m])
+                    phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ demand_adjustment[m])
 
             # TODO: what is phi and what is psi?
             for (m, i) in itertools.product(range(M), range(M)):
                 if i < m:
                     variance = self._compute_variance_covariance(m, i, N, se_type, phi)
                     sigma = 1 / K * np.array([
-                        np.trace(variance[0] @ W_inverse), np.trace(variance[2] @ W_inverse), np.trace(variance[1] @ W_inverse)
+                        np.trace(variance[0] @ W_inverse), np.trace(variance[1] @ W_inverse),
+                        np.trace(variance[2] @ W_inverse)
                     ])
                     numerator = (sigma[0] - sigma[1]) * (sigma[0] - sigma[1])
-                    denominator = ((sigma[0] + sigma[1]) * (sigma[0] + sigma[1]) - 4 * sigma[2]**2)
+                    denominator = ((sigma[0] + sigma[1]) * (sigma[0] + sigma[1]) - 4 * sigma[2] ** 2)
                     rho2 = numerator / denominator
 
                     # TODO: make this numerator into a vector multiplication
-                    F_numerator = (sigma[1] * g[i].T @ weight_matrix @ g[i] + sigma[0] * g[m].T @ weight_matrix @ g[m] - 2 * sigma[2] * g[i].T @ weight_matrix @ g[m])
-                    F_denominator = (sigma[0] * sigma[1] - sigma[2]**2)
+                    F_numerator = (sigma[1] * g[i].T @ weight_matrix @ g[i] + sigma[0] * g[m].T @ weight_matrix @ g[
+                        m] - 2 * sigma[2] * g[i].T @ weight_matrix @ g[m])
+                    F_denominator = (sigma[0] * sigma[1] - sigma[2] ** 2)
                     F[i, m] = (1 - rho2) * N / (2 * K) * F_numerator / F_denominator
                 if i >= m:
                     F[i, m] = "NaN"
@@ -389,7 +402,7 @@ class ProblemEconomy(Economy):
             # set a random seed
             np.random.seed(123)
 
-            # iterating until convergence of what?
+            # construct the model confidence set
             converged = False
             MCS_pvalues = np.ones([M, 1])
             while not converged:
@@ -421,11 +434,10 @@ class ProblemEconomy(Economy):
                     else:
                         em = tmp2[index]
                         TRV_max = -TRV_max
-                       
-                    mean = np.zeros([np.shape(combos)[0]]) 
+
+                    mean = np.zeros([np.shape(combos)[0]])
                     cov = Sigma_MCS[Sig_idx[:, None], Sig_idx]
-                    n_draws = 99999  # TODO: why is this set here? should user have this as an input?
-                    simTRV = np.random.multivariate_normal(mean, cov, n_draws)
+                    simTRV = np.random.multivariate_normal(mean, cov, options.ndraws)
                     maxsimTRV = np.amax(abs(simTRV), 1)
                     MCS_pvalues[em] = np.mean(maxsimTRV > TRV_max)
                     M_MCS = np.delete(M_MCS, np.where(M_MCS == em))

@@ -111,3 +111,4 @@ pseudo_inverses = True
 weights_tol = 1e-10
 collinear_atol = collinear_rtol = 1e-14
 psd_atol = psd_rtol = 1e-8
+ndraws = 99999
