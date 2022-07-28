@@ -60,20 +60,10 @@ class Economy(Container, StringRepresentation):
         # count dimensions
         self.N = self.products.shape[0]
         self.T = self.unique_market_ids.size
-        if hasattr(self.instrument_formulation, '__len__'):
-            self.L = len(self.instrument_formulation)
-        else:
-            self.L = 1
-
-        # TODO: why zz?
-        for zz in range(self.L):
-            self.Dict_K.update({"K{0}".format(zz): self.products["Z{0}".format(zz)].shape[1]})  
-        
-        if self.markups[0] is None:
-            self.M = len(self.model_formulations)
-        else:
-            self.M = np.shape(self.markups)[0]
-
+        self.L = len(self.instrument_formulation) if hasattr(self.instrument_formulation, '__len__') else 1
+        for instrument in range(self.L):
+            self.Dict_K.update({"K{0}".format(instrument): self.products["Z{0}".format(instrument)].shape[1]})
+        self.M = len(self.model_formulations) if self.markups[0] is None else np.shape(self.markups)[0]
         self.EC = self.products.cost_ids.shape[1]
         self.H = self.unique_nesting_ids.size
 
@@ -103,9 +93,9 @@ class Economy(Container, StringRepresentation):
             if value > 0:
                 header.append(f" {key} ")
                 values.append(str(value))
-        for zz in range(self.L):
-            header.append("K{0}".format(zz))
-            values.append(str(self.Dict_K["K{0}".format(zz)]))
+        for instrument in range(self.L):
+            header.append("K{0}".format(instrument))
+            values.append(str(self.Dict_K["K{0}".format(instrument)]))
 
         return format_table(header, values, title="Dimensions")
 
@@ -127,7 +117,6 @@ class Economy(Container, StringRepresentation):
         # construct the header
         max_formulations = max(len(r[1:]) for r in data)
         header = ["Column Indices:"] + [f" {i} " for i in range(max_formulations)]
-        
         return format_table(header, *data, title="Formulations")
 
     def _format_model_formulations(self) -> str:

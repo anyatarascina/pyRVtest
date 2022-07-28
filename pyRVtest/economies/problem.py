@@ -45,9 +45,9 @@ class ProblemEconomy(Economy):
         method: `str`
             Configuration that allows user to select method? # TODO: what is unused argument both?
         demand_adjustment: `bool'
-            Configuration that specifies whether or not to compute a two-step demand adjustment?
+            Configuration that allows user to specify whether or not to compute a two-step demand adjustment.
         se_type: `str'
-            Configuration that specifies what kind of errors to compute... Is this optional?
+            Configuration that specifies what kind of errors to compute.
 
         """
 
@@ -93,8 +93,11 @@ class ProblemEconomy(Economy):
         # for each model, use computed markups to compute the marginal costs
         marginal_cost = self.products.prices - markups
 
+        # if demand_adjustment is yes, get finite differences approx to the derivative of markups wrt theta
+        # TODO: this was marked as something to be added, does this feature not exist yet?
+
         # absorb any cost fixed effects from prices, markups, and instruments
-        # TODO: are the errors used anywhere?
+        # TODO: are the errors used anywhere? what should happen if this condition is false?
         if self._absorb_cost_ids is not None:
             output("Absorbing cost-side fixed effects ...")
             self.products.w, w_errors = self._absorb_cost_ids(self.products.w)
@@ -130,7 +133,7 @@ class ProblemEconomy(Economy):
             K2 = self.demand_results.problem.K2  # size of demand side nonlinear characteristics
             D = self.demand_results.problem.D    # size of agent demographics
 
-            # comment here
+            # compute the gradient of the GMM moment function
             # TODO: warning since shouldn't call this method outside of class
             partial_y_theta = np.append(
                 self.demand_results.xi_by_theta_jacobian, -self.demand_results.problem.products.prices, 1
@@ -142,8 +145,6 @@ class ProblemEconomy(Economy):
             else:
                 product = XD @ inv(XD.T @ ZD @ WD @ ZD.T @ XD) @ (XD.T @ ZD @ WD @ ZD.T @ partial_y_theta)
                 partial_xi_theta = partial_y_theta - product
-
-            # compute the gradient of the GMM moment function
             H = 1 / N * (np.transpose(ZD) @ partial_xi_theta)
             H_prime = np.transpose(H)
             H_prime_wd = H_prime @ WD
@@ -240,7 +241,7 @@ class ProblemEconomy(Economy):
         F_statistic_list = [None] * L
         MCS_p_values_list = [None] * L
 
-        # for each instrument
+        # for each instrument,
         for instrument in range(L):
             instruments = self.products["Z{0}".format(instrument)]
             K = np.shape(instruments)[1]
@@ -270,41 +271,42 @@ class ProblemEconomy(Economy):
                 Q[m] = g[m].T @ weight_matrix @ g[m]
 
             # compute the pairwise RV numerator
-            RV_numerator = np.zeros((M, M))
+            test_statistic_numerator = np.zeros((M, M))
             for m in range(M):
                 for i in range(m):
                     if i < m:
-                        RV_numerator[i, m] = math.sqrt(N) * (Q[i] - Q[m])
+                        test_statistic_numerator[i, m] = math.sqrt(N) * (Q[i] - Q[m])
 
-            # initialize RV statistic denominator and construct weight matrices
-            RV_denominator = np.zeros((M, M))
+            # initialize the RV test statistic denominator and construct weight matrices
+            test_statistic_denominator = np.zeros((M, M))
             covariance_mc = np.zeros((M, M))
             W_12 = fractional_matrix_power(weight_matrix, 0.5)
             W_34 = fractional_matrix_power(weight_matrix, 0.75)
 
-            # compute psi to be used in the variance covariance estimator
+            # compute psi, which is used in the estimator of the covariance between weighted moments
             psi = np.zeros([M, N, K])
-            demand_adjustment = [None] * M
+            adjustment_value = [None] * M
             for m in range(M):
                 psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
                 WM34Zg = Z_orthogonal @ W_34 @ g[m]
-                psi_i = ((prices_orthogonal - markups_orthogonal[m]) * Z_orthogonal) @ W_12 - 0.5 * WM34Zg * (Z_orthogonal @ W_34.T)
+                marginal_cost_orthogonal = (prices_orthogonal - markups_orthogonal[m])
+                psi_i = (marginal_cost_orthogonal * Z_orthogonal) @ W_12 - 0.5 * WM34Zg * (Z_orthogonal @ W_34.T)
                 psi[m] = psi_i - np.transpose(psi_bar)
 
                 # make a demand adjustment
                 if demand_adjustment:
                     G_k = -1 / N * np.transpose(Z_orthogonal) @ gradient_markups[m]
                     G_m[m] = G_k
-                    demand_adjustment[m] = W_12 @ G_m[m] @ inv(H_prime_wd @ H) @ H_prime_wd
-                    psi[m] = psi[m] - (h_i - np.transpose(h)) @ np.transpose(demand_adjustment[m])
+                    adjustment_value[m] = W_12 @ G_m[m] @ inv(H_prime_wd @ H) @ H_prime_wd
+                    psi[m] = psi[m] - (h_i - np.transpose(h)) @ np.transpose(adjustment_value[m])
 
             # initialize
-            M_MCS = np.array(range(M))
-            all_combinations = list(itertools.combinations(M_MCS, 2))
-            number_combinations = np.shape(all_combinations)[0]
-            Var_MCS = np.zeros([number_combinations, 1])
+            model_confidence_set = np.array(range(M))
+            all_model_combinations = list(itertools.combinations(model_confidence_set, 2))
+            number_model_combinations = np.shape(all_model_combinations)[0]
+            model_confidence_set_variance = np.zeros([number_model_combinations, 1])
 
-            # compute vii = 0 #TODO: add more descriptive comment
+            # compute vii = 0 # TODO: add more descriptive comment
             for m in range(M):
                 for i in range(m):
                     if i < m:
@@ -324,24 +326,24 @@ class ProblemEconomy(Economy):
                         covariance_mc[m, i] = covariance_mc[i, m]
                         covariance_mc[m, m] = moments[1]
                         covariance_mc[i, i] = moments[0]
-                        RV_denominator[i, m] = math.sqrt(sigma_squared)
+                        test_statistic_denominator[i, m] = math.sqrt(sigma_squared)
 
-            # TODO: what is this block?
-            #    rename: Sigma_MCS, Var_MCS
-            Sigma_MCS = np.zeros([number_combinations, number_combinations])
-            for index1, value1 in enumerate(all_combinations):
-                Var_MCS[index1] = RV_denominator[value1[0], value1[1]] / 2
-                for index2, value2 in enumerate(all_combinations):
-                    term1 = covariance_mc[value1[0], value2[0]] - covariance_mc[value1[1], value2[0]]
-                    term2 = covariance_mc[value1[0], value2[1]] - covariance_mc[value1[1], value2[1]]
-                    Sigma_MCS[index2, index1] = term1 - term2
-            Sigma_MCS = Sigma_MCS / (Var_MCS @ Var_MCS.T)
+            # TODO: comment here
+            sigma_model_confidence_set = np.zeros([number_model_combinations, number_model_combinations])
+            for index_i, model_i in enumerate(all_model_combinations):
+                model_confidence_set_variance[index_i] = test_statistic_denominator[model_i[0], model_i[1]] / 2
+                for index_j, model_j in enumerate(all_model_combinations):
+                    term1 = covariance_mc[model_i[0], model_j[0]] - covariance_mc[model_i[1], model_j[0]]
+                    term2 = covariance_mc[model_i[0], model_j[1]] - covariance_mc[model_i[1], model_j[1]]
+                    sigma_model_confidence_set[index_j, index_i] = term1 - term2
+            denominator = model_confidence_set_variance @ model_confidence_set_variance.T
+            sigma_model_confidence_set = sigma_model_confidence_set / denominator  # TODO: should be multiplied by 4?
 
             # compute the pairwise RV test statistic
             test_statistic_RV = np.zeros((M, M))
             for (m, i) in itertools.product(range(M), range(M)):
                 if i < m:
-                    test_statistic_RV[i, m] = RV_numerator[i, m] / RV_denominator[i, m]
+                    test_statistic_RV[i, m] = test_statistic_numerator[i, m] / test_statistic_denominator[i, m]
                 else:
                     test_statistic_RV[i, m] = "NaN"
 
@@ -355,7 +357,7 @@ class ProblemEconomy(Economy):
                 e = np.reshape(ols_results.resid, [N, 1])
                 phi[m] = (e * Z_orthogonal) @ weight_matrix
                 if demand_adjustment:
-                    phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ demand_adjustment[m])
+                    phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ adjustment_value[m])
 
             # TODO: what is phi and what is psi?
             for (m, i) in itertools.product(range(M), range(M)):
@@ -387,27 +389,27 @@ class ProblemEconomy(Economy):
 
             # construct the model confidence set
             converged = False
-            MCS_pvalues = np.ones([M, 1])
+            model_confidence_set_pvalues = np.ones([M, 1])
             while not converged:
-                if np.shape(M_MCS)[0] == 2:
-                    TRV_max = test_statistic_RV[M_MCS[0], M_MCS[1]]
+                if np.shape(model_confidence_set)[0] == 2:
+                    TRV_max = test_statistic_RV[model_confidence_set[0], model_confidence_set[1]]
                     if np.sign(TRV_max) >= 0:
-                        em = M_MCS[0]  # TODO: what is em?
+                        em = model_confidence_set[0]  # TODO: what is em?
                         TRV_max = -TRV_max
                     else:
-                        em = M_MCS[1]
-                    MCS_pvalues[em] = 2 * norm.cdf(TRV_max)
+                        em = model_confidence_set[1]
+                    model_confidence_set_pvalues[em] = 2 * norm.cdf(TRV_max)
                     converged = True
                 else:
-                    combos = list(itertools.combinations(M_MCS, 2))
+                    combos = list(itertools.combinations(model_confidence_set, 2))
                     tmp1 = []
                     tmp2 = []
-                    number_combinations = np.shape(combos)[0]
-                    Sig_idx = np.empty(number_combinations, dtype=int)
-                    for ii in range(number_combinations):
+                    number_model_combinations = np.shape(combos)[0]
+                    Sig_idx = np.empty(number_model_combinations, dtype=int)
+                    for ii in range(number_model_combinations):
                         tmp1.append(combos[ii][0])
                         tmp2.append(combos[ii][1])
-                        Sig_idx[ii] = all_combinations.index(combos[ii])
+                        Sig_idx[ii] = all_model_combinations.index(combos[ii])
                     TRV_MCS = test_statistic_RV[tmp1, tmp2]
                     index = np.argmax(abs(TRV_MCS))
                     TRV_max = TRV_MCS[index]
@@ -419,26 +421,26 @@ class ProblemEconomy(Economy):
                         TRV_max = -TRV_max
 
                     mean = np.zeros([np.shape(combos)[0]])
-                    cov = Sigma_MCS[Sig_idx[:, None], Sig_idx]
+                    cov = sigma_model_confidence_set[Sig_idx[:, None], Sig_idx]
                     simTRV = np.random.multivariate_normal(mean, cov, options.ndraws)
                     maxsimTRV = np.amax(abs(simTRV), 1)
-                    MCS_pvalues[em] = np.mean(maxsimTRV > TRV_max)
-                    M_MCS = np.delete(M_MCS, np.where(M_MCS == em))
+                    model_confidence_set_pvalues[em] = np.mean(maxsimTRV > TRV_max)
+                    model_confidence_set = np.delete(model_confidence_set, np.where(model_confidence_set == em))
 
             g_list[instrument] = g
             Q_list[instrument] = Q
-            RV_numerator_list[instrument] = RV_numerator
-            RV_denominator_list[instrument] = RV_denominator
+            RV_numerator_list[instrument] = test_statistic_numerator
+            RV_denominator_list[instrument] = test_statistic_denominator
             test_statistic_RV_list[instrument] = test_statistic_RV
             F_statistic_list[instrument] = F
-            MCS_p_values_list[instrument] = MCS_pvalues
+            MCS_p_values_list[instrument] = model_confidence_set_pvalues
 
         # return results
-        # TODO: in the future, probably want some kind of output function
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
             RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list
         ))
+        # TODO: should time outputs be in a function?
         step_end_time = time.time()
         total_time = step_end_time-step_start_time
         print('Total Time is ... ' + str(total_time))
