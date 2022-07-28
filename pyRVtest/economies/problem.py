@@ -119,14 +119,15 @@ class ProblemEconomy(Economy):
 
         # if user specifies demand adjustment, account for two-step estimation in the standard errors by computing the
         #   finite difference approximation to the derivative of markups with respect to theta
+        # TODO: price_column is not initialized? also is it overwritten in the loop (and why?)
         if demand_adjustment:
             ZD = self.demand_results.problem.products.ZD
             for i in range(len(self.demand_results.problem.products.dtype.fields['X1'][2])):
                 if self.demand_results.problem.products.dtype.fields['X1'][2][i] == 'prices':
-                    price_col = i
+                    price_column = i
 
             # initialize variables for two-step standard error adjustment and other demand results
-            XD = np.delete(self.demand_results.problem.products.X1, price_col, 1)
+            XD = np.delete(self.demand_results.problem.products.X1, price_column, 1)
             WD = self.demand_results.updated_W
             h = self.demand_results.moments
             h_i = ZD * self.demand_results.xi
@@ -158,7 +159,7 @@ class ProblemEconomy(Economy):
             for m in range(M):
                 gradient_markups[m] = np.zeros((N, len(self.demand_results.theta) + 1))
 
-            # TODO: for which of the following can I use the compute pertubations function?
+            # TODO: for which of the following can I use the compute perturbations function?
             # compute sigma
             theta_index = 0
             delta_estimate = self.demand_results.delta
@@ -385,12 +386,15 @@ class ProblemEconomy(Economy):
                     F[i, m] = "NaN"
 
             # set a random seed
-            np.random.seed(123) # TODO: is this just for testing?
+            np.random.seed(123)  # TODO: is this just for testing?
 
-            # construct the model confidence set
+            # construct the model confidence set by iterating through all model pairs and comparing their test
+            #    statistics
+            # TODO: variables here need to be renamed
             converged = False
             model_confidence_set_pvalues = np.ones([M, 1])
             while not converged:
+                # if we are on the last pair of models, use the model of worst fit to compute the p-value
                 if np.shape(model_confidence_set)[0] == 2:
                     TRV_max = test_statistic_RV[model_confidence_set[0], model_confidence_set[1]]
                     if np.sign(TRV_max) >= 0:
@@ -402,26 +406,25 @@ class ProblemEconomy(Economy):
                     converged = True
                 else:
                     combos = list(itertools.combinations(model_confidence_set, 2))
-                    tmp1 = []
-                    tmp2 = []
+                    model_1 = []  # TODO: get rid of these temp variables?
+                    model_2 = []
                     number_model_combinations = np.shape(combos)[0]
-                    Sig_idx = np.empty(number_model_combinations, dtype=int)
-                    for ii in range(number_model_combinations):
-                        tmp1.append(combos[ii][0])
-                        tmp2.append(combos[ii][1])
-                        Sig_idx[ii] = all_model_combinations.index(combos[ii])
-                    TRV_MCS = test_statistic_RV[tmp1, tmp2]
+                    sigma_index = np.empty(number_model_combinations, dtype=int)
+                    for model_pair in range(number_model_combinations):
+                        model_1.append(combos[model_pair][0])
+                        model_2.append(combos[model_pair][1])
+                        sigma_index[model_pair] = all_model_combinations.index(combos[model_pair])
+                    TRV_MCS = test_statistic_RV[model_1, model_2]
                     index = np.argmax(abs(TRV_MCS))
                     TRV_max = TRV_MCS[index]
 
                     if np.sign(TRV_max) >= 0:
-                        em = tmp1[index]
+                        em = model_1[index]
                     else:
-                        em = tmp2[index]
+                        em = model_2[index]
                         TRV_max = -TRV_max
-
                     mean = np.zeros([np.shape(combos)[0]])
-                    cov = sigma_model_confidence_set[Sig_idx[:, None], Sig_idx]
+                    cov = sigma_model_confidence_set[sigma_index[:, None], sigma_index]
                     simTRV = np.random.multivariate_normal(mean, cov, options.ndraws)
                     maxsimTRV = np.amax(abs(simTRV), 1)
                     model_confidence_set_pvalues[em] = np.mean(maxsimTRV > TRV_max)
