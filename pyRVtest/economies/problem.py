@@ -2,23 +2,25 @@
 
 import abc
 import contextlib
+import itertools
+import math
 import os
 import time
-import statsmodels.api as sm 
 from typing import Mapping, Optional, Sequence
-import math
+
 import numpy as np
-import itertools
 from scipy.linalg import inv, fractional_matrix_power
 from scipy.stats import norm
+import statsmodels.api as sm
+
 from .economy import Economy
 from .. import options
 from ..configurations.formulation import Formulation, ModelFormulation
+from ..construction import build_markups_all
 from ..primitives import Models, Products
 from ..results.problem_results import ProblemResults
 from ..utilities.algebra import precisely_identify_collinearity
 from ..utilities.basics import Array, RecArray, format_seconds, output
-from ..construction import build_markups_all
 
 
 class ProblemEconomy(Economy):
@@ -35,15 +37,13 @@ class ProblemEconomy(Economy):
         )
 
     def solve(
-            self, method: str = 'both', demand_adjustment: bool = False, se_type: str = 'unadjusted') -> ProblemResults:
+            self, demand_adjustment: bool = False, se_type: str = 'unadjusted') -> ProblemResults:
         r"""Solve the problem.
 
         # TODO: add general overview
 
         Parameters
         ----------
-        method: `str`
-            Configuration that allows user to select method? # TODO: what is unused argument both?
         demand_adjustment: `bool'
             Configuration that allows user to specify whether or not to compute a two-step demand adjustment.
         se_type: `str'
@@ -67,14 +67,13 @@ class ProblemEconomy(Economy):
         M = self.M
         N = self.N
         L = self.L
-        Dict_K = self.Dict_K  # TODO: why is this assigned but not used? what is it?
         markups = self.markups
 
         # initialize variables to be computed
         # TODO: convert everything to arrays, get rid of looping over models where possible
         markups_upstream = np.zeros(M)
         markups_downstream = np.zeros(M)
-        marginal_cost = np.zeros(M)  # TODO: does this need to be initialized anymore?
+        # marginal_cost = np.zeros(M)  # TODO: okay to not initialize here?
         markups_orthogonal = [None] * M
         marginal_cost_orthogonal = [None] * M
         tau_list = [None] * M
@@ -93,11 +92,7 @@ class ProblemEconomy(Economy):
         # for each model, use computed markups to compute the marginal costs
         marginal_cost = self.products.prices - markups
 
-        # if demand_adjustment is yes, get finite differences approx to the derivative of markups wrt theta
-        # TODO: this was marked as something to be added, does this feature not exist yet?
-
         # absorb any cost fixed effects from prices, markups, and instruments
-        # TODO: are the errors used anywhere? what should happen if this condition is false?
         if self._absorb_cost_ids is not None:
             output("Absorbing cost-side fixed effects ...")
             self.products.w, w_errors = self._absorb_cost_ids(self.products.w)
@@ -105,10 +100,13 @@ class ProblemEconomy(Economy):
             for m in range(M):
                 markups_orthogonal[m], markups_errors[m] = self._absorb_cost_ids(markups[m])
                 marginal_cost_orthogonal[m], marginal_cost_errors[m] = self._absorb_cost_ids(marginal_cost[m])
+        else:
+            prices_orthogonal = self.products.prices
+            markups_orthogonal = markups
+            marginal_cost_orthogonal = marginal_cost
 
         # residualize prices, markups, and instruments w.r.t cost shifters w and recover the tau parameters in cost
         #   regression on w
-        # TODO: if above if condition is false, then prices_orthogonal not assigned!
         results = sm.OLS(prices_orthogonal, self.products.w).fit()
         prices_orthogonal = np.reshape(results.resid, [N, 1])
         for m in range(M):
@@ -119,14 +117,9 @@ class ProblemEconomy(Economy):
 
         # if user specifies demand adjustment, account for two-step estimation in the standard errors by computing the
         #   finite difference approximation to the derivative of markups with respect to theta
-        # TODO: price_column is not initialized? also is it overwritten in the loop (and why?)
         if demand_adjustment:
             ZD = self.demand_results.problem.products.ZD
-            for i in range(len(self.demand_results.problem.products.dtype.fields['X1'][2])):
-                if self.demand_results.problem.products.dtype.fields['X1'][2][i] == 'prices':
-                    price_column = i
-
-            # initialize variables for two-step standard error adjustment and other demand results
+            price_column = self.demand_results.problem.products.dtype.fields['X1'][2].index('prices')
             XD = np.delete(self.demand_results.problem.products.X1, price_column, 1)
             WD = self.demand_results.updated_W
             h = self.demand_results.moments
@@ -136,6 +129,7 @@ class ProblemEconomy(Economy):
 
             # compute the gradient of the GMM moment function
             # TODO: warning since shouldn't call this method outside of class
+            #   also, improve formatting here?
             partial_y_theta = np.append(
                 self.demand_results.xi_by_theta_jacobian, -self.demand_results.problem.products.prices, 1
             )
@@ -212,6 +206,8 @@ class ProblemEconomy(Economy):
             self.demand_results.delta = delta_estimate
                 
             # if __, perturb alpha in negative (positive) direction and recompute markups
+            # TODO: why does this give different results with copy? Maybe has to do with alpha_initial being a mutable
+            #   object since it's array, not a float?
             for i in range(len(self.demand_results.beta)):
                 if self.demand_results.beta_labels[i] == 'prices':
                     alpha_initial = self.demand_results.beta[i]
@@ -231,7 +227,7 @@ class ProblemEconomy(Economy):
                         markups_u, markups_l, epsilon, theta_index, gradient_markups
                     )
                     self.demand_results.beta[i] = alpha_initial
-                    theta_index = theta_index+1
+                    theta_index = theta_index + 1
 
         # initialize empty lists to store statistic related values for each model _np.float64
         g_list = [None] * L   # TODO: possibly update to g_list = np.zeros((M, L), dtype=options.dtype)
@@ -249,9 +245,9 @@ class ProblemEconomy(Economy):
 
             # absorb any cost fixed effects from prices, markups, and instruments
             if self._absorb_cost_ids is not None:
-                # TODO: can absorb_cost_ids be None? bc in that case, it seems like the initial Z_orthogonal is never
-                #  assigned
                 Z_orthogonal, Z_errors = self._absorb_cost_ids(instruments)
+            else:
+                Z_orthogonal = instruments
             Z_residual = sm.OLS(Z_orthogonal, self.products.w).fit().resid
             Z_orthogonal = np.reshape(Z_residual, [N, K])
 
@@ -301,7 +297,7 @@ class ProblemEconomy(Economy):
                     adjustment_value[m] = W_12 @ G_m[m] @ inv(H_prime_wd @ H) @ H_prime_wd
                     psi[m] = psi[m] - (h_i - np.transpose(h)) @ np.transpose(adjustment_value[m])
 
-            # initialize
+            # initialize model confidence set containers
             model_confidence_set = np.array(range(M))
             all_model_combinations = list(itertools.combinations(model_confidence_set, 2))
             number_model_combinations = np.shape(all_model_combinations)[0]
@@ -329,7 +325,7 @@ class ProblemEconomy(Economy):
                         covariance_mc[i, i] = moments[0]
                         test_statistic_denominator[i, m] = math.sqrt(sigma_squared)
 
-            # TODO: comment here
+            # TODO: add comment here
             sigma_model_confidence_set = np.zeros([number_model_combinations, number_model_combinations])
             for index_i, model_i in enumerate(all_model_combinations):
                 model_confidence_set_variance[index_i] = test_statistic_denominator[model_i[0], model_i[1]] / 2
@@ -341,12 +337,12 @@ class ProblemEconomy(Economy):
             sigma_model_confidence_set = sigma_model_confidence_set / denominator  # TODO: should be multiplied by 4?
 
             # compute the pairwise RV test statistic
-            test_statistic_RV = np.zeros((M, M))
+            rv_test_statistic = np.zeros((M, M))
             for (m, i) in itertools.product(range(M), range(M)):
                 if i < m:
-                    test_statistic_RV[i, m] = test_statistic_numerator[i, m] / test_statistic_denominator[i, m]
+                    rv_test_statistic[i, m] = test_statistic_numerator[i, m] / test_statistic_denominator[i, m]
                 else:
-                    test_statistic_RV[i, m] = "NaN"
+                    rv_test_statistic[i, m] = "NaN"
 
             # compute the pairwise F-statistic for each model
             F = np.zeros((M, M))
@@ -360,7 +356,8 @@ class ProblemEconomy(Economy):
                 if demand_adjustment:
                     phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ adjustment_value[m])
 
-            # TODO: what is phi and what is psi?
+            # TODO: phi and psi - correspond to the different test statistics
+            # TODO: add comment
             for (m, i) in itertools.product(range(M), range(M)):
                 if i < m:
                     variance = self._compute_variance_covariance(m, i, N, se_type, phi)
@@ -386,55 +383,59 @@ class ProblemEconomy(Economy):
                     F[i, m] = "NaN"
 
             # set a random seed
-            np.random.seed(123)  # TODO: is this just for testing?
+            # TODO: maybe change to random state instead?
+            np.random.seed(options.random_seed)
 
             # construct the model confidence set by iterating through all model pairs and comparing their test
             #    statistics
-            # TODO: variables here need to be renamed
             converged = False
             model_confidence_set_pvalues = np.ones([M, 1])
             while not converged:
                 # if we are on the last pair of models, use the model of worst fit to compute the p-value
                 if np.shape(model_confidence_set)[0] == 2:
-                    TRV_max = test_statistic_RV[model_confidence_set[0], model_confidence_set[1]]
-                    if np.sign(TRV_max) >= 0:
-                        em = model_confidence_set[0]  # TODO: what is em?
-                        TRV_max = -TRV_max
+                    max_test_statistic = rv_test_statistic[model_confidence_set[0], model_confidence_set[1]]
+                    if np.sign(max_test_statistic) >= 0:
+                        worst_fit = model_confidence_set[0]
+                        max_test_statistic = -max_test_statistic
                     else:
-                        em = model_confidence_set[1]
-                    model_confidence_set_pvalues[em] = 2 * norm.cdf(TRV_max)
+                        worst_fit = model_confidence_set[1]
+                    model_confidence_set_pvalues[worst_fit] = 2 * norm.cdf(max_test_statistic)
                     converged = True
                 else:
-                    combos = list(itertools.combinations(model_confidence_set, 2))
-                    model_1 = []  # TODO: get rid of these temp variables?
+                    model_1 = []
                     model_2 = []
-                    number_model_combinations = np.shape(combos)[0]
+                    current_combinations = list(itertools.combinations(model_confidence_set, 2))
+                    number_model_combinations = np.shape(current_combinations)[0]
                     sigma_index = np.empty(number_model_combinations, dtype=int)
+
+                    # TODO: add comment
                     for model_pair in range(number_model_combinations):
-                        model_1.append(combos[model_pair][0])
-                        model_2.append(combos[model_pair][1])
-                        sigma_index[model_pair] = all_model_combinations.index(combos[model_pair])
-                    TRV_MCS = test_statistic_RV[model_1, model_2]
-                    index = np.argmax(abs(TRV_MCS))
-                    TRV_max = TRV_MCS[index]
+                        model_1.append(current_combinations[model_pair][0])
+                        model_2.append(current_combinations[model_pair][1])
+                        sigma_index[model_pair] = all_model_combinations.index(current_combinations[model_pair])
+                    test_statistic_model_confidence_set = rv_test_statistic[model_1, model_2]
+                    index = np.argmax(abs(test_statistic_model_confidence_set))
+                    max_test_statistic = test_statistic_model_confidence_set[index]
 
-                    if np.sign(TRV_max) >= 0:
-                        em = model_1[index]
+                    # TODO: add comment
+                    if np.sign(max_test_statistic) >= 0:
+                        worst_fit = model_1[index]
                     else:
-                        em = model_2[index]
-                        TRV_max = -TRV_max
-                    mean = np.zeros([np.shape(combos)[0]])
+                        worst_fit = model_2[index]
+                        max_test_statistic = -max_test_statistic
+                    mean = np.zeros([np.shape(current_combinations)[0]])
                     cov = sigma_model_confidence_set[sigma_index[:, None], sigma_index]
-                    simTRV = np.random.multivariate_normal(mean, cov, options.ndraws)
-                    maxsimTRV = np.amax(abs(simTRV), 1)
-                    model_confidence_set_pvalues[em] = np.mean(maxsimTRV > TRV_max)
-                    model_confidence_set = np.delete(model_confidence_set, np.where(model_confidence_set == em))
+                    simulated_test_statistics = np.random.multivariate_normal(mean, cov, options.ndraws)
+                    max_simulated_statistic = np.amax(abs(simulated_test_statistics), 1)
+                    model_confidence_set_pvalues[worst_fit] = np.mean(max_simulated_statistic > max_test_statistic)
+                    model_confidence_set = np.delete(model_confidence_set, np.where(model_confidence_set == worst_fit))
 
+            # update the output list
             g_list[instrument] = g
             Q_list[instrument] = Q
             RV_numerator_list[instrument] = test_statistic_numerator
             RV_denominator_list[instrument] = test_statistic_denominator
-            test_statistic_RV_list[instrument] = test_statistic_RV
+            test_statistic_RV_list[instrument] = rv_test_statistic
             F_statistic_list[instrument] = F
             MCS_p_values_list[instrument] = model_confidence_set_pvalues
 
@@ -443,7 +444,7 @@ class ProblemEconomy(Economy):
             self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
             RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list
         ))
-        # TODO: should time outputs be in a function?
+        # TODO: should time outputs be in Progress?
         step_end_time = time.time()
         total_time = step_end_time-step_start_time
         print('Total Time is ... ' + str(total_time))
