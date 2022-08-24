@@ -71,10 +71,10 @@ class ProblemEconomy(Economy):
 
         # initialize variables to be computed
         # TODO: convert everything to arrays, get rid of looping over models where possible
-        markups_upstream = np.zeros(M)
-        markups_downstream = np.zeros(M)
+        markups_upstream = np.zeros(M, dtype=options.dtype)
+        markups_downstream = np.zeros(M, dtype=options.dtype)
         # marginal_cost = np.zeros(M)  # TODO: okay to not initialize here?
-        markups_orthogonal = [None] * M
+        markups_orthogonal = np.zeros((M, N), dtype=options.dtype)
         marginal_cost_orthogonal = [None] * M
         tau_list = [None] * M
         markups_errors = [None] * M
@@ -98,7 +98,9 @@ class ProblemEconomy(Economy):
             self.products.w, w_errors = self._absorb_cost_ids(self.products.w)
             prices_orthogonal, prices_errors = self._absorb_cost_ids(self.products.prices)
             for m in range(M):
-                markups_orthogonal[m], markups_errors[m] = self._absorb_cost_ids(markups[m])
+                value, error = self._absorb_cost_ids(markups[m])
+                markups_orthogonal[m] = np.squeeze(value)
+                markups_errors[m] = error
                 marginal_cost_orthogonal[m], marginal_cost_errors[m] = self._absorb_cost_ids(marginal_cost[m])
         else:
             prices_orthogonal = self.products.prices
@@ -111,7 +113,7 @@ class ProblemEconomy(Economy):
         prices_orthogonal = np.reshape(results.resid, [N, 1])
         for m in range(M):
             results = sm.OLS(markups_orthogonal[m], self.products.w).fit()
-            markups_orthogonal[m] = np.reshape(results.resid, [N, 1])
+            markups_orthogonal[m] = results.resid
             results = sm.OLS(marginal_cost_orthogonal[m], self.products.w).fit()
             tau_list[m] = results.params
 
@@ -252,7 +254,7 @@ class ProblemEconomy(Economy):
             Z_orthogonal = np.reshape(Z_residual, [N, K])
 
             # initialize variables to store GMM measure of fit Q_m for each model
-            # TODO: can these be converted to arrays?
+            # TODO: can these be converted to arrays? g = np.zeros((K, M), dtype=options.dtype)
             g = [None] * M
             Q = [None] * M
 
@@ -263,8 +265,8 @@ class ProblemEconomy(Economy):
 
             # for each model compute GMM measure of fit
             for m in range(M):
-                g[m] = 1 / N * (Z_orthogonal.T @ (prices_orthogonal - markups_orthogonal[m]))
-                g[m] = np.reshape(g[m], [K, 1])
+                g[m] = 1 / N * (Z_orthogonal.T @ (np.squeeze(prices_orthogonal) - markups_orthogonal[m]))
+                g[m] = np.reshape(g[m], [K, 1])  # TODO: is this necessary?
                 Q[m] = g[m].T @ weight_matrix @ g[m]
 
             # compute the pairwise RV numerator
@@ -285,9 +287,10 @@ class ProblemEconomy(Economy):
             adjustment_value = [None] * M
             for m in range(M):
                 psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
-                WM34Zg = Z_orthogonal @ W_34 @ g[m]
-                marginal_cost_orthogonal = (prices_orthogonal - markups_orthogonal[m])
-                psi_i = (marginal_cost_orthogonal * Z_orthogonal) @ W_12 - 0.5 * WM34Zg * (Z_orthogonal @ W_34.T)
+                W_34_Zg = Z_orthogonal @ W_34 @ g[m]
+                marginal_cost_orthogonal = (np.squeeze(prices_orthogonal) - markups_orthogonal[m])
+                marginal_cost_orthogonal = marginal_cost_orthogonal[:, np.newaxis]
+                psi_i = (marginal_cost_orthogonal * Z_orthogonal) @ W_12 - 0.5 * W_34_Zg * (Z_orthogonal @ W_34.T)
                 psi[m] = psi_i - np.transpose(psi_bar)
 
                 # make a demand adjustment
@@ -349,7 +352,7 @@ class ProblemEconomy(Economy):
             pi = np.zeros((K, M))
             phi = np.zeros([M, N, K])
             for m in range(M):
-                ols_results = sm.OLS(prices_orthogonal - markups_orthogonal[m], Z_orthogonal).fit()
+                ols_results = sm.OLS(np.squeeze(prices_orthogonal) - markups_orthogonal[m], Z_orthogonal).fit()
                 pi[:, m] = ols_results.params
                 e = np.reshape(ols_results.resid, [N, 1])
                 phi[m] = (e * Z_orthogonal) @ weight_matrix
