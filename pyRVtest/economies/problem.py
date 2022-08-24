@@ -70,15 +70,13 @@ class ProblemEconomy(Economy):
         markups = self.markups
 
         # initialize variables to be computed
-        # TODO: convert everything to arrays, get rid of looping over models where possible
         markups_upstream = np.zeros(M, dtype=options.dtype)
         markups_downstream = np.zeros(M, dtype=options.dtype)
-        # marginal_cost = np.zeros(M)  # TODO: okay to not initialize here?
         markups_orthogonal = np.zeros((M, N), dtype=options.dtype)
-        marginal_cost_orthogonal = [None] * M
-        tau_list = [None] * M
-        markups_errors = [None] * M
-        marginal_cost_errors = [None] * M
+        marginal_cost_orthogonal = np.zeros((M, N), dtype=options.dtype)
+        tau_list = np.zeros(M, dtype=options.dtype)
+        markups_errors = np.zeros(M, dtype=options.dtype)
+        marginal_cost_errors = np.zeros(M, dtype=options.dtype)
 
         # if there are no markups, compute them
         if markups[0] is None:
@@ -93,15 +91,20 @@ class ProblemEconomy(Economy):
         marginal_cost = self.products.prices - markups
 
         # absorb any cost fixed effects from prices, markups, and instruments
+        # TODO: will the errors list always be empty? why is it empty? will we ever need or use these errors?
+        # TODO: get rid of looping over models where possible - can I parallelize over model?
         if self._absorb_cost_ids is not None:
             output("Absorbing cost-side fixed effects ...")
             self.products.w, w_errors = self._absorb_cost_ids(self.products.w)
             prices_orthogonal, prices_errors = self._absorb_cost_ids(self.products.prices)
             for m in range(M):
+                # TODO: look up - unpack tuple and apply func to each element before assignment
                 value, error = self._absorb_cost_ids(markups[m])
                 markups_orthogonal[m] = np.squeeze(value)
-                markups_errors[m] = error
-                marginal_cost_orthogonal[m], marginal_cost_errors[m] = self._absorb_cost_ids(marginal_cost[m])
+                markups_errors[m] = np.nan if not error else error
+                value, error = self._absorb_cost_ids(marginal_cost[m])
+                marginal_cost_orthogonal[m] = np.squeeze(value)
+                marginal_cost_errors[m] = np.nan if not error else error
         else:
             prices_orthogonal = self.products.prices
             markups_orthogonal = markups
@@ -231,8 +234,9 @@ class ProblemEconomy(Economy):
                     self.demand_results.beta[i] = alpha_initial
                     theta_index = theta_index + 1
 
-        # initialize empty lists to store statistic related values for each model _np.float64
-        g_list = [None] * L   # TODO: possibly update to g_list = np.zeros((M, L), dtype=options.dtype)
+        # initialize empty lists to store statistic related values for each model
+        # TODO: possibly update to g_list = np.zeros((M, L), dtype=options.dtype)
+        g_list = [None] * L
         Q_list = [None] * L
         RV_numerator_list = [None] * L
         RV_denominator_list = [None] * L
@@ -254,8 +258,8 @@ class ProblemEconomy(Economy):
             Z_orthogonal = np.reshape(Z_residual, [N, K])
 
             # initialize variables to store GMM measure of fit Q_m for each model
-            # TODO: can these be converted to arrays? g = np.zeros((K, M), dtype=options.dtype)
-            g = [None] * M
+            # TODO: convert to arrays g = np.zeros((K, M), dtype=options.dtype)
+            g = [None] * M  # g = np.zeros((M, K), dtype=options.dtype)
             Q = [None] * M
 
             # compute the weight matrix
@@ -547,7 +551,7 @@ class Problem(ProblemEconomy):
         )
         if markup_data is None:
             models = Models(model_formulations=model_formulations, product_data=product_data)
-            markups = [None]*M
+            markups = [None] * M
         else:
             models = None
             markups = markup_data
