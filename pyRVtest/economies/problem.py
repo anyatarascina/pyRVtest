@@ -151,12 +151,10 @@ class ProblemEconomy(Economy):
 
             # build adjustment to psi for each model
             epsilon = options.finite_differences_epsilon
+            # TODO: convert to array, but depends on instruments dimension which changes with different iterations
+            #   idea - add new dimension within loop?
             G_m = [None] * M
-            gradient_markups = [None] * M
-
-            # get numerical derivatives of markups wrt theta, alpha
-            for m in range(M):
-                gradient_markups[m] = np.zeros((N, len(self.demand_results.theta) + 1))
+            gradient_markups = np.zeros((M, N, len(self.demand_results.theta) + 1), dtype=options.dtype)
 
             # TODO: for which of the following can I use the compute perturbations function?
             # compute sigma
@@ -236,6 +234,7 @@ class ProblemEconomy(Economy):
 
         # initialize empty lists to store statistic related values for each model
         # TODO: possibly update to g_list = np.zeros((M, L), dtype=options.dtype)
+        #      same problem as converting array above (dimensions change for different sets of instruments)
         g_list = [None] * L
         Q_list = [None] * L
         RV_numerator_list = [None] * L
@@ -245,6 +244,7 @@ class ProblemEconomy(Economy):
         MCS_p_values_list = [None] * L
 
         # for each instrument,
+        # TODO: parallelize over instruments?
         for instrument in range(L):
             instruments = self.products["Z{0}".format(instrument)]
             K = np.shape(instruments)[1]
@@ -258,9 +258,8 @@ class ProblemEconomy(Economy):
             Z_orthogonal = np.reshape(Z_residual, [N, K])
 
             # initialize variables to store GMM measure of fit Q_m for each model
-            # TODO: convert to arrays g = np.zeros((K, M), dtype=options.dtype)
-            g = [None] * M  # g = np.zeros((M, K), dtype=options.dtype)
-            Q = [None] * M
+            g = np.zeros((M, K), dtype=options.dtype)
+            Q = np.zeros(M, dtype=options.dtype)
 
             # compute the weight matrix
             W_inverse = 1 / N * (Z_orthogonal.T @ Z_orthogonal)
@@ -270,7 +269,6 @@ class ProblemEconomy(Economy):
             # for each model compute GMM measure of fit
             for m in range(M):
                 g[m] = 1 / N * (Z_orthogonal.T @ (np.squeeze(prices_orthogonal) - markups_orthogonal[m]))
-                g[m] = np.reshape(g[m], [K, 1])  # TODO: is this necessary?
                 Q[m] = g[m].T @ weight_matrix @ g[m]
 
             # compute the pairwise RV numerator
@@ -287,11 +285,12 @@ class ProblemEconomy(Economy):
             W_34 = fractional_matrix_power(weight_matrix, 0.75)
 
             # compute psi, which is used in the estimator of the covariance between weighted moments
-            psi = np.zeros([M, N, K])
-            adjustment_value = [None] * M
+            psi = np.zeros((M, N, K), dtype=options.dtype)
+            adjustment_value = np.zeros((M, K, H_prime_wd.shape[1]), dtype=options.dtype)
             for m in range(M):
                 psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
                 W_34_Zg = Z_orthogonal @ W_34 @ g[m]
+                W_34_Zg = W_34_Zg[:, np.newaxis]
                 marginal_cost_orthogonal = (np.squeeze(prices_orthogonal) - markups_orthogonal[m])
                 marginal_cost_orthogonal = marginal_cost_orthogonal[:, np.newaxis]
                 psi_i = (marginal_cost_orthogonal * Z_orthogonal) @ W_12 - 0.5 * W_34_Zg * (Z_orthogonal @ W_34.T)
@@ -363,8 +362,7 @@ class ProblemEconomy(Economy):
                 if demand_adjustment:
                     phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ adjustment_value[m])
 
-            # TODO: phi and psi - correspond to the different test statistics
-            # TODO: add comment
+            # TODO: add comment (phi and psi - correspond to the different test statistics)
             for (m, i) in itertools.product(range(M), range(M)):
                 if i < m:
                     variance = self._compute_variance_covariance(m, i, N, se_type, phi)
