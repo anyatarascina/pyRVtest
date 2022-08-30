@@ -181,9 +181,7 @@ class Models(object):
 
     def __new__(
             cls, model_formulations: Sequence[Optional[ModelFormulation]], product_data: Mapping) -> RecArray:
-        """Structure agent data."""
-
-        # data structures may be empty
+        """Structure agent data. Data structures may be empty."""
 
         # validate the model formulations
         if not all(isinstance(f, ModelFormulation) or f is None for f in model_formulations):
@@ -191,7 +189,9 @@ class Models(object):
         M = len(model_formulations)
         if M < 2:
             raise ValueError("At least two model formulations must be specified.")
+        N = product_data.shape[0]
 
+        # define model components  # TODO: convert to arrays
         omatrices_downstream = [None] * M
         omatrices_upstream = [None] * M
         firmids_downstream = [None] * M
@@ -201,6 +201,13 @@ class Models(object):
         models_upstream = [None] * M
         models_downstream = [None] * M
         custom_model = [None] * M
+        unit_tax = [None] * M
+        advalorem_tax = [None] * M
+        advalorem_payer = [None] * M
+        tax_u = [None] * M
+        tax_av = [None] * M
+        cost_scaling = [None] * M
+        cost_scalingcol = [None] * M
 
         # make ownership matrices and extract vertical integration
         for m in range(M):
@@ -235,6 +242,26 @@ class Models(object):
             if model["vertical_integration"] is not None:
                 VI[m] = extract_matrix(product_data, model["vertical_integration"])
                 VI_ind[m] = model["vertical_integration"]
+            if model["unit_tax"] is not None:
+                tax_u[m] = extract_matrix(product_data, model["unit_tax"])
+                unit_tax[m] = model["unit_tax"]
+            elif model["unit_tax"] is None:
+                tax_u[m] = np.zeros((N, 1))
+            if model["advalorem_tax"] is not None:
+                tax_av[m] = extract_matrix(product_data, model["advalorem_tax"])
+                advalorem_tax[m] = model["advalorem_tax"]
+                advalorem_payer[m] = model["advalorem_payer"]
+                if advalorem_payer[m] == 'consumers':
+                    advalorem_payer[m] = 'consumer'
+                if advalorem_payer[m] == 'firms':
+                    advalorem_payer[m] = 'firm'
+            elif model["advalorem_tax"] is None:
+                tax_av[m] = np.zeros((N, 1))
+            if model["cost_scaling"] is not None:
+                cost_scalingcol[m] = model["cost_scaling"]
+                cost_scaling[m] = extract_matrix(product_data, model["cost_scaling"])
+            elif model["cost_scaling"] is None:
+                cost_scaling[m] = np.zeros((N, 1))
             custom_model[m] = model["custom_model_specification"]
 
         models_mapping = pd.Series({
@@ -246,6 +273,13 @@ class Models(object):
             'ownership_upstream': omatrices_upstream,
             'VI': VI,
             'VI_ind': VI_ind,
+            'tax_av': tax_av,
+            'advalorem_tax': advalorem_tax,
+            'advalorem_payer': advalorem_payer,
+            'tax_u': tax_u,
+            'unit_tax': unit_tax,
+            'cost_scalingcol': cost_scalingcol,
+            'cost_scaling': cost_scaling,
             'custom_model_specification': custom_model
         })
 

@@ -6,7 +6,7 @@ import sys
 import numpy as np
 import pandas as pd
 import pyblp
-import pyRVtest as pyRV
+import pyRVtest
 
 # TODO: implement pytest
 
@@ -33,7 +33,6 @@ def test_nevo_method1():
 
     # return pyblp results
     pyblp_results = pyblp_problem.solve(
-      # sigma = ([[0.3302, 0.9,0,0],[1.4, 2.4526, 0,.4],[0.01,0, 0.0163, 0],[0,0,0, 0.2441]]),
       sigma=np.diag([0.3302, 2.4526, 0.0163, 0.2441]),
       pi=[[5.4819, 0, 0.2037, 0], [15.8935, -1.2000, 0, 2.6342], [-0.2506, 0, 0.0511, 0], [1.2650, 0, -0.8091, 0]],
       method='1s',
@@ -43,28 +42,33 @@ def test_nevo_method1():
     # update product data with market ids
     product_data["clustering_ids"] = product_data.market_ids
 
+    # additional variables for tax testing
+    product_data["unit_tax"] = .5 * np.ones((product_data.shape[0], 1))
+    product_data["advalorem_tax"] = .5 * np.ones((product_data.shape[0], 1))
+    product_data["lambda"] = 1 * np.ones((product_data.shape[0], 1))
+
     # new testing problem
     # TODO: allow separate custom formulas for upstream and downstream
-    testing_problem_new = pyRV.Problem(
+    testing_problem_new = pyRVtest.Problem(
         cost_formulation=(
-            pyRV.Formulation('1 + sugar', absorb='C(firm_ids)')
+            pyRVtest.Formulation('1 + sugar', absorb='C(firm_ids)')
             ),
         instrument_formulation=(
-            pyRV.Formulation('0 + demand_instruments0 + demand_instruments1'),
-            pyRV.Formulation('0 + demand_instruments2 + demand_instruments3 + demand_instruments4'),
-            pyRV.Formulation('0 + demand_instruments5')
+            pyRVtest.Formulation('0 + demand_instruments0 + demand_instruments1'),
+            pyRVtest.Formulation('0 + demand_instruments2 + demand_instruments3 + demand_instruments4'),
+            pyRVtest.Formulation('0 + demand_instruments5')
             ),
         model_formulations=(
-            pyRV.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids'),
-            pyRV.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
-            pyRV.ModelFormulation(model_downstream='cournot', ownership_downstream='firm_ids'),
-            pyRV.ModelFormulation(
+            pyRVtest.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids'),
+            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
+            pyRVtest.ModelFormulation(model_downstream='cournot', ownership_downstream='firm_ids'),
+            pyRVtest.ModelFormulation(
                 model_downstream='monopoly',
                 ownership_downstream='firm_ids',
                 model_upstream='bertrand',
                 ownership_upstream='firm_ids'
             ),
-            pyRV.ModelFormulation(
+            pyRVtest.ModelFormulation(
                 model_downstream='monopoly',
                 ownership_downstream='firm_ids',
                 model_upstream='monopoly',
@@ -78,7 +82,29 @@ def test_nevo_method1():
         se_type='clustered'
         )
 
-    assert testing_results_new.F[0][0, 1]-.4087 < 1e-3
+    testing_problem = pyRVtest.Problem(
+        cost_formulation=(
+            pyRVtest.Formulation('0 + sugar', absorb='C(firm_ids)')
+        ),
+        instrument_formulation=(
+            pyRVtest.Formulation('0 + demand_instruments0 + demand_instruments1')
+        ),
+        model_formulations=(
+            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids',
+                                      cost_scaling='lambda', unit_tax='unit_tax', advalorem_tax='advalorem_tax',
+                                      advalorem_payer='consumer'),
+            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
+            pyRVtest.ModelFormulation(model_downstream='perfect_competition', ownership_downstream='firm_ids'),
+        ),
+        product_data=product_data,
+        demand_results=pyblp_results
+    )
+
+    # output taxation model results
+    testing_results = testing_problem.solve(
+        demand_adjustment=False,
+        se_type='unadjusted'
+    )
 
 
 if __name__ == '__main__':

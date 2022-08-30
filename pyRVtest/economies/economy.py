@@ -130,6 +130,10 @@ class Economy(Container, StringRepresentation):
             data.append(["Firm id - Downstream"] + [self.models.firmids_downstream[i] for i in range(self.M)])
             data.append(["Firm id - Upstream"] + [self.models.firmids_upstream[i] for i in range(self.M)])
             data.append(["VI ind"] + [self.models.VI_ind[i] for i in range(self.M)])
+            data.append(["cost_scalingcol"] + [self.models.cost_scalingcol[i] for i in range(self.M)])
+            data.append(["unit_tax"] + [self.models.unit_tax[i] for i in range(self.M)])
+            data.append(["advalorem_tax"] + [self.models.advalorem_tax[i] for i in range(self.M)])
+            data.append(["advalorem_payer"] + [self.models.advalorem_payer[i] for i in range(self.M)])
             header = [" "] + [f" {i} " for i in range(self.M)]
         else:
             data.append(["Markups Supplied by User"])    

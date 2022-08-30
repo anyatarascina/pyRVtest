@@ -662,7 +662,8 @@ def compute_markups(
             model_markup_formula = {
                 'bertrand': -inv(ownership_matrix * response_matrix) @ shares,
                 'cournot': -(ownership_matrix * inv(response_matrix)) @ shares,
-                'monopoly': -inv(response_matrix) @ shares
+                'monopoly': -inv(response_matrix) @ shares,
+                'perfect_competition': np.zeros((len(shares), 1))
             }
 
             # compute markup for desired model
