@@ -78,6 +78,11 @@ class ProblemEconomy(Economy):
         markups_errors = np.zeros(M, dtype=options.dtype)
         marginal_cost_errors = np.zeros(M, dtype=options.dtype)
 
+        # new variables for tax stuff
+        markups_effective = [None] * M  # markups_effective = np.zeros((M, N), dtype=options.dtype)
+        markups_out = [None] * M  # markups_out = np.zeros(M, dtype=options.dtype)
+        tax_av_adj = [None] * M  # tax_av_adj = np.zeros(M, dtype=options.dtype)
+
         # if there are no markups, compute them
         if markups[0] is None:
             print('Computing Markups ... ')
@@ -86,9 +91,25 @@ class ProblemEconomy(Economy):
                 self.models.models_upstream, self.models.ownership_upstream, self.models.VI,
                 self.models.custom_model_specification
             )
+        for m in range(M):
+            if self.models.models_upstream[m] is not None and len(self.demand_results.rho) != 0:
+                raise ValueError("Code cannot currently handle vertical models and Nested Logit or Random Coefficients "
+                                 "Nested Logit demand system.")
 
         # for each model, use computed markups to compute the marginal costs
         marginal_cost = self.products.prices - markups
+
+        # for each model, use computed markups to compute the marginal costs
+        tax_u = self.models.tax_u
+        tax_av = self.models.tax_av
+        cost_scaling = self.models.cost_scaling
+        for m in range(M):
+            tax_av_adj[m] = 1 / (1 + tax_av[m]) if self.models.advalorem_payer[m] == "consumer" else (1 - tax_av[m])
+            numerator = (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups[m] - tax_u[m])
+            denominator = (1 + cost_scaling[m] * tax_av_adj[m])
+            marginal_cost[m] = numerator / denominator
+            markups_out[m] = (markups[m] + cost_scaling[m] * marginal_cost[m]) * tax_av_adj[m]
+            markups_effective[m] = self.products.prices - marginal_cost[m]
 
         # absorb any cost fixed effects from prices, markups, and instruments
         # TODO: will the errors list always be empty? why is it empty? will we ever need or use these errors?
@@ -99,7 +120,7 @@ class ProblemEconomy(Economy):
             prices_orthogonal, prices_errors = self._absorb_cost_ids(self.products.prices)
             for m in range(M):
                 # TODO: look up - unpack tuple and apply func to each element before assignment
-                value, error = self._absorb_cost_ids(markups[m])
+                value, error = self._absorb_cost_ids(markups_effective[m])
                 markups_orthogonal[m] = np.squeeze(value)
                 markups_errors[m] = np.nan if not error else error
                 value, error = self._absorb_cost_ids(marginal_cost[m])
@@ -186,6 +207,13 @@ class ProblemEconomy(Economy):
                         self.models.ownership_upstream, self.models.VI, self.models.custom_model_specification
                     )
 
+                    # do the tax stuff
+                    for m in range(M):
+                        denominator = (1 + cost_scaling[m] * tax_av_adj[m])
+                        # TODO: shorten this? only difference is markups u or l
+                        markups_u[m] = self.products.prices - (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_u[m] - tax_u[m]) / denominator
+                        markups_l[m] = self.products.prices - (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_l[m] - tax_u[m]) / denominator
+
                     # compute first difference approximation of derivative of markups
                     gradient_markups = self._compute_first_difference_markups(
                         markups_u, markups_l, epsilon, theta_index, gradient_markups
@@ -201,6 +229,12 @@ class ProblemEconomy(Economy):
                     perturbations = [pi_initial - epsilon / 2, pi_initial + epsilon / 2]
                     markups_l, md, ml = self._compute_perturbation(i, j, perturbations[0])
                     markups_u, mu, mu = self._compute_perturbation(i, j, perturbations[1])
+
+                    for m in range(M):
+                        denominator = (1 + cost_scaling[m] * tax_av_adj[m])
+                        markups_u[m] = self.products.prices - (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_u[m] - tax_u[m]) / denominator
+                        markups_l[m] = self.products.prices - (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_l[m] - tax_u[m]) / denominator
+
                     gradient_markups = self._compute_first_difference_markups(
                         markups_u, markups_l, epsilon, theta_index, gradient_markups
                     )
@@ -213,24 +247,74 @@ class ProblemEconomy(Economy):
             #   object since it's array, not a float?
             for i in range(len(self.demand_results.beta)):
                 if self.demand_results.beta_labels[i] == 'prices':
-                    alpha_initial = self.demand_results.beta[i]
+                    alpha_initial = self.demand_results.beta[i].copy()
+                    alpha_initial_test = self.demand_results.beta[i].copy()
+                    print("Initial check", alpha_initial == alpha_initial_test)
+
                     self.demand_results.beta[i] = alpha_initial - epsilon / 2
+                    print("After subtract epsilon", alpha_initial_test == alpha_initial)
+
                     markups_l, md, ml = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
                         self.models.VI, self.models.custom_model_specification
                     )
                     self.demand_results.beta[i] = alpha_initial + epsilon / 2
+                    print("After add epsilon", alpha_initial_test == alpha_initial)
+
                     markups_u, mu, mu = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
                         self.models.VI, self.models.custom_model_specification
                     )
+
+                    for m in range(M):
+                        denominator = (1 + cost_scaling[m] * tax_av_adj[m])
+                        markups_u[m] = self.products.prices - (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_u[m] - tax_u[m]) / denominator
+                        markups_l[m] = self.products.prices - (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_l[m] - tax_u[m]) / denominator
+
                     gradient_markups = self._compute_first_difference_markups(
                         markups_u, markups_l, epsilon, theta_index, gradient_markups
                     )
+
                     self.demand_results.beta[i] = alpha_initial
+                    print("Final", alpha_initial_test == alpha_initial)
+
                     theta_index = theta_index + 1
+
+            # compute rho
+            if len(self.demand_results.rho) != 0:
+                rho_initial = self.demand_results.rho
+                print("type of rho", type(rho_initial))
+
+                # perturb rho in the negative direction and recompute markups
+                self.demand_results.rho = rho_initial - epsilon / 2
+                markups_l, md, ml = build_markups_all(
+                    self.products, self.demand_results, self.models.models_downstream,
+                    self.models.ownership_downstream, self.models.models_upstream,
+                    self.models.ownership_upstream,
+                    self.models.VI, self.models.custom_model_specification
+                )
+
+                # perturb rho in the positive direction and recompute markups
+                self.demand_results.rho = rho_initial + epsilon / 2
+                markups_u, mu, mu = build_markups_all(
+                    self.products, self.demand_results, self.models.models_downstream,
+                    self.models.ownership_downstream, self.models.models_upstream,
+                    self.models.ownership_upstream,
+                    self.models.VI, self.models.custom_model_specification
+                )
+
+                for m in range(M):
+                    denominator = (1 + cost_scaling[m] * tax_av_adj[m])
+                    markups_u[m] = self.products.prices - (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_u[m] - tax_u[m]) / denominator
+                    markups_l[m] = self.products.prices - (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_l[m] - tax_u[m]) / denominator
+
+                gradient_markups = self._compute_first_difference_markups(
+                    markups_u, markups_l, epsilon, theta_index, gradient_markups
+                )
+                self.demand_results.rho = rho_initial
+                theta_index = theta_index + 1
 
         # initialize empty lists to store statistic related values for each model
         # TODO: possibly update to g_list = np.zeros((M, L), dtype=options.dtype)
@@ -286,7 +370,8 @@ class ProblemEconomy(Economy):
 
             # compute psi, which is used in the estimator of the covariance between weighted moments
             psi = np.zeros((M, N, K), dtype=options.dtype)
-            adjustment_value = np.zeros((M, K, H_prime_wd.shape[1]), dtype=options.dtype)
+            if demand_adjustment:
+                adjustment_value = np.zeros((M, K, H_prime_wd.shape[1]), dtype=options.dtype)
             for m in range(M):
                 psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
                 W_34_Zg = Z_orthogonal @ W_34 @ g[m]
