@@ -1,0 +1,14 @@
+# editor files
+*.log
+*.pot
+*.pyc
+*/*/*/__pycache__/
+*/*/__pycache__/
+*/__pycache__/
+*.xml
+*.iml
+.idea
+
+# os generated files
+.DS_Store
+
