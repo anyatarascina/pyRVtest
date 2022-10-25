@@ -50,45 +50,36 @@ class Products(object):
             raise NameError("prices cannot be included in the formulation for marginal cost.")
 
         # validate the instrument formulation
-        if hasattr(instrument_formulation, '__len__'):
-            L = len(instrument_formulation)
-        else:
-            L = 1
-
-        if L == 1:
-            if not isinstance(instrument_formulation, Formulation):
-                raise TypeError("instrument_formulation must be a single Formulation instance.")
-        elif L > 1:
-            if not all(isinstance(f, Formulation) for f in instrument_formulation):
-                raise TypeError("Each formulation in instrument_formulation must be a Formulation.")
-
-        # if not isinstance(instrument_formulation, Formulation):
-        #    raise TypeError("instrument_formulation must be a Formulation instance or None.")
         if instrument_formulation is None:
             raise ValueError("The formulation for instruments for testing must be specified.")
-        
-        # build Z
-        Instr = {}
-        if L == 1:
-            tmp_Z, tmp_Z_formulation, tmp_Z_data = instrument_formulation._build_matrix(product_data)
-            for kk in tmp_Z_formulation:
-                if kk in w_data:
-                    raise NameError("Z must be excluded from marginal cost.")
+        if hasattr(instrument_formulation, '__len__'):
+            L = len(instrument_formulation)
+            if not all(isinstance(f, Formulation) for f in instrument_formulation):
+                raise TypeError("Each formulation in instrument_formulation must be a Formulation.")
+        else:
+            L = 1
+            if not isinstance(instrument_formulation, Formulation):
+                raise TypeError("instrument_formulation must be a single Formulation instance.")
 
-            Instr["Z0"] = tmp_Z
-            Instr["Z0_formulation"] = tmp_Z_formulation
-            Instr["Z0_data"] = tmp_Z_data
+        # build Z
+        instruments = {}
+        if L == 1:
+            temp_Z, temp_Z_formulation, temp_Z_data = instrument_formulation._build_matrix(product_data)
+            for z in temp_Z_formulation:
+                if z in w_data:
+                    raise NameError("Z must be excluded from marginal cost.")
+            instruments["Z0"] = temp_Z
+            instruments["Z0_formulation"] = temp_Z_formulation
+            instruments["Z0_data"] = temp_Z_data
         elif L > 1:
             for l in range(L):
-                tmp_Z, tmp_Z_formulation, tmp_Z_data = instrument_formulation[l]._build_matrix(product_data)
-
-                for kk in tmp_Z_formulation:
-                    if kk in w_data:
+                temp_Z, temp_Z_formulation, temp_Z_data = instrument_formulation[l]._build_matrix(product_data)
+                for z in temp_Z_formulation:
+                    if z in w_data:
                         raise NameError("Z must be excluded from marginal cost.")
-
-                Instr["Z{0}".format(l)] = tmp_Z
-                Instr["Z{0}_formulation".format(l)] = tmp_Z_formulation
-                Instr["Z{0}_data".format(l)] = tmp_Z_data
+                instruments["Z{0}".format(l)] = temp_Z
+                instruments["Z{0}_formulation".format(l)] = temp_Z_formulation
+                instruments["Z{0}_data".format(l)] = temp_Z_data
 
         # load fixed effect IDs
         cost_ids = None
@@ -154,16 +145,15 @@ class Products(object):
         })
         product_mapping.update({(tuple(w_formulation), 'w'): (w, options.dtype), })
         for l in range(L):
-            product_mapping.update({
-                (tuple(Instr["Z{0}_formulation".format(l)]), 'Z{0}'.format(l)): (Instr["Z{0}".format(l)], options.dtype)
-            })
+            key = (tuple(instruments["Z{0}_formulation".format(l)]), 'Z{0}'.format(l))
+            product_mapping.update({key: (instruments["Z{0}".format(l)], options.dtype)})
 
         # structure and validate variables underlying X1, X2, and X3
         underlying_data = {k: (v, options.dtype) for k, v in {**w_data}.items() if k != 'shares'}
         for l in range(L):
-            underlying_data.update(
-                {k: (v, options.dtype) for k, v in {**Instr["Z{0}_data".format(l)]}.items() if k != 'shares'}
-            )
+            underlying_data.update({
+                k: (v, options.dtype) for k, v in {**instruments["Z{0}_data".format(l)]}.items() if k != 'shares'
+            })
         invalid_names = set(underlying_data) & {k if isinstance(k, str) else k[1] for k in product_mapping}
         if invalid_names:
             raise NameError(f"These reserved names in product_formulations are invalid: {list(invalid_names)}.")
@@ -192,12 +182,12 @@ class Models(object):
         N = product_data.shape[0]
 
         # define model components  # TODO: convert to arrays
-        omatrices_downstream = [None] * M
-        omatrices_upstream = [None] * M
-        firmids_downstream = [None] * M
-        firmids_upstream = [None] * M
-        VI = [None] * M
-        VI_ind = [None] * M
+        ownership_matrices_downstream = [None] * M
+        ownership_matrices_upstream = [None] * M
+        firm_ids_downstream = [None] * M
+        firm_ids_upstream = [None] * M
+        vertical_integration = [None] * M
+        vertical_integration_index = [None] * M
         models_upstream = [None] * M
         models_downstream = [None] * M
         custom_model = [None] * M
@@ -207,7 +197,7 @@ class Models(object):
         tax_u = [None] * M
         tax_av = [None] * M
         cost_scaling = [None] * M
-        cost_scalingcol = [None] * M
+        cost_scaling_column = [None] * M
 
         # make ownership matrices and extract vertical integration
         for m in range(M):
@@ -217,31 +207,37 @@ class Models(object):
             models_downstream[m] = model["model_downstream"]
             if model["model_upstream"] is not None:
                 models_upstream[m] = model["model_upstream"]
-            
+
+            # define ownership matrices for downstream model
             if model["model_downstream"] == "monopoly":
-                omatrices_downstream[m] = construction.build_ownership_testing(
+                ownership_matrices_downstream[m] = construction.build_ownership_testing(
                     product_data, model["ownership_downstream"], 'monopoly'
                 )
-                firmids_downstream[m] = "monopoly"
+                firm_ids_downstream[m] = "monopoly"
             else:
-                omatrices_downstream[m] = construction.build_ownership_testing(
+                ownership_matrices_downstream[m] = construction.build_ownership_testing(
                     product_data, model["ownership_downstream"], model["kappa_specification_downstream"]
                 )
-                firmids_downstream[m] = model["ownership_downstream"]
-            
+                firm_ids_downstream[m] = model["ownership_downstream"]
+
+            # define ownership matrices for upstream model
             if model["model_upstream"] == "monopoly":
-                omatrices_upstream[m] = construction.build_ownership_testing(
+                ownership_matrices_upstream[m] = construction.build_ownership_testing(
                     product_data, model["ownership_upstream"], 'monopoly'
                 )
-                firmids_upstream[m] = "monopoly"
+                firm_ids_upstream[m] = "monopoly"
             elif model["ownership_upstream"] is not None:
-                omatrices_upstream[m] = construction.build_ownership_testing(
+                ownership_matrices_upstream[m] = construction.build_ownership_testing(
                     product_data, model["ownership_upstream"], model["kappa_specification_upstream"]
                 )
-                firmids_upstream[m] = model["ownership_upstream"]
+                firm_ids_upstream[m] = model["ownership_upstream"]
+
+            # define vertical integration related variables
             if model["vertical_integration"] is not None:
-                VI[m] = extract_matrix(product_data, model["vertical_integration"])
-                VI_ind[m] = model["vertical_integration"]
+                vertical_integration[m] = extract_matrix(product_data, model["vertical_integration"])
+                vertical_integration_index[m] = model["vertical_integration"]
+
+            # define tax related variables
             if model["unit_tax"] is not None:
                 tax_u[m] = extract_matrix(product_data, model["unit_tax"])
                 unit_tax[m] = model["unit_tax"]
@@ -251,14 +247,12 @@ class Models(object):
                 tax_av[m] = extract_matrix(product_data, model["advalorem_tax"])
                 advalorem_tax[m] = model["advalorem_tax"]
                 advalorem_payer[m] = model["advalorem_payer"]
-                if advalorem_payer[m] == 'consumers':
-                    advalorem_payer[m] = 'consumer'
-                if advalorem_payer[m] == 'firms':
-                    advalorem_payer[m] = 'firm'
+                advalorem_payer[m] = advalorem_payer[m].replace('consumers', 'consumer').replace('firms', 'firm')
+
             elif model["advalorem_tax"] is None:
                 tax_av[m] = np.zeros((N, 1))
             if model["cost_scaling"] is not None:
-                cost_scalingcol[m] = model["cost_scaling"]
+                cost_scaling_column[m] = model["cost_scaling"]
                 cost_scaling[m] = extract_matrix(product_data, model["cost_scaling"])
             elif model["cost_scaling"] is None:
                 cost_scaling[m] = np.zeros((N, 1))
@@ -267,18 +261,18 @@ class Models(object):
         models_mapping = pd.Series({
             'models_downstream': models_downstream,
             'models_upstream': models_upstream,
-            'firmids_downstream': firmids_downstream,
-            'firmids_upstream': firmids_upstream,
-            'ownership_downstream': omatrices_downstream,
-            'ownership_upstream': omatrices_upstream,
-            'VI': VI,
-            'VI_ind': VI_ind,
+            'firm_ids_downstream': firm_ids_downstream,
+            'firm_ids_upstream': firm_ids_upstream,
+            'ownership_downstream': ownership_matrices_downstream,
+            'ownership_upstream': ownership_matrices_upstream,
+            'vertical_integration': vertical_integration,
+            'vertical_integration_index': vertical_integration_index,
             'tax_av': tax_av,
             'advalorem_tax': advalorem_tax,
             'advalorem_payer': advalorem_payer,
             'tax_u': tax_u,
             'unit_tax': unit_tax,
-            'cost_scalingcol': cost_scalingcol,
+            'cost_scaling_column': cost_scaling_column,
             'cost_scaling': cost_scaling,
             'custom_model_specification': custom_model
         })

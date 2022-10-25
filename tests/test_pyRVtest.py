@@ -8,8 +8,6 @@ import pandas as pd
 import pyblp
 import pyRVtest
 
-# TODO: implement pytest
-
 # set project directory
 PROJECT_DIR = Path(__file__).absolute().parents[1]
 sys.path.append(PROJECT_DIR)
@@ -34,9 +32,14 @@ def test_nevo_method1():
     # return pyblp results
     pyblp_results = pyblp_problem.solve(
       sigma=np.diag([0.3302, 2.4526, 0.0163, 0.2441]),
-      pi=[[5.4819, 0, 0.2037, 0], [15.8935, -1.2000, 0, 2.6342], [-0.2506, 0, 0.0511, 0], [1.2650, 0, -0.8091, 0]],
+      pi=[
+          [5.4819,   0.0000,  0.2037, 0.0000],
+          [15.8935, -1.2000,  0.0000, 2.6342],
+          [-0.2506,  0.0000,  0.0511, 0.0000],
+          [1.2650,   0.0000, -0.8091, 0.0000]
+      ],
       method='1s',
-      optimization=pyblp.Optimization('bfgs', {'gtol':1e-5})
+      optimization=pyblp.Optimization('bfgs', {'gtol': 1e-5})
       )
 
     # update product data with market ids
@@ -90,11 +93,21 @@ def test_nevo_method1():
             pyRVtest.Formulation('0 + demand_instruments0 + demand_instruments1')
         ),
         model_formulations=(
-            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids',
-                                      cost_scaling='lambda', unit_tax='unit_tax', advalorem_tax='advalorem_tax',
-                                      advalorem_payer='consumer'),
-            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
-            pyRVtest.ModelFormulation(model_downstream='perfect_competition', ownership_downstream='firm_ids'),
+            pyRVtest.ModelFormulation(
+                model_downstream='bertrand',
+                ownership_downstream='firm_ids',
+                cost_scaling='lambda',
+                unit_tax='unit_tax',
+                advalorem_tax='advalorem_tax',
+                advalorem_payer='consumer'),
+            pyRVtest.ModelFormulation(
+                model_downstream='bertrand',
+                ownership_downstream='firm_ids'
+            ),
+            pyRVtest.ModelFormulation(
+                model_downstream='perfect_competition',
+                ownership_downstream='firm_ids'
+            ),
         ),
         product_data=product_data,
         demand_results=pyblp_results

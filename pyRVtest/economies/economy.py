@@ -127,13 +127,13 @@ class Economy(Container, StringRepresentation):
         if self.markups[0] is None:
             data.append(["Model - Downstream"] + [self.models.models_downstream[i] for i in range(self.M)])
             data.append(["Model - Upstream"] + [self.models.models_upstream[i] for i in range(self.M)])
-            data.append(["Firm id - Downstream"] + [self.models.firmids_downstream[i] for i in range(self.M)])
-            data.append(["Firm id - Upstream"] + [self.models.firmids_upstream[i] for i in range(self.M)])
-            data.append(["VI ind"] + [self.models.VI_ind[i] for i in range(self.M)])
-            data.append(["cost_scalingcol"] + [self.models.cost_scalingcol[i] for i in range(self.M)])
-            data.append(["unit_tax"] + [self.models.unit_tax[i] for i in range(self.M)])
-            data.append(["advalorem_tax"] + [self.models.advalorem_tax[i] for i in range(self.M)])
-            data.append(["advalorem_payer"] + [self.models.advalorem_payer[i] for i in range(self.M)])
+            data.append(["Firm id - Downstream"] + [self.models.firm_ids_downstream[i] for i in range(self.M)])
+            data.append(["Firm id - Upstream"] + [self.models.firm_ids_upstream[i] for i in range(self.M)])
+            data.append(["VI ind"] + [self.models.vertical_integration_index[i] for i in range(self.M)])
+            data.append(["Cost Scaling Column"] + [self.models.cost_scaling_column[i] for i in range(self.M)])
+            data.append(["Unit Tax"] + [self.models.unit_tax[i] for i in range(self.M)])
+            data.append(["Advalorem Tax"] + [self.models.advalorem_tax[i] for i in range(self.M)])
+            data.append(["Advalorem Payer"] + [self.models.advalorem_payer[i] for i in range(self.M)])
             header = [" "] + [f" {i} " for i in range(self.M)]
         else:
             data.append(["Markups Supplied by User"])    
@@ -150,9 +150,7 @@ class Economy(Container, StringRepresentation):
             return
 
         # collect labels for columns of matrices that will be checked for collinearity issues
-        matrix_labels = {
-            'w': [str(f) for f in self._w_formulation]
-            }
+        matrix_labels = {'w': [str(f) for f in self._w_formulation]}
         for zz in range(len(self.Dict_Z_formulation)):
             matrix_labels.update(
                 {"Z{0}".format(zz): [str(f) for f in self.Dict_Z_formulation["_Z{0}_formulation".format(zz)]]}
