@@ -572,8 +572,8 @@ def build_markups_all(
             # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
             if not (model_upstream[i] is None):
                 d2s_dp2_t = d2s_dp2[index_t]
-                d2s_dp2_t = d2s_dp2_t[~np.isnan(d2s_dp2_t).any(axis=2)]
-                d2s_dp2_t = d2s_dp2_t.reshape(d2s_dp2_t.shape[0], -1, d2s_dp2_t.shape[2])
+                d2s_dp2_t = d2s_dp2_t[~np.isnan(d2s_dp2_t).any(axis=2)]  # TODO: why is this reshaped?
+                d2s_dp2_t = d2s_dp2_t.reshape(d2s_dp2_t.shape[1], d2s_dp2_t.shape[1], d2s_dp2_t.shape[1])
                 J = len(shares_t)
 
                 # construct the matrix of derivatives with respect to prices for other manufacturers
