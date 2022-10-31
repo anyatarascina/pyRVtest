@@ -315,7 +315,7 @@ def build_differentiation_instruments(
 
     """
 
-    # load IDs
+    # load ids
     market_ids = extract_matrix(product_data, 'market_ids')
     firm_ids = extract_matrix(product_data, 'firm_ids')
     if market_ids is None or firm_ids is None:
@@ -559,7 +559,7 @@ def build_markups_all(
             index_t = np.where(demand_results.problem.products['market_ids'] == t)[0]
             shares_t = products.shares[index_t]
             retailer_response_matrix = ds_dp[index_t]
-            # TODO: check this one:
+            # TODO: check this one
             retailer_response_matrix = retailer_response_matrix[:, ~np.isnan(retailer_response_matrix).all(axis=0)]
 
             # compute downstream markups for model i market t
