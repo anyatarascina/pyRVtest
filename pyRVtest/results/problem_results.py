@@ -1,30 +1,21 @@
 """Economy-level structuring of BLP problem results."""
 
-# TODO: check which of these imports are actually necessary
-import itertools
-import time
-from typing import Any, Callable, Dict, Hashable, List, Optional, Sequence, TYPE_CHECKING, Tuple
+from typing import Any, List, Sequence, TYPE_CHECKING
 
 import numpy as np
-import scipy.linalg
 import pandas as pd
 import pyRVtest.data as DATA
 from .results import Results
-from .. import exceptions, options
+from .. import options
 
-from ..primitives import Models
-from ..utilities.algebra import (
-    approximately_invert, approximately_solve, compute_condition_number, precisely_compute_eigenvalues, vech_to_full
-)
 from ..utilities.basics import (
-    Array, Bounds, Error, Mapping, RecArray, SolverStats, format_number, format_seconds, format_table,
-    format_table_notes, format_table_notes_sub, generate_items, get_indices, output, output_progress, update_matrices
+    Array, format_table, format_table_notes_sub
 )
 
 
 # only import objects that create import cycles when checking types
 if TYPE_CHECKING:
-    from ..economies.problem import Progress  # noqa
+    from ..economies.problem import Progress
 
 
 class ProblemResults(Results):
@@ -39,9 +30,7 @@ class ProblemResults(Results):
 
     Delta: Array
 
-    def __init__(
-            self, progress: 'Progress'
-            ) -> None:
+    def __init__(self, progress: 'Progress') -> None:
         self.problem = progress.problem
         self.markups = progress.markups
         self.markups_downstream = progress.markups_downstream
@@ -60,11 +49,11 @@ class ProblemResults(Results):
         """Format economy information as a string."""
         out = ""
         for zz in range(len(self.TRV)):
-            tmp =  "\n\n".join([self._format_Fstats_notes(zz)])
-            out = "\n\n".join([out,tmp])    
+            tmp = "\n\n".join([self._format_Fstats_notes(zz)])
+            out = "\n\n".join([out, tmp])
         return out
 
-    def _format_RVstats(self, zz: int) -> str:
+    def _format_rv_stats(self, zz: int) -> str:
         """Formation information about the formulations of the economy as a string."""
 
         # construct the data
@@ -77,11 +66,11 @@ class ProblemResults(Results):
 
         return format_table(header, *data, title="RV test statistics - Instruments {0}".format(zz))    
 
-    # TODO: change this function name to lowercase
     def _format_Fstats_notes(self, zz: int) -> str:
-
         """Formation information about the formulations of the economy as a string."""
-        # get critical values
+
+        # TODO: clean this
+        # get size critical values
         CVall_s = pd.read_csv(DATA.F_CRITVALS_SIZE)
         ind = CVall_s['K'] == len(self.g[zz][0])
         tmp = np.array(CVall_s['r_075'])
@@ -90,7 +79,8 @@ class ProblemResults(Results):
         cv_s10 = float(tmp[ind])
         tmp = np.array(CVall_s['r_125'])
         cv_s125 = float(tmp[ind])
-        
+
+        # get power critical values
         CVall_p = pd.read_csv(DATA.F_CRITVALS_POWER)
         ind = CVall_p['K'] == len(self.g[zz][0])
         tmp = np.array(CVall_p['r_95'])
@@ -99,7 +89,8 @@ class ProblemResults(Results):
         cv_p75 = float(tmp[ind])
         tmp = np.array(CVall_p['r_50'])
         cv_p50 = float(tmp[ind])
-        
+
+        # format output
         cvs: List[List[str]] = []
         cvs.append(['F-stat critical values...'])
         cvs.append(['... for worst-case size:'])

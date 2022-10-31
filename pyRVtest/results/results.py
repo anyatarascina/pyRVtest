@@ -1,16 +1,16 @@
 """Economy-level structuring of abstract BLP problem results."""
 
 import abc
-from typing import Any, Callable, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 
 import numpy as np
 
-from ..utilities.basics import Array, StringRepresentation, output
+from ..utilities.basics import Array, StringRepresentation
 
 
 # only import objects that create import cycles when checking types
 if TYPE_CHECKING:
-    from ..economies.problem import ProblemEconomy  # noqa
+    from ..economies.problem import ProblemEconomy
 
 
 class Results(abc.ABC, StringRepresentation):
@@ -24,7 +24,6 @@ class Results(abc.ABC, StringRepresentation):
         """Store the underlying problem and parameter information."""
         self.problem = problem
 
-
     def _select_market_ids(self, market_id: Optional[Any] = None) -> Array:
         """Select either a single market ID or all unique IDs."""
         if market_id is None:
@@ -32,7 +31,3 @@ class Results(abc.ABC, StringRepresentation):
         if market_id in self.problem.unique_market_ids:
             return np.array(market_id, np.object)
         raise ValueError(f"market_id must be None or one of {list(sorted(self.problem.unique_market_ids))}.")
-
-    @abc.abstractmethod
-    def _coerce_matrices(self, matrices: Any, market_ids: Array) -> Array:
-        """Coerce array-like stacked arrays into a stacked array and validate it."""
