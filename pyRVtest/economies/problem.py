@@ -73,16 +73,20 @@ class ProblemEconomy(Economy):
         # initialize variables to be computed
         markups_upstream = np.zeros(M, dtype=options.dtype)
         markups_downstream = np.zeros(M, dtype=options.dtype)
-        markups_orthogonal = np.zeros((M, N), dtype=options.dtype)
+        markups_orthogonal = np.zeros((M, N), dtype=options.dtype)  # TODO: we are reporting these (should we report both?) - current output is markups orthogonal
         marginal_cost_orthogonal = np.zeros((M, N), dtype=options.dtype)
-        tau_list = np.zeros(M, dtype=options.dtype)
+        tau_list = np.zeros((M, self.products.w.shape[1]), dtype=options.dtype)  # TODO: why do we need additional dimension here, but not for markups?
         markups_errors = np.zeros(M, dtype=options.dtype)
         marginal_cost_errors = np.zeros(M, dtype=options.dtype)
 
+        # TODO: change data type these are stored in?
+        #   markups_effective = np.zeros((M, N), dtype=options.dtype)
+        #   markups_out = np.zeros(M, dtype=options.dtype)
+        #   tax_av_adj = np.zeros(M, dtype=options.dtype)
         # new variables for tax stuff
-        markups_effective = [None] * M  # markups_effective = np.zeros((M, N), dtype=options.dtype)
-        markups_out = [None] * M  # markups_out = np.zeros(M, dtype=options.dtype)
-        tax_av_adj = [None] * M  # tax_av_adj = np.zeros(M, dtype=options.dtype)
+        markups_effective = [None] * M
+        markups_out = [None] * M
+        tax_av_adj = [None] * M
 
         # if there are no markups, compute them
         if markups[0] is None:
@@ -585,10 +589,7 @@ class ProblemEconomy(Economy):
 
 
 class Problem(ProblemEconomy):
-    r"""A BLP-type problem.
-
-    
-    """
+    r"""A BLP-type problem."""
 
     def __init__(
             self, cost_formulation: Formulation, instrument_formulation: Sequence[Formulation], 
