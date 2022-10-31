@@ -312,7 +312,7 @@ class ModelFormulation(object):
         # validate the parameters
         model_set = {'monopoly', 'cournot', 'bertrand', 'perfect_competition', 'other'}
         if model_downstream not in model_set:
-            raise TypeError("model_downstream must be monopoly, bertrand, cournot, perfect competition, or other.")
+            raise TypeError("model_downstream must be monopoly, bertrand, cournot, perfect_competition, or other.")
         if model_upstream is not None and model_upstream not in model_set:
             raise TypeError("model_upstream must be monopoly, bertrand, cournot, perfect competition, or other.")
         if model_upstream is not None and model_downstream in {'cournot'} and model_upstream in {'cournot'}:
