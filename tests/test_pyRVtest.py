@@ -8,9 +8,10 @@ import pandas as pd
 import pyblp
 import pyRVtest
 
+# TODO: check if this is necessary
 # set project directory
-PROJECT_DIR = Path(__file__).absolute().parents[1]
-sys.path.append(PROJECT_DIR)
+# PROJECT_DIR = Path(__file__).absolute().parents[1]
+# sys.path.append(PROJECT_DIR)
 
 
 def test_nevo_method1():
