@@ -1,12 +1,7 @@
-
 from pathlib import Path
-
 from setuptools import find_packages, setup
 
 read = lambda p: Path(Path(__file__).resolve().parent / p).read_text()
-
-
-
 
 setup(
     # Needed to silence warnings (and to be a worthwhile package)
