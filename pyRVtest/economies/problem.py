@@ -63,7 +63,8 @@ class ProblemEconomy(Economy):
             raise ValueError("se_type must be 'robust', 'unadjusted', or 'clustered'.")
         if se_type == 'clustered' and np.shape(self.products.clustering_ids)[1] != 1:
             raise ValueError("product_data.clustering_ids must be specified with se_type 'clustered'.")
- 
+        # TODO: add validation - when user specifies user_supplied_markups, need to turn off clustering and demand_adjustment (maybe turn off and give a warning?)
+
         # initialize constants and precomputed values
         M = self.M
         N = self.N
@@ -133,7 +134,7 @@ class ProblemEconomy(Economy):
                 marginal_cost_errors[m] = np.nan if not error else error
         else:
             prices_orthogonal = self.products.prices
-            markups_orthogonal = markups
+            markups_orthogonal = markups_effective
             marginal_cost_orthogonal = marginal_cost
 
         # residualize prices, markups, and instruments w.r.t cost shifters w and recover the tau parameters in cost
@@ -161,10 +162,16 @@ class ProblemEconomy(Economy):
             # compute the gradient of the GMM moment function
             # TODO: warning since shouldn't call this method outside of class
             #   also, improve formatting here?
+
             partial_y_theta = np.append(
                 self.demand_results.xi_by_theta_jacobian, -self.demand_results.problem.products.prices, 1
             )
-            partial_y_theta = self.demand_results.problem._absorb_demand_ids(partial_y_theta)
+            try:
+                partial_y_theta = self.demand_results.problem._absorb_demand_ids(partial_y_theta)
+            except Exception:
+                return f'The demand adjustment failed because the a required pyblp object was empty. This can happen ' \
+                       f'if you run demand estimation with the "return" option for optimization and specify' \
+                       f'demand_adjustment=True. Try setting demand_adjustment=False'
             partial_y_theta = np.reshape(partial_y_theta[0], [N, len(self.demand_results.theta) + 1])
             if np.shape(XD)[1] == 0:
                 partial_xi_theta = partial_y_theta
@@ -393,7 +400,7 @@ class ProblemEconomy(Economy):
                 for i in range(m):
                     if i < m:
                         # TODO: check terminology - is this the variance covariance matrix?
-                        variance_covariance = self._compute_variance_covariance(m, i, N, se_type, psi)
+                        variance_covariance = self._compute_variance_covariance(m, i, N, se_type, psi)  # TODO: add variance to results output
                         weighted_variance = W_12 @ variance_covariance @ W_12
                         operations = np.array([1, 1, -2])
                         moments = np.array([
@@ -530,7 +537,7 @@ class ProblemEconomy(Economy):
         ))
         # TODO: should time outputs be in Progress?
         step_end_time = time.time()
-        total_time = step_end_time-step_start_time
+        total_time = step_end_time - step_start_time
         print('Total Time is ... ' + str(total_time))
         output("")
         output(results)
