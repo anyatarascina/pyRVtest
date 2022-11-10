@@ -304,7 +304,8 @@ class ModelFormulation(object):
             unit_tax: Optional[str] = None, advalorem_tax: Optional[str] = None, advalorem_payer: Optional[str] = None,
             cost_scaling: Optional[str] = None,
             kappa_specification_downstream: Optional[Union[str, Callable[[Any, Any], float]]] = None,
-            kappa_specification_upstream: Optional[Union[str, Callable[[Any, Any], float]]] = None) -> None:
+            kappa_specification_upstream: Optional[Union[str, Callable[[Any, Any], float]]] = None,
+            user_supplied_markups: Optional[str] = None) -> None:
         """Parse the formula into patsy terms and SymPy expressions. In the process, validate it as much as possible
         without any data.
         """
@@ -348,6 +349,7 @@ class ModelFormulation(object):
         _cost_scaling: Optional[str]
         _kappa_specification_downstream: Optional[Union[str, Callable[[Any, Any], float]]]
         _kappa_specification_upstream: Optional[Union[str, Callable[[Any, Any], float]]]
+        _user_supplied_markups: Optional[str]
 
         # parse the formulas into patsy terms
         self._model_downstream = model_downstream
@@ -362,13 +364,14 @@ class ModelFormulation(object):
         self._kappa_specification_downstream = kappa_specification_downstream
         self._kappa_specification_upstream = kappa_specification_upstream
         self._cost_scaling = cost_scaling
+        self._user_supplied_markups = user_supplied_markups
 
     def __reduce__(self) -> Tuple[Type['Formulation'], Tuple]:
         """Handle pickling."""
         return (self.__class__, (
             self._model_downstream, self._model_upstream, self._ownership_downstream, self._ownership_upstream,
             self._custom_model_specification, self._vertical_integration, self._custom_model_specification,
-            self._kappa_specification_downstream, self._kappa_specification_upstream
+            self._kappa_specification_downstream, self._kappa_specification_upstream, self._user_supplied_markups
         ))
 
     def __str__(self) -> str:
@@ -395,7 +398,8 @@ class ModelFormulation(object):
             'advalorem_payer': self._advalorem_payer,
             'cost_scaling': self._cost_scaling,
             'kappa_specification_downstream': self._kappa_specification_downstream,
-            'kappa_specification_upstream': self._kappa_specification_upstream
+            'kappa_specification_upstream': self._kappa_specification_upstream,
+            'user_supplied_markups': self._user_supplied_markups
         })
 
         return model_mapping

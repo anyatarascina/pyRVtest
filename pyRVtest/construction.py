@@ -9,6 +9,7 @@ from numpy.linalg import inv
 
 from . import exceptions, options
 from .configurations.formulation import Formulation
+from .utilities.algebra import precisely_invert
 from .utilities.basics import Array, Groups, RecArray, extract_matrix, interact_ids, get_indices
 
 
@@ -492,7 +493,8 @@ def data_to_dict(data: RecArray, ignore_empty: bool = True) -> Dict[str, Array]:
 def build_markups_all(
         products: RecArray, demand_results: Mapping, model_downstream: Array, ownership_downstream: Array,
         model_upstream: Optional[Array] = None, ownership_upstream: Optional[Array] = None,
-        vertical_integration: Optional[Array] = None, custom_model_specification: Optional[dict] = None) -> Array:
+        vertical_integration: Optional[Array] = None, custom_model_specification: Optional[dict] = None,
+        user_supplied_markups: Optional[Array] = None) -> Array:
     r"""This function computes markups for a large set of standard models. These include:
             - standard bertrand with ownership matrix based on firm id
             - price setting with arbitrary ownership matrix (e.g. profit weight model)
@@ -533,11 +535,11 @@ def build_markups_all(
     # TODO: add error if model is other custom model and custom markup can't be None
 
     # initialize
-    N = np.size(products.prices)
+    N = np.size(products.prices)  # 2256
     with contextlib.redirect_stdout(open(os.devnull, 'w')):
-        ds_dp = demand_results.compute_demand_jacobians()
+        ds_dp = demand_results.compute_demand_jacobians()  # (2256, 24)
     number_models = len(model_downstream)
-    markets = np.unique(products.market_ids)
+    markets = np.unique(products.market_ids)  # (94,)
 
     # TODO: is there a better way to initialize these?
     # initialize markups
@@ -545,63 +547,70 @@ def build_markups_all(
     markups_upstream = [None] * number_models
     markups_downstream = [None] * number_models
     for i in range(number_models):
-        markups_downstream[i] = np.zeros((N, 1))
-        markups_upstream[i] = np.zeros((N, 1))
+        markups_downstream[i] = np.zeros((N, 1), dtype=options.dtype)  # (2256, 1)
+        markups_upstream[i] = np.zeros((N, 1), dtype=options.dtype)
 
     # if there is an upstream mode, get demand hessians
     if model_upstream is not None:
         with contextlib.redirect_stdout(open(os.devnull, 'w')):
-            d2s_dp2 = demand_results.compute_demand_hessians()
+            d2s_dp2 = demand_results.compute_demand_hessians()  # (2256, 24, 24)
 
     # compute markups market-by-market
     for i in range(number_models):
-        for t in markets:
-            index_t = np.where(demand_results.problem.products['market_ids'] == t)[0]
-            shares_t = products.shares[index_t]
-            retailer_response_matrix = ds_dp[index_t]
-            # TODO: check this one
-            retailer_response_matrix = retailer_response_matrix[:, ~np.isnan(retailer_response_matrix).all(axis=0)]
+        if user_supplied_markups[i] is not None:
+            markups[i] = user_supplied_markups[i]
+            markups_downstream[i] = user_supplied_markups[i]
+        else:
+            for t in markets:
+                # TODO: all of these are giving me iteritems is depracated warning
+                index_t = np.where(demand_results.problem.products['market_ids'] == t)[0]  # (24, )
+                shares_t = products.shares[index_t]  # (24, )
+                retailer_response_matrix = ds_dp[index_t]  # (24, 24)
+                # TODO: check this one
+                retailer_response_matrix = retailer_response_matrix[:, ~np.isnan(retailer_response_matrix).all(axis=0)]  # (24, 24) - since nothing empty
 
-            # compute downstream markups for model i market t
-            markups_downstream[i], retailer_ownership_matrix = compute_markups(
-                index_t, model_downstream[i], ownership_downstream[i], retailer_response_matrix, shares_t,
-                markups_downstream[i], custom_model_specification[i], markup_type='downstream'
-            )
-            markups_t = markups_downstream[i][index_t]
-
-            # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
-            if not (model_upstream[i] is None):
-                d2s_dp2_t = d2s_dp2[index_t]
-                d2s_dp2_t = d2s_dp2_t[~np.isnan(d2s_dp2_t).any(axis=2)]  # TODO: why is this reshaped?
-                d2s_dp2_t = d2s_dp2_t.reshape(d2s_dp2_t.shape[1], d2s_dp2_t.shape[1], d2s_dp2_t.shape[1])
-                J = len(shares_t)
-
-                # construct the matrix of derivatives with respect to prices for other manufacturers
-                g = np.zeros((J, J))
-                for j in range(J):
-                    g[j] = np.transpose(markups_t) @ (retailer_ownership_matrix * d2s_dp2_t[:, j, :])
-
-                # solve for derivatives of all prices with respect to the wholesale prices
-                H = np.transpose(retailer_ownership_matrix * retailer_response_matrix)
-                G = retailer_response_matrix + H + g
-                delta_p = inv(G) @ H
-
-                # solve for matrix of cross-price elasticities of derived demand and the effects of cost pass-through
-                manufacturer_response_matrix = np.transpose(delta_p) @ retailer_response_matrix
-
-                # compute upstream markups
-                markups_upstream[i], manufacturer_ownership_matrix = compute_markups(
-                    index_t, model_upstream[i], ownership_upstream[i], manufacturer_response_matrix, shares_t,
-                    markups_upstream[i], custom_model_specification[i], markup_type='upstream'
+                # compute downstream markups for model i market t
+                markups_downstream[i], retailer_ownership_matrix = compute_markups(
+                    index_t, model_downstream[i], ownership_downstream[i], retailer_response_matrix, shares_t,
+                    markups_downstream[i], custom_model_specification[i], markup_type='downstream'
                 )
+                markups_t = markups_downstream[i][index_t]
+
+                # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
+                if not (model_upstream[i] is None):
+                    d2s_dp2_t = d2s_dp2[index_t]  # (24, 24, 24)
+                    d2s_dp2_t = d2s_dp2_t[~np.isnan(d2s_dp2_t).any(axis=2)]  # TODO: why is this reshaped?
+                    d2s_dp2_t = d2s_dp2_t.reshape(d2s_dp2_t.shape[1], d2s_dp2_t.shape[1], d2s_dp2_t.shape[1])  # TODO: this needs to be done better
+                    J = len(shares_t)
+
+                    # construct the matrix of derivatives with respect to prices for other manufacturers
+                    g = np.zeros((J, J))
+                    for j in range(J):
+                        g[j] = np.transpose(markups_t) @ (retailer_ownership_matrix * d2s_dp2_t[:, j, :])
+
+                    # solve for derivatives of all prices with respect to the wholesale prices
+                    H = np.transpose(retailer_ownership_matrix * retailer_response_matrix)
+                    G = retailer_response_matrix + H + g
+                    delta_p = inv(G) @ H
+
+                    # solve for matrix of cross-price elasticities of derived demand and the effects of cost pass-through
+                    manufacturer_response_matrix = np.transpose(delta_p) @ retailer_response_matrix
+
+                    # compute upstream markups
+                    markups_upstream[i], manufacturer_ownership_matrix = compute_markups(
+                        index_t, model_upstream[i], ownership_upstream[i], manufacturer_response_matrix, shares_t,
+                        markups_upstream[i], custom_model_specification[i], markup_type='upstream'
+                    )
 
     # compute total markups as sum of upstream and downstream markups, taking into account vertical integration
     for i in range(number_models):
-        if vertical_integration[i] is None:
-            vi = np.ones((N, 1))
-        else:
-            vi = (vertical_integration[i] - 1) ** 2
-        markups[i] = markups_downstream[i] + vi * markups_upstream[i]
+        if user_supplied_markups[i] is None:
+            if vertical_integration[i] is None:
+                vi = np.ones((N, 1))
+            else:
+                vi = (vertical_integration[i] - 1) ** 2
+            markups[i] = markups_downstream[i] + vi * markups_upstream[i]
+
     return markups, markups_downstream, markups_upstream
 
 

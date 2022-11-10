@@ -134,6 +134,9 @@ class Economy(Container, StringRepresentation):
             data.append(["Unit Tax"] + [self.models.unit_tax[i] for i in range(self.M)])
             data.append(["Advalorem Tax"] + [self.models.advalorem_tax[i] for i in range(self.M)])
             data.append(["Advalorem Payer"] + [self.models.advalorem_payer[i] for i in range(self.M)])
+            data.append(
+                ["User Supplied Markups"] + [self.models.user_supplied_markups_colname[i] for i in range(self.M)]
+            )
             header = [" "] + [f" {i} " for i in range(self.M)]
         else:
             data.append(["Markups Supplied by User"])    

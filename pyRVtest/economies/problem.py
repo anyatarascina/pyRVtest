@@ -95,7 +95,7 @@ class ProblemEconomy(Economy):
             markups, markups_downstream, markups_upstream = build_markups_all(
                 self.products, self.demand_results, self.models.models_downstream, self.models.ownership_downstream,
                 self.models.models_upstream, self.models.ownership_upstream, self.models.vertical_integration,
-                self.models.custom_model_specification
+                self.models.custom_model_specification, self.models.user_supplied_markups
             )
         for m in range(M):
             if self.models.models_upstream[m] is not None and len(self.demand_results.rho) != 0:
