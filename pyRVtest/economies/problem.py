@@ -209,10 +209,12 @@ class ProblemEconomy(Economy):
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
                         delta_new = self.demand_results.compute_delta()
                     self.demand_results.delta = delta_new
+                    print("here")
                     markups_l, md, ml = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream,
-                        self.models.ownership_upstream, self.models.vertical_integration, self.models.custom_model_specification
+                        self.models.ownership_upstream, self.models.vertical_integration,
+                        self.models.custom_model_specification, self.models.user_supplied_markups
                     )
 
                     # increase sigma by small increment, update delta, and recompute markups
@@ -223,7 +225,8 @@ class ProblemEconomy(Economy):
                     markups_u, mu, mu = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream,
-                        self.models.ownership_upstream, self.models.vertical_integration, self.models.custom_model_specification
+                        self.models.ownership_upstream, self.models.vertical_integration,
+                        self.models.custom_model_specification, self.models.user_supplied_markups
                     )
 
                     # do the tax stuff
@@ -266,13 +269,15 @@ class ProblemEconomy(Economy):
                     markups_l, md, ml = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
-                        self.models.vertical_integration, self.models.custom_model_specification
+                        self.models.vertical_integration, self.models.custom_model_specification,
+                        self.models.user_supplied_markups
                     )
                     self.demand_results.beta[i] = alpha_initial + epsilon / 2
                     markups_u, mu, mu = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
-                        self.models.vertical_integration, self.models.custom_model_specification
+                        self.models.vertical_integration, self.models.custom_model_specification,
+                        self.models.user_supplied_markups
                     )
 
                     for m in range(M):
@@ -295,8 +300,8 @@ class ProblemEconomy(Economy):
                 markups_l, md, ml = build_markups_all(
                     self.products, self.demand_results, self.models.models_downstream,
                     self.models.ownership_downstream, self.models.models_upstream,
-                    self.models.ownership_upstream,
-                    self.models.vertical_integration, self.models.custom_model_specification
+                    self.models.ownership_upstream, self.models.vertical_integration,
+                    self.models.custom_model_specification, self.models.user_supplied_markups
                 )
 
                 # perturb rho in the positive direction and recompute markups
@@ -304,8 +309,8 @@ class ProblemEconomy(Economy):
                 markups_u, mu, mu = build_markups_all(
                     self.products, self.demand_results, self.models.models_downstream,
                     self.models.ownership_downstream, self.models.models_upstream,
-                    self.models.ownership_upstream,
-                    self.models.vertical_integration, self.models.custom_model_specification
+                    self.models.ownership_upstream, self.models.vertical_integration,
+                    self.models.custom_model_specification, self.models.user_supplied_markups
                 )
 
                 for m in range(M):
@@ -559,9 +564,9 @@ class ProblemEconomy(Economy):
             delta_new = self.demand_results.compute_delta()
         self.demand_results.delta = delta_new
         return build_markups_all(
-            self.products, self.demand_results, self.models.models_downstream,
-            self.models.ownership_downstream, self.models.models_upstream,
-            self.models.ownership_upstream, self.models.vertical_integration, self.models.custom_model_specification
+            self.products, self.demand_results, self.models.models_downstream, self.models.ownership_downstream,
+            self.models.models_upstream, self.models.ownership_upstream, self.models.vertical_integration,
+            self.models.custom_model_specification, self.models.user_supplied_markups
         )
 
     def _compute_variance_covariance(self, m, i, N, se_type, var):

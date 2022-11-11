@@ -521,7 +521,8 @@ def build_markups_all(
             (optional, default is standard ownership) ownership matrix for price or quantity setting of upstream firms
         vertical_integration: Optional[Array]
         TODO: ask about this variable
-        store_prod_ids: vector indicating which product_ids are vertically integrated (ie store brands) .  Default is
+        store_prod_ids:
+            vector indicating which product_ids are vertically integrated (ie store brands). Default is
         missing and no vertical integration.
         Returns
         -------
