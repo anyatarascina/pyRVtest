@@ -92,6 +92,7 @@ class ProblemEconomy(Economy):
         # if there are no markups, compute them
         if markups[0] is None:
             print('Computing Markups ... ')
+            # TODO: want to report these three objects
             markups, markups_downstream, markups_upstream = build_markups_all(
                 self.products, self.demand_results, self.models.models_downstream, self.models.ownership_downstream,
                 self.models.models_upstream, self.models.ownership_upstream, self.models.vertical_integration,
@@ -209,7 +210,6 @@ class ProblemEconomy(Economy):
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
                         delta_new = self.demand_results.compute_delta()
                     self.demand_results.delta = delta_new
-                    print("here")
                     markups_l, md, ml = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream,
@@ -331,7 +331,10 @@ class ProblemEconomy(Economy):
         RV_denominator_list = [None] * L
         test_statistic_RV_list = [None] * L
         F_statistic_list = [None] * L
+        unscaled_F_statistic_list = [None] * L
         MCS_p_values_list = [None] * L
+        rho_list = [None] * L
+        AR_variance_list = [None] * L
 
         # for each instrument,
         # TODO: parallelize over instruments?
@@ -404,8 +407,7 @@ class ProblemEconomy(Economy):
             for m in range(M):
                 for i in range(m):
                     if i < m:
-                        # TODO: check terminology - is this the variance covariance matrix?
-                        variance_covariance = self._compute_variance_covariance(m, i, N, se_type, psi)  # TODO: add variance to results output
+                        variance_covariance = self._compute_variance_covariance(m, i, N, se_type, psi)
                         weighted_variance = W_12 @ variance_covariance @ W_12
                         operations = np.array([1, 1, -2])
                         moments = np.array([
@@ -442,9 +444,12 @@ class ProblemEconomy(Economy):
                     rv_test_statistic[i, m] = "NaN"
 
             # compute the pairwise F-statistic for each model
+            unscaled_F = np.zeros((M, M))
             F = np.zeros((M, M))
             pi = np.zeros((K, M))
             phi = np.zeros([M, N, K])
+            rho = np.zeros((M, M))
+            AR_variance = np.zeros([M, K, K])
             for m in range(M):
                 ols_results = sm.OLS(np.squeeze(prices_orthogonal) - markups_orthogonal[m], Z_orthogonal).fit()
                 pi[:, m] = ols_results.params
@@ -452,6 +457,10 @@ class ProblemEconomy(Economy):
                 phi[m] = (e * Z_orthogonal) @ weight_matrix
                 if demand_adjustment:
                     phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ adjustment_value[m])
+
+            # compute just the diagonal elements for AR variance
+            for m in range(M):
+                AR_variance[m] = phi[m].T @ phi[m]
 
             # TODO: add comment (phi and psi - correspond to the different test statistics)
             for (m, i) in itertools.product(range(M), range(M)):
@@ -461,9 +470,10 @@ class ProblemEconomy(Economy):
                         np.trace(variance[0] @ W_inverse), np.trace(variance[1] @ W_inverse),
                         np.trace(variance[2] @ W_inverse)
                     ])
-                    numerator = (sigma[0] - sigma[1]) * (sigma[0] - sigma[1])
-                    denominator = ((sigma[0] + sigma[1]) * (sigma[0] + sigma[1]) - 4 * sigma[2] ** 2)
-                    rho2 = numerator / denominator
+                    numerator_sqrt = (sigma[0] - sigma[1])
+                    denominator_sqrt = np.sqrt((sigma[0] + sigma[1]) * (sigma[0] + sigma[1]) - 4 * sigma[2] ** 2)
+                    rho[i, m] = numerator_sqrt / denominator_sqrt
+                    rho_squared = np.square(rho[i, m])
 
                     # construct F statistic
                     operations = np.array([sigma[1], sigma[0], -2 * sigma[2]])
@@ -474,7 +484,8 @@ class ProblemEconomy(Economy):
                     ]).flatten()
                     F_numerator = operations @ moments
                     F_denominator = (sigma[0] * sigma[1] - sigma[2] ** 2)
-                    F[i, m] = (1 - rho2) * N / (2 * K) * F_numerator / F_denominator
+                    unscaled_F[i, m] = N / (2 * K) * F_numerator / F_denominator
+                    F[i, m] = (1 - rho_squared) * N / (2 * K) * F_numerator / F_denominator
                 if i >= m:
                     F[i, m] = "NaN"
 
@@ -533,12 +544,16 @@ class ProblemEconomy(Economy):
             RV_denominator_list[instrument] = test_statistic_denominator
             test_statistic_RV_list[instrument] = rv_test_statistic
             F_statistic_list[instrument] = F
+            unscaled_F_statistic_list[instrument] = unscaled_F
             MCS_p_values_list[instrument] = model_confidence_set_pvalues
+            rho_list[instrument] = rho
+            AR_variance_list[instrument] = AR_variance
 
         # return results
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
-            RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list
+            RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list,
+            rho_list, unscaled_F_statistic_list, AR_variance_list
         ))
         # TODO: should time outputs be in Progress?
         step_end_time = time.time()
@@ -694,9 +709,7 @@ class InitialProgress(object):
 
     problem: ProblemEconomy
 
-    def __init__(
-            self, problem: ProblemEconomy 
-            ) -> None:
+    def __init__(self, problem: ProblemEconomy) -> None:
         """Store initial progress information, computing the projected gradient and the reduced Hessian."""
         self.problem = problem
         
@@ -716,12 +729,14 @@ class Progress(InitialProgress):
     test_statistic_RV: Array
     F: Array
     MCS_p_values: Array
+    rho: Array
+    unscaled_F: Array
+    AR_variance: Array
 
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
             mc: Array, taus: Array, g: Array, Q: Array, RV_numerator: Array, RV_denom: Array, test_statistic_RV: Array,
-            F: Array, MCS_pvalues: Array
-            ) -> None:
+            F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, AR_variance: Array) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
         super().__init__(
             problem
@@ -738,3 +753,6 @@ class Progress(InitialProgress):
         self.test_statistic_RV = test_statistic_RV
         self.F = F
         self.MCS_p_values = MCS_pvalues
+        self.rho = rho
+        self.unscaled_F = unscaled_F
+        self.AR_variance = AR_variance

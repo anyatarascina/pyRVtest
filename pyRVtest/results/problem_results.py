@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 class ProblemResults(Results):
-    r"""Results of a testing.
+    r"""Results of a testing procedures.
 
    
     Attributes
@@ -29,6 +29,22 @@ class ProblemResults(Results):
     """
 
     Delta: Array
+    problem: Array
+    markups: Array
+    markups_downstream: Array
+    markups_upstream: Array
+    taus: Array
+    mc: Array
+    g: Array
+    Q: Array
+    RV_num: Array
+    RV_denom: Array
+    TRV: Array
+    F: Array
+    MCS_pvalues: Array
+    rho: Array
+    unscaled_F: Array
+    AR_variance: Array
 
     def __init__(self, progress: 'Progress') -> None:
         self.problem = progress.problem
@@ -44,6 +60,9 @@ class ProblemResults(Results):
         self.TRV = progress.test_statistic_RV
         self.F = progress.F
         self.MCS_pvalues = progress.MCS_p_values
+        self.rho = progress.rho
+        self.unscaled_F = progress.unscaled_F
+        self.AR_variance = progress.AR_variance
 
     def __str__(self) -> str:
         """Format economy information as a string."""
@@ -59,7 +78,7 @@ class ProblemResults(Results):
         # construct the data
         data: List[List[str]] = []
         for kk in range(len(self.markups)):
-            data.append([str(kk)] + [round(self.TRV[zz][kk,i],3) for i in range(len(self.markups))])
+            data.append([str(kk)] + [round(self.TRV[zz][kk, i], 3) for i in range(len(self.markups))])
     
         # construct the header
         header = [" "] + [f" {i} " for i in range(len(self.markups))]
@@ -71,23 +90,23 @@ class ProblemResults(Results):
 
         # TODO: clean this
         # get size critical values
-        CVall_s = pd.read_csv(DATA.F_CRITVALS_SIZE)
-        ind = CVall_s['K'] == len(self.g[zz][0])
-        tmp = np.array(CVall_s['r_075'])
-        cv_s075 = float(tmp[ind])
-        tmp = np.array(CVall_s['r_10'])
+        critical_values_size = pd.read_csv(DATA.F_CRITICAL_VALUES_SIZE)
+        ind = critical_values_size['K'] == len(self.g[zz][0])
+        tmp = np.array(critical_values_size['r_075'])
+        cv_s075 = float(tmp[ind])  # TODO: why float then string?
+        tmp = np.array(critical_values_size['r_10'])
         cv_s10 = float(tmp[ind])
-        tmp = np.array(CVall_s['r_125'])
+        tmp = np.array(critical_values_size['r_125'])
         cv_s125 = float(tmp[ind])
 
         # get power critical values
-        CVall_p = pd.read_csv(DATA.F_CRITVALS_POWER)
-        ind = CVall_p['K'] == len(self.g[zz][0])
-        tmp = np.array(CVall_p['r_95'])
+        critical_values_power = pd.read_csv(DATA.F_CRITICAL_VALUES_POWER)
+        ind = critical_values_power['K'] == len(self.g[zz][0])
+        tmp = np.array(critical_values_power['r_95'])
         cv_p95 = float(tmp[ind])
-        tmp = np.array(CVall_p['r_75'])
+        tmp = np.array(critical_values_power['r_75'])
         cv_p75 = float(tmp[ind])
-        tmp = np.array(CVall_p['r_50'])
+        tmp = np.array(critical_values_power['r_50'])
         cv_p50 = float(tmp[ind])
 
         # format output
@@ -119,7 +138,7 @@ class ProblemResults(Results):
             + [f" {i} " for i in range(len(self.markups))] + ["models"] + ["MCS p-values"]
         return format_table_notes_sub(
             header, subheader, *data, title="Testing Results - Instruments z{0}".format(zz), notes=cvs,
-            line_indices=[len(self.markups),2*len(self.markups)+1]
+            line_indices=[len(self.markups), 2*len(self.markups) + 1]
         )
 
     def to_dict(
@@ -154,4 +173,3 @@ class ProblemResults(Results):
         if matrices.shape != (rows, columns):
             raise ValueError(f"matrices must be {rows} by {columns}.")
         return matrices
-
