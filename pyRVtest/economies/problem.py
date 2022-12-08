@@ -63,7 +63,8 @@ class ProblemEconomy(Economy):
             raise ValueError("se_type must be 'robust', 'unadjusted', or 'clustered'.")
         if se_type == 'clustered' and np.shape(self.products.clustering_ids)[1] != 1:
             raise ValueError("product_data.clustering_ids must be specified with se_type 'clustered'.")
-        # TODO: add validation - when user specifies user_supplied_markups, need to turn off clustering and demand_adjustment (maybe turn off and give a warning?)
+        # TODO: add validation - when user specifies user_supplied_markups, need to turn off clustering and
+        #  demand_adjustment (maybe turn off and give a warning?)
 
         # initialize constants and precomputed values
         M = self.M
@@ -74,7 +75,7 @@ class ProblemEconomy(Economy):
         # initialize variables to be computed
         markups_upstream = np.zeros(M, dtype=options.dtype)
         markups_downstream = np.zeros(M, dtype=options.dtype)
-        markups_orthogonal = np.zeros((M, N), dtype=options.dtype)  # TODO: we are reporting these (should we report both?) - current output is markups orthogonal
+        markups_orthogonal = np.zeros((M, N), dtype=options.dtype)
         marginal_cost_orthogonal = np.zeros((M, N), dtype=options.dtype)
         tau_list = np.zeros((M, self.products.w.shape[1]), dtype=options.dtype)  # TODO: why do we need additional dimension here, but not for markups?
         markups_errors = np.zeros(M, dtype=options.dtype)
@@ -170,7 +171,7 @@ class ProblemEconomy(Economy):
             try:
                 partial_y_theta = self.demand_results.problem._absorb_demand_ids(partial_y_theta)
             except Exception:
-                return f'The demand adjustment failed because the a required pyblp object was empty. This can happen ' \
+                return f'The demand adjustment failed because the required pyblp object was empty. This can happen ' \
                        f'if you run demand estimation with the "return" option for optimization and specify' \
                        f'demand_adjustment=True. Try setting demand_adjustment=False'
             partial_y_theta = np.reshape(partial_y_theta[0], [N, len(self.demand_results.theta) + 1])
@@ -196,7 +197,7 @@ class ProblemEconomy(Economy):
             delta_estimate = self.demand_results.delta
 
             # TODO: make sure it's okay to have this inner function
-            def markups_computation(markups_m):
+            def markups_computation(markups_m):  # TODO: does this take a lot of time?
                 denominator = (1 + cost_scaling[m] * tax_av_adj[m])
                 computation = (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_m - tax_u[m])
                 return self.products.prices - computation / denominator
@@ -208,7 +209,7 @@ class ProblemEconomy(Economy):
                     # reduce sigma by small increment, update delta, and recompute markups
                     self.demand_results.sigma[i, j] = sigma_initial - epsilon / 2
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
-                        delta_new = self.demand_results.compute_delta()
+                        delta_new = self.demand_results.compute_delta()  # TODO: add parallel computing here from pyblp - does it speed up code
                     self.demand_results.delta = delta_new
                     markups_l, md, ml = build_markups_all(
                         self.products, self.demand_results, self.models.models_downstream,
@@ -460,7 +461,19 @@ class ProblemEconomy(Economy):
 
             # compute just the diagonal elements for AR variance
             for m in range(M):
-                AR_variance[m] = phi[m].T @ phi[m]
+                AR_variance[m] = 1 / N * (phi[m].T @ phi[m])
+                if se_type == 'clustered':
+                    cluster_ids = np.unique(self.products.clustering_ids)
+                    for j in cluster_ids:
+                        index = np.where(self.products.clustering_ids == j)[0]
+                        var_l = phi[m][index, :]
+                        var_c = var_l
+
+                        # update the matrix
+                        for k in range(len(index) - 1):
+                            var_c = np.roll(var_c, 1, axis=0)
+                            update = 1 / N * (var_l.T @ var_c)
+                            AR_variance[m] = AR_variance[m] + update
 
             # TODO: add comment (phi and psi - correspond to the different test statistics)
             for (m, i) in itertools.product(range(M), range(M)):
