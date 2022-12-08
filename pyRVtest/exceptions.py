@@ -3,7 +3,7 @@
 import collections
 from typing import Any, List, Sequence
 
-from .utilities.basics import (
+from pyblp.utilities.basics import (
     Error, DerivedError, NumericalError, MultipleReversionError, InversionError, InversionReplacementError
 )
 

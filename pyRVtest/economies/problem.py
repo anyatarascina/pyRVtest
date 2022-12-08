@@ -9,7 +9,8 @@ import time
 from typing import Mapping, Optional, Sequence
 
 import numpy as np
-import pandas as pd # TODO: REMOVE
+from pyblp.utilities.algebra import precisely_identify_collinearity
+from pyblp.utilities.basics import Array, RecArray, format_seconds, output
 from scipy.linalg import inv, fractional_matrix_power
 from scipy.stats import norm
 import statsmodels.api as sm
@@ -20,8 +21,6 @@ from ..configurations.formulation import Formulation, ModelFormulation
 from ..construction import build_markups_all
 from ..primitives import Models, Products
 from ..results.problem_results import ProblemResults
-from ..utilities.algebra import precisely_identify_collinearity
-from ..utilities.basics import Array, RecArray, format_seconds, output
 
 
 class ProblemEconomy(Economy):

@@ -6,11 +6,10 @@ from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Union
 
 import numpy as np
 from numpy.linalg import inv
+from pyblp.utilities.basics import Array, Groups, RecArray, extract_matrix, interact_ids, get_indices
 
 from . import exceptions, options
 from .configurations.formulation import Formulation
-from .utilities.algebra import precisely_invert
-from .utilities.basics import Array, Groups, RecArray, extract_matrix, interact_ids, get_indices
 
 
 def build_ownership_testing(

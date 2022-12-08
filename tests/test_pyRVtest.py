@@ -1,17 +1,9 @@
 """Testing the package."""
 
-from pathlib import Path
-import sys
-
 import numpy as np
 import pandas as pd
 import pyblp
 import pyRVtest
-
-# TODO: check if this is necessary
-# set project directory
-# PROJECT_DIR = Path(__file__).absolute().parents[1]
-# sys.path.append(PROJECT_DIR)
 
 
 def test_nevo_method1():
@@ -76,7 +68,8 @@ def test_nevo_method1():
                 model_downstream='monopoly',
                 ownership_downstream='firm_ids',
                 model_upstream='monopoly',
-                ownership_upstream='firm_ids')
+                ownership_upstream='firm_ids'
+            )
             ),
         product_data=product_data,
         demand_results=pyblp_results
@@ -86,6 +79,7 @@ def test_nevo_method1():
         se_type='clustered'
         )
 
+    # test with taxes
     testing_problem = pyRVtest.Problem(
         cost_formulation=(
             pyRVtest.Formulation('0 + sugar', absorb='C(firm_ids)')

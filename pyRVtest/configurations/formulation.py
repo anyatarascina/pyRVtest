@@ -16,8 +16,8 @@ import sympy as sp
 import sympy.parsing.sympy_parser
 
 from .. import exceptions, options
-from ..utilities.basics import (
-    Array, RecArray, Data, Error, StringRepresentation, extract_size, interact_ids, structure_matrices
+from pyblp.utilities.basics import (
+    Array, Data, Error, StringRepresentation, extract_size, interact_ids
 )
 
 

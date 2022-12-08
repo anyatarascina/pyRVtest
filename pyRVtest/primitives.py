@@ -5,9 +5,10 @@ from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from pyblp.utilities.basics import Array, Data, Groups, RecArray, extract_matrix, structure_matrices
+
 from . import options
 from .configurations.formulation import ColumnFormulation, Formulation, ModelFormulation
-from .utilities.basics import Array, Data, Groups, RecArray, extract_matrix, structure_matrices
 from . import construction
 
 

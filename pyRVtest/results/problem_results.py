@@ -4,13 +4,12 @@ from typing import Any, List, Sequence, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+from pyblp.utilities.basics import (Array, format_table)
 import pyRVtest.data as DATA
+
 from .results import Results
 from .. import options
-
-from ..utilities.basics import (
-    Array, format_table, format_table_notes_sub
-)
+from ..utilities.basics import format_table_notes_sub
 
 
 # only import objects that create import cycles when checking types

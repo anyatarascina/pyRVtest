@@ -5,7 +5,7 @@ from typing import Any, Optional, TYPE_CHECKING
 
 import numpy as np
 
-from ..utilities.basics import Array, StringRepresentation
+from pyblp.utilities.basics import Array, StringRepresentation
 
 
 # only import objects that create import cycles when checking types

@@ -8,7 +8,7 @@ from .construction import (
 from .economies.problem import Problem
 from .primitives import Models, Products
 from .results.problem_results import ProblemResults
-from .utilities.basics import parallel
+from pyblp.utilities.basics import parallel
 from .version import __version__
 
 __all__ = [

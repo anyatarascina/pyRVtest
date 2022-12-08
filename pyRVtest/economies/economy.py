@@ -1,18 +1,17 @@
 """Economy underlying the BLP model."""
 
 import abc
-import collections.abc
 from typing import Any, Dict, Hashable, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
+from pyblp.utilities.algebra import precisely_identify_collinearity, precisely_identify_psd
+from pyblp.utilities.basics import (
+    Array, Error, RecArray, StringRepresentation, format_table, get_indices, output
+)
 
 from .. import exceptions, options
 from ..configurations.formulation import Formulation, Absorb, ModelFormulation
 from ..primitives import Container
-from ..utilities.algebra import precisely_identify_collinearity, precisely_identify_psd
-from ..utilities.basics import (
-    Array, Bounds, Error, Groups, RecArray, StringRepresentation, format_table, get_indices, output
-)
 
 
 class Economy(Container, StringRepresentation):
