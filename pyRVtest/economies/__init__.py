@@ -1,1 +1,1 @@
-"""Economies underlying the BLP model."""
+"""Economies underlying the conduct testing model."""

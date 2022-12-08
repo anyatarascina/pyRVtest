@@ -7,8 +7,9 @@ from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Union
 import numpy as np
 from numpy.linalg import inv
 from pyblp.utilities.basics import Array, Groups, RecArray, extract_matrix, interact_ids, get_indices
+from pyblp import exceptions
 
-from . import exceptions, options
+from . import options
 from .configurations.formulation import Formulation
 
 

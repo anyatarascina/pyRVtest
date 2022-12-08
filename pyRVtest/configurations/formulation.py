@@ -13,10 +13,11 @@ import patsy.desc
 import patsy.design_info
 import patsy.origin
 from pyblp.utilities.basics import (Array, Data, Error, StringRepresentation, extract_size, interact_ids)
+from pyblp import exceptions
 import sympy as sp
 import sympy.parsing.sympy_parser
 
-from .. import exceptions, options
+from .. import options
 
 
 class Formulation(StringRepresentation):

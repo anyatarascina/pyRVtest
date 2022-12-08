@@ -8,8 +8,9 @@ from pyblp.utilities.algebra import precisely_identify_collinearity, precisely_i
 from pyblp.utilities.basics import (
     Array, Error, RecArray, StringRepresentation, format_table, get_indices, output
 )
+from pyblp import exceptions
 
-from .. import exceptions, options
+from .. import options
 from ..configurations.formulation import Formulation, Absorb, ModelFormulation
 from ..primitives import Container
 
