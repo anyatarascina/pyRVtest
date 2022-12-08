@@ -580,7 +580,8 @@ class ProblemEconomy(Economy):
         """Compute first differences and return the gradient."""
         for m in range(self.M):
             diff_markups = (markups_u[m] - markups_l[m]) / epsilon
-            diff_markups, me = self._absorb_cost_ids(diff_markups)
+            if self._absorb_cost_ids is not None:
+                diff_markups, me = self._absorb_cost_ids(diff_markups)
             ols_result = sm.OLS(diff_markups, self.products.w).fit()
             gradient_markups[m][:, theta_index] = ols_result.resid
         return gradient_markups
