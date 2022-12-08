@@ -511,8 +511,8 @@ def build_markups_all(
         demand_results : `Mapping`
             results structure from pyBLP demand estimation
         model_downstream: Array
-            Can be one of ['bertrand', 'cournot', 'monopoly']. If model_upstream not specified, this is a model without
-            vertical integration.
+            Can be one of ['bertrand', 'cournot', 'monopoly', 'perfect_competition']. If model_upstream not specified,
+            this is a model without vertical integration.
         ownership_downstream: Array
             (optional, default is standard ownership) ownership matrix for price or quantity setting
         model_upstream: Optional[Array]
@@ -520,10 +520,8 @@ def build_markups_all(
         ownership_upstream: Optional[Array]
             (optional, default is standard ownership) ownership matrix for price or quantity setting of upstream firms
         vertical_integration: Optional[Array]
-        TODO: ask about this variable
-        store_prod_ids:
-            vector indicating which product_ids are vertically integrated (ie store brands). Default is
-        missing and no vertical integration.
+            (optional, default is no vertical integration) vector indicating which product_ids are vertically integrated
+            (ie store brands)
         Returns
         -------
         `ndarray`
@@ -536,11 +534,11 @@ def build_markups_all(
     # TODO: add error if model is other custom model and custom markup can't be None
 
     # initialize
-    N = np.size(products.prices)  # 2256
+    N = np.size(products.prices)
     with contextlib.redirect_stdout(open(os.devnull, 'w')):
-        ds_dp = demand_results.compute_demand_jacobians()  # (2256, 24)
+        ds_dp = demand_results.compute_demand_jacobians()
     number_models = len(model_downstream)
-    markets = np.unique(products.market_ids)  # (94,)
+    markets = np.unique(products.market_ids)
 
     # TODO: is there a better way to initialize these?
     # initialize markups
@@ -564,11 +562,16 @@ def build_markups_all(
         else:
             for t in markets:
                 # TODO: all of these are giving me iteritems is depracated warning
-                index_t = np.where(demand_results.problem.products['market_ids'] == t)[0]  # (24, )
-                shares_t = products.shares[index_t]  # (24, )
-                retailer_response_matrix = ds_dp[index_t]  # (24, 24)
-                # TODO: check this one
-                retailer_response_matrix = retailer_response_matrix[:, ~np.isnan(retailer_response_matrix).all(axis=0)]  # (24, 24) - since nothing empty
+                index_t = np.where(demand_results.problem.products['market_ids'] == t)[0]
+                shares_t = products.shares[index_t]
+                retailer_response_matrix = ds_dp[index_t]
+                retailer_response_matrix = retailer_response_matrix[:, ~np.isnan(retailer_response_matrix).all(axis=0)]
+
+                # index to get hessian matrix for each market
+                d2s_dp2_t = d2s_dp2[index_t]
+                d2s_dp2_t = d2s_dp2_t[~np.isnan(d2s_dp2_t).any(axis=2)]
+                # TODO: this needs to be done better:
+                d2s_dp2_t = d2s_dp2_t.reshape(d2s_dp2_t.shape[1], d2s_dp2_t.shape[1], d2s_dp2_t.shape[1])
 
                 # compute downstream markups for model i market t
                 markups_downstream[i], retailer_ownership_matrix = compute_markups(
@@ -579,12 +582,9 @@ def build_markups_all(
 
                 # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
                 if not (model_upstream[i] is None):
-                    d2s_dp2_t = d2s_dp2[index_t]  # (24, 24, 24)
-                    d2s_dp2_t = d2s_dp2_t[~np.isnan(d2s_dp2_t).any(axis=2)]  # TODO: why is this reshaped?
-                    d2s_dp2_t = d2s_dp2_t.reshape(d2s_dp2_t.shape[1], d2s_dp2_t.shape[1], d2s_dp2_t.shape[1])  # TODO: this needs to be done better
-                    J = len(shares_t)
 
                     # construct the matrix of derivatives with respect to prices for other manufacturers
+                    J = len(shares_t)
                     g = np.zeros((J, J))
                     for j in range(J):
                         g[j] = np.transpose(markups_t) @ (retailer_ownership_matrix * d2s_dp2_t[:, j, :])
@@ -594,7 +594,8 @@ def build_markups_all(
                     G = retailer_response_matrix + H + g
                     delta_p = inv(G) @ H
 
-                    # solve for matrix of cross-price elasticities of derived demand and the effects of cost pass-through
+                    # solve for matrix of cross-price elasticities of derived demand and the effects of cost
+                    #   pass-through
                     manufacturer_response_matrix = np.transpose(delta_p) @ retailer_response_matrix
 
                     # compute upstream markups
@@ -617,33 +618,29 @@ def build_markups_all(
 
 def compute_markups(
         index, model_type, type_ownership_matrix, response_matrix, shares, markups, custom_model_specification,
-        markup_type
-):
-    """Compute markups for some standard models including Bertrand, Cournot, and Monopoly. Allow user to pass in their
+        markup_type):
+    """ Compute markups for some standard models including Bertrand, Cournot, and Monopoly. Allow user to pass in their
     own markup function as well.
     """
     if (markup_type == 'downstream') or (markup_type == 'upstream' and model_type is not None):
-
-        # pull out custom model information
-        if custom_model_specification is not None:
-            custom_model, custom_model_formula = next(iter(custom_model_specification.items()))
 
         # construct ownership matrix
         ownership_matrix = type_ownership_matrix[index]
         ownership_matrix = ownership_matrix[:, ~np.isnan(ownership_matrix).all(axis=0)]
 
-        # maps each model to its corresponding markup formula, with option for own formula
-        model_markup_formula = {
-            'bertrand': -inv(ownership_matrix * response_matrix) @ shares,
-            'cournot': -(ownership_matrix * inv(response_matrix)) @ shares,
-            'monopoly': -inv(response_matrix) @ shares,
-            'perfect_competition': np.zeros((len(shares), 1))
-        }
-
-        # compute markup for desired model
-        if custom_model_specification is not None:
-            model_markup_formula[custom_model] = eval(custom_model_formula)
-            model_type = custom_model
-        markups[index] = model_markup_formula[model_type]
+        # compute markups based on specified model
+        if model_type == 'bertrand':
+            markups[index] = -inv(ownership_matrix * response_matrix) @ shares
+        elif model_type == 'cournot':
+            markups[index] = -(ownership_matrix * inv(response_matrix)) @ shares
+        elif model_type == 'monopoly':
+            markups[index] = -inv(response_matrix) @ shares
+        elif model_type == 'perfect_competition':
+            markups[index] = np.zeros((len(shares), 1))
+        else:
+            if custom_model_specification is not None:
+                custom_model, custom_model_formula = next(iter(custom_model_specification.items()))
+                markups[index] = eval(custom_model_formula)
+                model_type = custom_model  # TODO: have custom model name in table output
 
     return markups, ownership_matrix
