@@ -1,6 +1,6 @@
 """Economy-level structuring of BLP problem results."""
 
-from typing import Any, List, Sequence, TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -8,7 +8,6 @@ from pyblp.utilities.basics import (Array, format_table)
 import pyRVtest.data as DATA
 
 from .results import Results
-from .. import options
 from ..utilities.basics import format_table_notes_sub
 
 
@@ -139,36 +138,3 @@ class ProblemResults(Results):
             header, subheader, *data, title="Testing Results - Instruments z{0}".format(zz), notes=cvs,
             line_indices=[len(self.markups), 2*len(self.markups) + 1]
         )
-
-    def to_dict(
-            self, attributes: Sequence[str] = (
-                'Delta'
-            )) -> dict:
-        """Convert these results into a dictionary that maps attribute names to values.
-
-        Parameters
-        ----------
-        attributes : `sequence of str, optional`
-            Name of attributes that will be added to the dictionary. By default, all :class:`ProblemResults` attributes
-            are added except for :attr:`ProblemResults.problem` and :attr:`ProblemResults.last_results`.
-
-        Returns
-        -------
-        `dict`
-            Mapping from attribute names to values.
-
-        Examples
-        --------
-            - :doc:`Tutorial </tutorial>`
-
-        """
-        return {k: getattr(self, k) for k in attributes}
-
-    def _coerce_matrices(self, matrices: Any, market_ids: Array) -> Array:
-        """Coerce array-like stacked matrices into a stacked matrix and validate it."""
-        matrices = np.c_[np.asarray(matrices, options.dtype)]
-        rows = sum(i.size for t, i in self.problem._product_market_indices.items() if t in market_ids)
-        columns = max(i.size for t, i in self.problem._product_market_indices.items() if t in market_ids)
-        if matrices.shape != (rows, columns):
-            raise ValueError(f"matrices must be {rows} by {columns}.")
-        return matrices

@@ -1,1 +1,1 @@
-"""Structuring of BLP results."""
+"""Structuring of conduct testing results."""
