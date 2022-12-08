@@ -1,14 +1,18 @@
+"""Sets up the package."""
+
 from pathlib import Path
+
 from setuptools import find_packages, setup
 
+# define a function that reads a file in this directory
 read = lambda p: Path(Path(__file__).resolve().parent / p).read_text()
 
+# set up the package
 setup(
-    # Needed to silence warnings (and to be a worthwhile package)
     name='pyRVtest',
-    url='https://github.com/chrissullivanecon/pyRVtest',
     author='Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, and Christopher Sullivan',
     author_email='chris.sullivan.econ@gmail.com',
+    url='https://github.com/chrissullivanecon/pyRVtest',
     packages=find_packages(),
     python_requires='>=3.6',
     install_requires=read('requirements.txt').splitlines(),
