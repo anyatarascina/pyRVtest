@@ -21,7 +21,8 @@ from ..configurations.formulation import Formulation, ModelFormulation
 from ..construction import build_markups_all
 from ..primitives import Models, Products
 from ..results.problem_results import ProblemResults
-
+import pyRVtest.data as DATA
+import pandas as pd
 
 class ProblemEconomy(Economy):
     """An abstract BLP problem."""
@@ -335,7 +336,14 @@ class ProblemEconomy(Economy):
         MCS_p_values_list = [None] * L
         rho_list = [None] * L
         AR_variance_list = [None] * L
+        F_cv_size_list = [None] * L
+        F_cv_power_list = [None] * L
+        symbols_size_list = [None] * L
+        symbols_power_list = [None] * L
 
+        critical_values_size = pd.read_csv(DATA.F_CRITICAL_VALUES_SIZE_RHO)
+        critical_values_power = pd.read_csv(DATA.F_CRITICAL_VALUES_POWER_RHO)
+                    
         # for each instrument,
         # TODO: parallelize over instruments?
         for instrument in range(L):
@@ -449,6 +457,10 @@ class ProblemEconomy(Economy):
             pi = np.zeros((K, M))
             phi = np.zeros([M, N, K])
             rho = np.zeros((M, M))
+            F_cv_size = np.empty((M, M), dtype=object)
+            F_cv_power = np.empty((M, M), dtype=object)
+            symbols_size = np.empty((M, M), dtype=object)
+            symbols_power = np.empty((M, M), dtype=object)
             AR_variance = np.zeros([M, K, K])
             for m in range(M):
                 ols_results = sm.OLS(np.squeeze(prices_orthogonal) - markups_orthogonal[m], Z_orthogonal).fit()
@@ -486,6 +498,14 @@ class ProblemEconomy(Economy):
                     denominator_sqrt = np.sqrt((sigma[0] + sigma[1]) * (sigma[0] + sigma[1]) - 4 * sigma[2] ** 2)
                     rho[i, m] = numerator_sqrt / denominator_sqrt
                     rho_squared = np.square(rho[i, m])
+                    rho_lookup = np.round(np.abs(rho[i, m]),2) 
+                    if rho_lookup > .99:
+                        rho_lookup = .99
+                    ind=np.where((critical_values_size['K'] == K) & (critical_values_size['rho'] == rho_lookup))[0][0]      
+                    F_cv_size[i,m] = np.array([critical_values_size['r_125'][ind],critical_values_size['r_10'][ind],critical_values_size['r_075'][ind]],dtype=object)
+                    F_cv_power[i,m] = np.array([critical_values_power['r_50'][ind],critical_values_power['r_75'][ind],critical_values_power['r_95'][ind]],dtype=object)
+                    
+
 
                     # construct F statistic
                     operations = np.array([sigma[1], sigma[0], -2 * sigma[2]])
@@ -498,9 +518,28 @@ class ProblemEconomy(Economy):
                     F_denominator = (sigma[0] * sigma[1] - sigma[2] ** 2)
                     unscaled_F[i, m] = N / (2 * K) * F_numerator / F_denominator
                     F[i, m] = (1 - rho_squared) * N / (2 * K) * F_numerator / F_denominator
+                    if F[i, m] < F_cv_size[i, m][0]:
+                        symbols_size[i, m] = " "
+                    elif F[i, m] < F_cv_size[i, m][1]:
+                        symbols_size[i, m] = "*"
+                    elif F[i, m] < F_cv_size[i, m][2]:
+                        symbols_size[i, m] = "**"
+                    else:    
+                        symbols_size[i, m] = "***"    
+
+
+                    if F[i, m] < F_cv_power[i, m][0]:
+                        symbols_power[i, m] = " "
+                    elif F[i, m] < F_cv_power[i, m][1]:
+                        symbols_power[i, m] = "^"
+                    elif F[i, m] < F_cv_power[i, m][2]:
+                        symbols_power[i, m] = "^^"
+                    else:    
+                        symbols_power[i, m] = "^^^"      
                 if i >= m:
                     F[i, m] = "NaN"
-
+                    symbols_size[i, m] = ""
+                    symbols_power[i, m] = ""
             # set a random seed
             # TODO: maybe change to random state instead?
             np.random.seed(options.random_seed)
@@ -560,12 +599,16 @@ class ProblemEconomy(Economy):
             MCS_p_values_list[instrument] = model_confidence_set_pvalues
             rho_list[instrument] = rho
             AR_variance_list[instrument] = AR_variance
+            F_cv_size_list[instrument] = F_cv_size 
+            F_cv_power_list[instrument] = F_cv_power
+            symbols_size_list[instrument] = symbols_size 
+            symbols_power_list[instrument] = symbols_power
 
         # return results
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
             RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list,
-            rho_list, unscaled_F_statistic_list, AR_variance_list
+            rho_list, unscaled_F_statistic_list, AR_variance_list, F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list
         ))
         # TODO: should time outputs be in Progress?
         step_end_time = time.time()
@@ -749,7 +792,7 @@ class Progress(InitialProgress):
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
             mc: Array, taus: Array, g: Array, Q: Array, RV_numerator: Array, RV_denom: Array, test_statistic_RV: Array,
-            F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, AR_variance: Array) -> None:
+            F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, AR_variance: Array, F_cv_size_list: Array, F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
         super().__init__(
             problem
@@ -769,3 +812,7 @@ class Progress(InitialProgress):
         self.rho = rho
         self.unscaled_F = unscaled_F
         self.AR_variance = AR_variance
+        self.F_cv_size_list = F_cv_size_list
+        self.F_cv_power_list = F_cv_power_list
+        self.symbols_size_list = symbols_size_list
+        self.symbols_power_list = symbols_power_list
