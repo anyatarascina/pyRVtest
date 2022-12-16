@@ -22,17 +22,7 @@ pip install pyRVtest
 
 This should automatically install the python packages on which pyRVtest depends: numpy, pandas, statsmodels, pyblp
 
-These can also be installed by running the pip install command in either terminal (Mac) or Command Prompt (Windows). 
-
-## Import python packages
-First open python3 (pyRVtest has been developed for releases of python 3.6 and later) in either terminal or command prompt.  Then you import the necessary packages:
-
-````
-import numpy as np
-import pandas as pd
-import pyblp
-import pyRVtest
-````
+These can also be installed by running the pip install command in either terminal (Mac) or Command Prompt (Windows).
 
 ## Running the code
 

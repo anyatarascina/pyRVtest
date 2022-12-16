@@ -2,13 +2,10 @@
 
 from typing import List, TYPE_CHECKING
 
-import numpy as np
-import pandas as pd
 from pyblp.utilities.basics import (Array, format_table)
-import pyRVtest.data as DATA
 
 from .results import Results
-from ..utilities.basics import format_table_notes_sub
+from ..utilities.basics import format_table_notes
 
 
 # only import objects that create import cycles when checking types
@@ -94,43 +91,13 @@ class ProblemResults(Results):
     def _format_Fstats_notes(self, zz: int) -> str:
         """Formation information about the formulations of the economy as a string."""
 
-        # TODO: clean this
-        # get size critical values
-        #critical_values_size = pd.read_csv(DATA.F_CRITICAL_VALUES_SIZE)
-        #ind = critical_values_size['K'] == len(self.g[zz][0])
-        #tmp = np.array(critical_values_size['r_075'])
-        #cv_s075 = float(tmp[ind])  # TODO: why float then string?
-        #tmp = np.array(critical_values_size['r_10'])
-        #cv_s10 = float(tmp[ind])
-        #tmp = np.array(critical_values_size['r_125'])
-        #cv_s125 = float(tmp[ind])
-
-        # get power critical values
-        #critical_values_power = pd.read_csv(DATA.F_CRITICAL_VALUES_POWER)
-        #ind = critical_values_power['K'] == len(self.g[zz][0])
-        #tmp = np.array(critical_values_power['r_95'])
-        #cv_p95 = float(tmp[ind])
-        #tmp = np.array(critical_values_power['r_75'])
-        #cv_p75 = float(tmp[ind])
-        #tmp = np.array(critical_values_power['r_50'])
-        #cv_p50 = float(tmp[ind])
-
         # format output
-        
         cvs: List[List[str]] = []
         cvs.append(['Significance of size and power diagnostic reported below each F-stat'])
-        cvs.append(['*, **, or *** indicate that F > cv for a target size of 0.125, 0.10, and 0.075 given K and rho'])
-        cvs.append(['^, ^^, or ^^ indicate that F > cv for a maximal power of 0.50, 0.75, and 0.95 given K and rho'])
+        cvs.append(['*, **, or *** indicate that F > cv for a target size of 0.125, 0.10, and 0.075 given d_z and rho'])
+        cvs.append(['^, ^^, or ^^ indicate that F > cv for a maximal power of 0.50, 0.75, and 0.95 given d_z and rho'])
         cvs.append(['appropriate critical values for size are stored in the variable F_cv_size_list of the pyRVtest results class'])
         cvs.append(['appropriate critical values for power are stored in the variable F_cv_power_list of the pyRVtest results class'])
-        #cvs.append(['... for worst-case size:'])
-        #cvs.append(['......07.5% worst-case size:'] + [str(cv_s075)])                                  
-        #cvs.append(['......10.0% worst-case size:'] + [str(cv_s10)])   
-        #cvs.append(['......12.5% worst-case size:'] + [str(cv_s125)])
-        #cvs.append(['... for maximal power:'])              
-        #cvs.append(['......95% max power:'] + [str(cv_p95)])                                          
-        #cvs.append(['......75% max power:'] + [str(cv_p75)]) 
-        #cvs.append(['......50% max power:'] + [str(cv_p50)])                                          
 
         # construct the data
         data: List[List[str]] = []
@@ -142,9 +109,8 @@ class ProblemResults(Results):
                 + [str(round(self.MCS_pvalues[zz][kk][0], 3))]
             )
             data.append(
-                [""] + ["" for i in range(len(self.markups)) ] + [""]
-                + [self.symbols_size_list[zz][kk, i] + " " + self.symbols_power_list[zz][kk, i] for i in range(len(self.markups))] + [""]
-                + [""]
+                [""] + ["" for i in range(len(self.markups))] + [""] +
+                [self.symbols_size_list[zz][kk, i] + " " + self.symbols_power_list[zz][kk, i] for i in range(len(self.markups))] + [""] + [""]
             )
         
         # construct the header
@@ -152,8 +118,7 @@ class ProblemResults(Results):
             + [f"  " for i in range(len(self.markups))] + [" MCS: "] + [" "]
         subheader = [" models "] + [f" {i} " for i in range(len(self.markups))] + [" models "] \
             + [f" {i} " for i in range(len(self.markups))] + ["models"] + ["MCS p-values"]
-        return format_table_notes_sub(
+        return format_table_notes(
             header, subheader, *data, title="Testing Results - Instruments z{0}".format(zz), notes=cvs,
-            #header, subheader, *data, title="Testing Results - Instruments z{0}".format(zz),
-            line_indices=[len(self.markups), 2*len(self.markups) + 1]
+            line_indices=[len(self.markups), 2 * len(self.markups) + 1]
         )

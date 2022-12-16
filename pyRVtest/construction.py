@@ -283,13 +283,13 @@ def build_markups(
     markups_upstream = [None] * number_models
     markups_downstream = [None] * number_models
     for i in range(number_models):
-        markups_downstream[i] = np.zeros((N, 1), dtype=options.dtype)  # (2256, 1)
+        markups_downstream[i] = np.zeros((N, 1), dtype=options.dtype)
         markups_upstream[i] = np.zeros((N, 1), dtype=options.dtype)
 
     # if there is an upstream mode, get demand hessians
     if model_upstream is not None:
         with contextlib.redirect_stdout(open(os.devnull, 'w')):
-            d2s_dp2 = demand_results.compute_demand_hessians()  # (2256, 24, 24)
+            d2s_dp2 = demand_results.compute_demand_hessians()
 
     # compute markups market-by-market
     for i in range(number_models):
@@ -298,7 +298,7 @@ def build_markups(
             markups_downstream[i] = user_supplied_markups[i]
         else:
             for t in markets:
-                # TODO: all of these are giving me iteritems is depracated warning
+                # TODO: all of these are giving me iteritems is deprecated warning
                 index_t = np.where(demand_results.problem.products['market_ids'] == t)[0]
                 shares_t = products.shares[index_t]
                 retailer_response_matrix = ds_dp[index_t]

@@ -94,7 +94,7 @@ class Economy(Container, StringRepresentation):
                 header.append(f" {key} ")
                 values.append(str(value))
         for instrument in range(self.L):
-            header.append("K{0}".format(instrument))
+            header.append("d_z{0}".format(instrument))
             values.append(str(self.Dict_K["K{0}".format(instrument)]))
 
         return format_table(header, values, title="Dimensions")
@@ -127,9 +127,9 @@ class Economy(Container, StringRepresentation):
         if self.markups[0] is None:
             data.append(["Model - Downstream"] + [self.models.models_downstream[i] for i in range(self.M)])
             data.append(["Model - Upstream"] + [self.models.models_upstream[i] for i in range(self.M)])
-            data.append(["Firm id - Downstream"] + [self.models.firm_ids_downstream[i] for i in range(self.M)])
-            data.append(["Firm id - Upstream"] + [self.models.firm_ids_upstream[i] for i in range(self.M)])
-            data.append(["VI ind"] + [self.models.vertical_integration_index[i] for i in range(self.M)])
+            data.append(["Firm IDs - Downstream"] + [self.models.firm_ids_downstream[i] for i in range(self.M)])
+            data.append(["Firm IDs - Upstream"] + [self.models.firm_ids_upstream[i] for i in range(self.M)])
+            data.append(["VI Index"] + [self.models.vertical_integration_index[i] for i in range(self.M)])
             data.append(["Cost Scaling Column"] + [self.models.cost_scaling_column[i] for i in range(self.M)])
             data.append(["Unit Tax"] + [self.models.unit_tax[i] for i in range(self.M)])
             data.append(["Advalorem Tax"] + [self.models.advalorem_tax[i] for i in range(self.M)])

@@ -18,11 +18,12 @@ import statsmodels.api as sm
 from .economy import Economy
 from .. import options
 from ..configurations.formulation import Formulation, ModelFormulation
-from ..construction import build_markups_all
+from ..construction import build_markups
 from ..primitives import Models, Products
 from ..results.problem_results import ProblemResults
 import pyRVtest.data as DATA
 import pandas as pd
+
 
 class ProblemEconomy(Economy):
     """An abstract BLP problem."""
@@ -94,7 +95,7 @@ class ProblemEconomy(Economy):
         if markups[0] is None:
             print('Computing Markups ... ')
             # TODO: want to report these three objects
-            markups, markups_downstream, markups_upstream = build_markups_all(
+            markups, markups_downstream, markups_upstream = build_markups(
                 self.products, self.demand_results, self.models.models_downstream, self.models.ownership_downstream,
                 self.models.models_upstream, self.models.ownership_upstream, self.models.vertical_integration,
                 self.models.custom_model_specification, self.models.user_supplied_markups
@@ -162,9 +163,6 @@ class ProblemEconomy(Economy):
             D = self.demand_results.problem.D    # size of agent demographics
 
             # compute the gradient of the GMM moment function
-            # TODO: warning since shouldn't call this method outside of class
-            #   also, improve formatting here?
-
             partial_y_theta = np.append(
                 self.demand_results.xi_by_theta_jacobian, -self.demand_results.problem.products.prices, 1
             )
@@ -211,7 +209,7 @@ class ProblemEconomy(Economy):
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
                         delta_new = self.demand_results.compute_delta()  # TODO: add parallel computing here from pyblp - does it speed up code
                     self.demand_results.delta = delta_new
-                    markups_l, md, ml = build_markups_all(
+                    markups_l, md, ml = build_markups(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream,
                         self.models.ownership_upstream, self.models.vertical_integration,
@@ -223,7 +221,7 @@ class ProblemEconomy(Economy):
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
                         delta_new = self.demand_results.compute_delta()
                     self.demand_results.delta = delta_new
-                    markups_u, mu, mu = build_markups_all(
+                    markups_u, mu, mu = build_markups(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream,
                         self.models.ownership_upstream, self.models.vertical_integration,
@@ -267,14 +265,14 @@ class ProblemEconomy(Economy):
                 if self.demand_results.beta_labels[i] == 'prices':
                     alpha_initial = self.demand_results.beta[i].copy()
                     self.demand_results.beta[i] = alpha_initial - epsilon / 2
-                    markups_l, md, ml = build_markups_all(
+                    markups_l, md, ml = build_markups(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
                         self.models.vertical_integration, self.models.custom_model_specification,
                         self.models.user_supplied_markups
                     )
                     self.demand_results.beta[i] = alpha_initial + epsilon / 2
-                    markups_u, mu, mu = build_markups_all(
+                    markups_u, mu, mu = build_markups(
                         self.products, self.demand_results, self.models.models_downstream,
                         self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
                         self.models.vertical_integration, self.models.custom_model_specification,
@@ -298,7 +296,7 @@ class ProblemEconomy(Economy):
 
                 # perturb rho in the negative direction and recompute markups
                 self.demand_results.rho = rho_initial - epsilon / 2
-                markups_l, md, ml = build_markups_all(
+                markups_l, md, ml = build_markups(
                     self.products, self.demand_results, self.models.models_downstream,
                     self.models.ownership_downstream, self.models.models_upstream,
                     self.models.ownership_upstream, self.models.vertical_integration,
@@ -307,7 +305,7 @@ class ProblemEconomy(Economy):
 
                 # perturb rho in the positive direction and recompute markups
                 self.demand_results.rho = rho_initial + epsilon / 2
-                markups_u, mu, mu = build_markups_all(
+                markups_u, mu, mu = build_markups(
                     self.products, self.demand_results, self.models.models_downstream,
                     self.models.ownership_downstream, self.models.models_upstream,
                     self.models.ownership_upstream, self.models.vertical_integration,
@@ -340,12 +338,10 @@ class ProblemEconomy(Economy):
         F_cv_power_list = [None] * L
         symbols_size_list = [None] * L
         symbols_power_list = [None] * L
-
         critical_values_size = pd.read_csv(DATA.F_CRITICAL_VALUES_SIZE_RHO)
         critical_values_power = pd.read_csv(DATA.F_CRITICAL_VALUES_POWER_RHO)
                     
-        # for each instrument,
-        # TODO: parallelize over instruments?
+        # compare models of conduct for each set of instruments
         for instrument in range(L):
             instruments = self.products["Z{0}".format(instrument)]
             K = np.shape(instruments)[1]
@@ -441,7 +437,7 @@ class ProblemEconomy(Economy):
                     term2 = covariance_mc[model_i[0], model_j[1]] - covariance_mc[model_i[1], model_j[1]]
                     sigma_model_confidence_set[index_j, index_i] = term1 - term2
             denominator = model_confidence_set_variance @ model_confidence_set_variance.T
-            sigma_model_confidence_set = sigma_model_confidence_set / denominator  # TODO: should be multiplied by 4?
+            sigma_model_confidence_set = sigma_model_confidence_set / denominator
 
             # compute the pairwise RV test statistic
             rv_test_statistic = np.zeros((M, M))
@@ -486,7 +482,7 @@ class ProblemEconomy(Economy):
                             update = 1 / N * (var_l.T @ var_c)
                             AR_variance[m] = AR_variance[m] + update
 
-            # TODO: add comment (phi and psi - correspond to the different test statistics)
+            # compute the F statistic for each pair of models
             for (m, i) in itertools.product(range(M), range(M)):
                 if i < m:
                     variance = self._compute_variance_covariance(m, i, N, se_type, phi)
@@ -498,14 +494,22 @@ class ProblemEconomy(Economy):
                     denominator_sqrt = np.sqrt((sigma[0] + sigma[1]) * (sigma[0] + sigma[1]) - 4 * sigma[2] ** 2)
                     rho[i, m] = numerator_sqrt / denominator_sqrt
                     rho_squared = np.square(rho[i, m])
-                    rho_lookup = np.round(np.abs(rho[i, m]),2) 
+
+                    # pull out critical values for size and power
+                    rho_lookup = np.round(np.abs(rho[i, m]), 2)
                     if rho_lookup > .99:
                         rho_lookup = .99
-                    ind=np.where((critical_values_size['K'] == K) & (critical_values_size['rho'] == rho_lookup))[0][0]      
-                    F_cv_size[i,m] = np.array([critical_values_size['r_125'][ind],critical_values_size['r_10'][ind],critical_values_size['r_075'][ind]],dtype=object)
-                    F_cv_power[i,m] = np.array([critical_values_power['r_50'][ind],critical_values_power['r_75'][ind],critical_values_power['r_95'][ind]],dtype=object)
-                    
-
+                    ind = np.where((critical_values_size['K'] == K) & (critical_values_size['rho'] == rho_lookup))[0][0]
+                    F_cv_size[i, m] = np.array([
+                        critical_values_size['r_125'][ind],
+                        critical_values_size['r_10'][ind],
+                        critical_values_size['r_075'][ind]
+                    ], dtype=object)
+                    F_cv_power[i, m] = np.array([
+                        critical_values_power['r_50'][ind],
+                        critical_values_power['r_75'][ind],
+                        critical_values_power['r_95'][ind]
+                    ], dtype=object)
 
                     # construct F statistic
                     operations = np.array([sigma[1], sigma[0], -2 * sigma[2]])
@@ -518,6 +522,8 @@ class ProblemEconomy(Economy):
                     F_denominator = (sigma[0] * sigma[1] - sigma[2] ** 2)
                     unscaled_F[i, m] = N / (2 * K) * F_numerator / F_denominator
                     F[i, m] = (1 - rho_squared) * N / (2 * K) * F_numerator / F_denominator
+
+                    # determine Fstat critical values for size
                     if F[i, m] < F_cv_size[i, m][0]:
                         symbols_size[i, m] = " "
                     elif F[i, m] < F_cv_size[i, m][1]:
@@ -527,7 +533,7 @@ class ProblemEconomy(Economy):
                     else:    
                         symbols_size[i, m] = "***"    
 
-
+                    # determine Fstat critical values for power
                     if F[i, m] < F_cv_power[i, m][0]:
                         symbols_power[i, m] = " "
                     elif F[i, m] < F_cv_power[i, m][1]:
@@ -535,7 +541,8 @@ class ProblemEconomy(Economy):
                     elif F[i, m] < F_cv_power[i, m][2]:
                         symbols_power[i, m] = "^^"
                     else:    
-                        symbols_power[i, m] = "^^^"      
+                        symbols_power[i, m] = "^^^"
+
                 if i >= m:
                     F[i, m] = "NaN"
                     symbols_size[i, m] = ""
@@ -608,7 +615,8 @@ class ProblemEconomy(Economy):
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
             RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list,
-            rho_list, unscaled_F_statistic_list, AR_variance_list, F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list
+            rho_list, unscaled_F_statistic_list, AR_variance_list, F_cv_size_list, F_cv_power_list, symbols_size_list,
+            symbols_power_list
         ))
         # TODO: should time outputs be in Progress?
         step_end_time = time.time()
@@ -634,7 +642,7 @@ class ProblemEconomy(Economy):
         with contextlib.redirect_stdout(open(os.devnull, 'w')):
             delta_new = self.demand_results.compute_delta()
         self.demand_results.delta = delta_new
-        return build_markups_all(
+        return build_markups(
             self.products, self.demand_results, self.models.models_downstream, self.models.ownership_downstream,
             self.models.models_upstream, self.models.ownership_upstream, self.models.vertical_integration,
             self.models.custom_model_specification, self.models.user_supplied_markups
@@ -663,12 +671,6 @@ class ProblemEconomy(Economy):
                     ])
                     variance_covariance = variance_covariance + update
         return variance_covariance
-
-    # TODO: don't remember why this is a function - check it
-    # def _markups_computation(self, markups_m):
-    #     denominator = (1 + cost_scaling[m] * tax_av_adj[m])
-    #     computation = (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_m - tax_u[m])
-    #     return self.products.prices - computation / denominator
 
 
 class Problem(ProblemEconomy):
