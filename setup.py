@@ -18,8 +18,7 @@ setup(
     install_requires=read('requirements.txt').splitlines(),
     license='MIT',
     description='Code to perform econometric test of firm conduct',
-    long_description=open('README.md', 'r').read(),
-    long_description_content_type='text/markdown',
+    long_description=read('README.rst', 'r').strip(),
     include_package_data=True,
     version='0.1.2'
 )
