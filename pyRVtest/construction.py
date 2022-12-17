@@ -286,10 +286,6 @@ def build_markups(
         markups_downstream[i] = np.zeros((N, 1), dtype=options.dtype)
         markups_upstream[i] = np.zeros((N, 1), dtype=options.dtype)
 
-    # if there is an upstream mode, get demand hessians
-    if model_upstream is not None:
-        with contextlib.redirect_stdout(open(os.devnull, 'w')):
-            d2s_dp2 = demand_results.compute_demand_hessians()
 
     # compute markups market-by-market
     for i in range(number_models):
@@ -304,11 +300,10 @@ def build_markups(
                 retailer_response_matrix = ds_dp[index_t]
                 retailer_response_matrix = retailer_response_matrix[:, ~np.isnan(retailer_response_matrix).all(axis=0)]
 
-                # index to get hessian matrix for each market
-                d2s_dp2_t = d2s_dp2[index_t]
-                d2s_dp2_t = d2s_dp2_t[~np.isnan(d2s_dp2_t).any(axis=2)]
-                # TODO: this needs to be done better:
-                d2s_dp2_t = d2s_dp2_t.reshape(d2s_dp2_t.shape[1], d2s_dp2_t.shape[1], d2s_dp2_t.shape[1])
+                if not (model_upstream[i] is None):
+                    with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                        d2s_dp2_t = demand_results.compute_demand_hessians(market_id=t)
+
 
                 # compute downstream markups for model i market t
                 markups_downstream[i], retailer_ownership_matrix = compute_markups(
