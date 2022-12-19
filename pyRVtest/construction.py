@@ -286,7 +286,6 @@ def build_markups(
         markups_downstream[i] = np.zeros((N, 1), dtype=options.dtype)
         markups_upstream[i] = np.zeros((N, 1), dtype=options.dtype)
 
-
     # compute markups market-by-market
     for i in range(number_models):
         if user_supplied_markups[i] is not None:
@@ -303,7 +302,6 @@ def build_markups(
                 if not (model_upstream[i] is None):
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
                         d2s_dp2_t = demand_results.compute_demand_hessians(market_id=t)
-
 
                 # compute downstream markups for model i market t
                 markups_downstream[i], retailer_ownership_matrix = compute_markups(
