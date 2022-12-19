@@ -275,7 +275,7 @@ class Models(object):
 
         # make ownership matrices and extract vertical integration
         for m in range(M):
-            model = model_formulations[m]._build_matrix(product_data)  # TODO: allow for different way to enter data
+            model = model_formulations[m]._build_matrix(product_data)
             models_downstream[m] = model['model_downstream']
             if model['model_upstream'] is not None:
                 models_upstream[m] = model['model_upstream']

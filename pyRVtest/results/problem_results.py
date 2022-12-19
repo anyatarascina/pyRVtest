@@ -32,8 +32,8 @@ class ProblemResults(Results):
     mc: Array
     g: Array
     Q: Array
-    RV_num: Array
-    RV_denom: Array
+    RV_numerator: Array
+    RV_denominator: Array
     TRV: Array
     F: Array
     MCS_pvalues: Array
@@ -54,8 +54,8 @@ class ProblemResults(Results):
         self.mc = progress.mc
         self.g = progress.g
         self.Q = progress.Q
-        self.RV_num = progress.RV_numerator
-        self.RV_denom = progress.RV_denominator
+        self.RV_numerator = progress.RV_numerator
+        self.RV_denominator = progress.RV_denominator
         self.TRV = progress.test_statistic_RV
         self.F = progress.F
         self.MCS_pvalues = progress.MCS_p_values
@@ -96,8 +96,14 @@ class ProblemResults(Results):
         cvs.append(['Significance of size and power diagnostic reported below each F-stat'])
         cvs.append(['*, **, or *** indicate that F > cv for a target size of 0.125, 0.10, and 0.075 given d_z and rho'])
         cvs.append(['^, ^^, or ^^ indicate that F > cv for a maximal power of 0.50, 0.75, and 0.95 given d_z and rho'])
-        cvs.append(['appropriate critical values for size are stored in the variable F_cv_size_list of the pyRVtest results class'])
-        cvs.append(['appropriate critical values for power are stored in the variable F_cv_power_list of the pyRVtest results class'])
+        cvs.append([
+            'appropriate critical values for size are stored in the variable F_cv_size_list of the pyRVtest results '
+            'class'
+        ])
+        cvs.append([
+            'appropriate critical values for power are stored in the variable F_cv_power_list of the pyRVtest '
+            'results class'
+        ])
 
         # construct the data
         data: List[List[str]] = []

@@ -59,7 +59,7 @@ class ProblemEconomy(Economy):
 
         # validate settings
         if not isinstance(demand_adjustment, bool):
-            raise TypeError("demand_adjustment must be a boolean.")
+            raise TypeError("demand_adjustment must be a boolean (one of True or False).")
         if se_type not in {'robust', 'unadjusted', 'clustered'}:
             raise ValueError("se_type must be 'robust', 'unadjusted', or 'clustered'.")
         if se_type == 'clustered' and np.shape(self.products.clustering_ids)[1] != 1:
@@ -523,22 +523,22 @@ class ProblemEconomy(Economy):
                     unscaled_F[i, m] = N / (2 * K) * F_numerator / F_denominator
                     F[i, m] = (1 - rho_squared) * N / (2 * K) * F_numerator / F_denominator
 
-                    # determine Fstat critical values for size
-                    if F[i, m] < F_cv_size[i, m][0]:
+                    # determine F-stat critical values for size
+                    if F[i, m] < round(F_cv_size[i, m][0], 1):
                         symbols_size[i, m] = " "
-                    elif F[i, m] < F_cv_size[i, m][1]:
+                    elif F[i, m] < round(F_cv_size[i, m][1], 1):
                         symbols_size[i, m] = "*"
-                    elif F[i, m] < F_cv_size[i, m][2]:
+                    elif F[i, m] < round(F_cv_size[i, m][2], 1):
                         symbols_size[i, m] = "**"
                     else:    
                         symbols_size[i, m] = "***"    
 
-                    # determine Fstat critical values for power
-                    if F[i, m] < F_cv_power[i, m][0]:
+                    # determine F-stat critical values for power
+                    if F[i, m] < round(F_cv_power[i, m][0], 1):
                         symbols_power[i, m] = " "
-                    elif F[i, m] < F_cv_power[i, m][1]:
+                    elif F[i, m] < round(F_cv_power[i, m][1], 1):
                         symbols_power[i, m] = "^"
-                    elif F[i, m] < F_cv_power[i, m][2]:
+                    elif F[i, m] < round(F_cv_power[i, m][2], 1):
                         symbols_power[i, m] = "^^"
                     else:    
                         symbols_power[i, m] = "^^^"
@@ -547,6 +547,7 @@ class ProblemEconomy(Economy):
                     F[i, m] = "NaN"
                     symbols_size[i, m] = ""
                     symbols_power[i, m] = ""
+
             # set a random seed
             # TODO: maybe change to random state instead?
             np.random.seed(options.random_seed)
