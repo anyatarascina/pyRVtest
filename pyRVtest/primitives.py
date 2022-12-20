@@ -6,10 +6,10 @@ from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
 from pyblp.utilities.basics import Array, Data, Groups, RecArray, extract_matrix, structure_matrices
+from pyblp.construction import build_ownership
 
 from . import options
 from .configurations.formulation import ColumnFormulation, Formulation, ModelFormulation
-from . import construction
 
 
 class Products(object):
@@ -20,7 +20,7 @@ class Products(object):
      market_ids : `ndarray`
         IDs that associate products with markets.
     cost_ids : `ndarray`
-        IDs used to # TODO: add comment
+        IDs used to associate products with cost-side fixed effects.
     nesting_ids : `ndarray`
         IDs that associate products with nesting groups.
     product_ids : `ndarray`
@@ -32,9 +32,9 @@ class Products(object):
     prices : `ndarray`
         Product prices, :math:`p`.
     Z : `ndarray`
-        # TODO: add comment
+        Instruments, :math: `Z`.
     w : `ndarray`
-        # TODO: add comment
+        Cost-shifters, :math: `w`.
     """
 
     market_ids: Array
@@ -253,7 +253,7 @@ class Models(object):
             raise ValueError("At least two model formulations must be specified.")
         N = product_data.shape[0]
 
-        # define model components  # TODO: convert to arrays
+        # define model components  # TODO: convert to arrays?
         ownership_matrices_downstream = [None] * M
         ownership_matrices_upstream = [None] * M
         firm_ids_downstream = [None] * M
@@ -280,29 +280,22 @@ class Models(object):
             if model['model_upstream'] is not None:
                 models_upstream[m] = model['model_upstream']
 
-            # TODO: what is the best way to condense the ownership matrix construction?
             # define ownership matrices for downstream model
+            model['firm_ids'] = model['ownership_downstream']
             if model['model_downstream'] == 'monopoly':
-                ownership_matrices_downstream[m] = construction.build_ownership_testing(
-                    product_data, model['ownership_downstream'], 'monopoly'
-                )
+                ownership_matrices_downstream[m] = build_ownership(product_data, 'monopoly')
                 firm_ids_downstream[m] = 'monopoly'
             else:
-                ownership_matrices_downstream[m] = construction.build_ownership_testing(
-                    product_data, model['ownership_downstream'], model['kappa_specification_downstream']
-                )
+                ownership_matrices_downstream[m] = build_ownership(product_data, model['kappa_specification_downstream'])
                 firm_ids_downstream[m] = model['ownership_downstream']
 
             # define ownership matrices for upstream model
+            model['firm_ids'] = model['ownership_upstream']
             if model['model_upstream'] == 'monopoly':
-                ownership_matrices_upstream[m] = construction.build_ownership_testing(
-                    product_data, model['ownership_upstream'], 'monopoly'
-                )
+                ownership_matrices_upstream[m] = build_ownership(product_data, 'monopoly')
                 firm_ids_upstream[m] = 'monopoly'
             elif model['ownership_upstream'] is not None:
-                ownership_matrices_upstream[m] = construction.build_ownership_testing(
-                    product_data, model['ownership_upstream'], model['kappa_specification_upstream']
-                )
+                ownership_matrices_upstream[m] = build_ownership(product_data, model['kappa_specification_upstream'])
                 firm_ids_upstream[m] = model['ownership_upstream']
 
             # define vertical integration related variables
@@ -310,13 +303,14 @@ class Models(object):
                 vertical_integration[m] = extract_matrix(product_data, model["vertical_integration"])
                 vertical_integration_index[m] = model["vertical_integration"]
 
-            # define tax related variables
+            # define unit tax
             if model['unit_tax'] is not None:
                 tax_u[m] = extract_matrix(product_data, model['unit_tax'])
                 unit_tax[m] = model['unit_tax']
             elif model['unit_tax'] is None:
                 tax_u[m] = np.zeros((N, 1))
 
+            # define ad valorem tax
             if model['advalorem_tax'] is not None:
                 tax_av[m] = extract_matrix(product_data, model['advalorem_tax'])
                 advalorem_tax[m] = model['advalorem_tax']
@@ -325,14 +319,15 @@ class Models(object):
             elif model['advalorem_tax'] is None:
                 tax_av[m] = np.zeros((N, 1))
 
+            # define cost scaling
             if model['cost_scaling'] is not None:
                 cost_scaling_column[m] = model['cost_scaling']
                 cost_scaling[m] = extract_matrix(product_data, model['cost_scaling'])
             elif model['cost_scaling'] is None:
                 cost_scaling[m] = np.zeros((N, 1))
 
+            # define custom markup model or user supplied markups
             custom_model[m] = model['custom_model_specification']
-
             if model["user_supplied_markups"] is not None:
                 user_supplied_markups[m] = extract_matrix(product_data, model["user_supplied_markups"])
                 user_supplied_markups_name[m] = model["user_supplied_markups"]

@@ -524,21 +524,21 @@ class ProblemEconomy(Economy):
                     F[i, m] = (1 - rho_squared) * N / (2 * K) * F_numerator / F_denominator
 
                     # determine F-stat critical values for size
-                    if F[i, m] < round(F_cv_size[i, m][0], 1):
+                    if F[i, m] < F_cv_size[i, m][0]:
                         symbols_size[i, m] = " "
-                    elif F[i, m] < round(F_cv_size[i, m][1], 1):
+                    elif F[i, m] < F_cv_size[i, m][1]:
                         symbols_size[i, m] = "*"
-                    elif F[i, m] < round(F_cv_size[i, m][2], 1):
+                    elif F[i, m] < F_cv_size[i, m][2]:
                         symbols_size[i, m] = "**"
                     else:    
                         symbols_size[i, m] = "***"    
 
                     # determine F-stat critical values for power
-                    if F[i, m] < round(F_cv_power[i, m][0], 1):
+                    if F[i, m] < F_cv_power[i, m][0]:
                         symbols_power[i, m] = " "
-                    elif F[i, m] < round(F_cv_power[i, m][1], 1):
+                    elif F[i, m] < F_cv_power[i, m][1]:
                         symbols_power[i, m] = "^"
-                    elif F[i, m] < round(F_cv_power[i, m][2], 1):
+                    elif F[i, m] < F_cv_power[i, m][2]:
                         symbols_power[i, m] = "^^"
                     else:    
                         symbols_power[i, m] = "^^^"
