@@ -314,7 +314,7 @@ class ModelFormulation(object):
         if model_downstream not in model_set:
             raise TypeError("model_downstream must be monopoly, bertrand, cournot, perfect_competition, or other.")
         if model_upstream is not None and model_upstream not in model_set:
-            raise TypeError("model_upstream must be monopoly, bertrand, cournot, perfect competition, or other.")
+            raise TypeError("model_upstream must be monopoly, bertrand, cournot, perfect_competition, or other.")
         if model_upstream is not None and model_downstream in {'cournot'} and model_upstream in {'cournot'}:
             raise TypeError("model_upstream and model_downstream cannot both be cournot.")    
         if ownership_downstream is not None and not isinstance(ownership_downstream, str):

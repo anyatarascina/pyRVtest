@@ -9,6 +9,7 @@ import time
 from typing import Mapping, Optional, Sequence
 
 import numpy as np
+import pandas as pd
 from pyblp.utilities.algebra import precisely_identify_collinearity
 from pyblp.utilities.basics import Array, RecArray, format_seconds, output
 from scipy.linalg import inv, fractional_matrix_power
@@ -21,8 +22,7 @@ from ..configurations.formulation import Formulation, ModelFormulation
 from ..construction import build_markups
 from ..primitives import Models, Products
 from ..results.problem_results import ProblemResults
-import pyRVtest.data as DATA
-import pandas as pd
+from ..data import F_CRITICAL_VALUES_POWER_RHO, F_CRITICAL_VALUES_SIZE_RHO
 
 
 class ProblemEconomy(Economy):
@@ -100,10 +100,6 @@ class ProblemEconomy(Economy):
                 self.models.models_upstream, self.models.ownership_upstream, self.models.vertical_integration,
                 self.models.custom_model_specification, self.models.user_supplied_markups
             )
-        for m in range(M):
-            if self.models.models_upstream[m] is not None and len(self.demand_results.rho) != 0:
-                raise ValueError("Code cannot currently handle vertical models and Nested Logit or Random Coefficients "
-                                 "Nested Logit demand system.")
 
         # for each model, use computed markups to compute the marginal costs
         marginal_cost = self.products.prices - markups
@@ -338,8 +334,8 @@ class ProblemEconomy(Economy):
         F_cv_power_list = [None] * L
         symbols_size_list = [None] * L
         symbols_power_list = [None] * L
-        critical_values_size = pd.read_csv(DATA.F_CRITICAL_VALUES_SIZE_RHO)
-        critical_values_power = pd.read_csv(DATA.F_CRITICAL_VALUES_POWER_RHO)
+        critical_values_size = pd.read_csv(F_CRITICAL_VALUES_SIZE_RHO)
+        critical_values_power = pd.read_csv(F_CRITICAL_VALUES_POWER_RHO)
                     
         # compare models of conduct for each set of instruments
         for instrument in range(L):
@@ -795,7 +791,8 @@ class Progress(InitialProgress):
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
             mc: Array, taus: Array, g: Array, Q: Array, RV_numerator: Array, RV_denom: Array, test_statistic_RV: Array,
-            F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, AR_variance: Array, F_cv_size_list: Array, F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
+            F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, AR_variance: Array, F_cv_size_list: Array,
+            F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
         super().__init__(
             problem
