@@ -108,4 +108,4 @@ pseudo_inverses = True
 collinear_atol = collinear_rtol = 1e-14
 psd_atol = psd_rtol = 1e-8
 ndraws = 99999
-random_seed = 123
+random_seed = 1

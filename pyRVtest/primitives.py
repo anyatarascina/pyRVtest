@@ -253,7 +253,7 @@ class Models(object):
             raise ValueError("At least two model formulations must be specified.")
         N = product_data.shape[0]
 
-        # define model components  # TODO: convert to arrays?
+        # define model components
         ownership_matrices_downstream = [None] * M
         ownership_matrices_upstream = [None] * M
         firm_ids_downstream = [None] * M
@@ -286,7 +286,9 @@ class Models(object):
                 ownership_matrices_downstream[m] = build_ownership(product_data, 'monopoly')
                 firm_ids_downstream[m] = 'monopoly'
             else:
-                ownership_matrices_downstream[m] = build_ownership(product_data, model['kappa_specification_downstream'])
+                ownership_matrices_downstream[m] = build_ownership(
+                    product_data, model['kappa_specification_downstream']
+                )
                 firm_ids_downstream[m] = model['ownership_downstream']
 
             # define ownership matrices for upstream model

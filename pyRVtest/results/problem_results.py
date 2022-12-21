@@ -1,6 +1,8 @@
-"""Economy-level structuring of BLP problem results."""
+"""Economy-level structuring of conduct testing problem results."""
 
-from typing import List, TYPE_CHECKING
+from pathlib import Path
+import pickle
+from typing import List, Union, TYPE_CHECKING
 
 from pyblp.utilities.basics import (Array, format_table)
 
@@ -16,10 +18,50 @@ if TYPE_CHECKING:
 class ProblemResults(Results):
     r"""Results of a testing procedures.
 
-   
     Attributes
     ----------
-    
+        Delta: `ndarray`
+            # TODO: add comment
+        problem: `ndarray`
+            # TODO: add comment
+        markups: `ndarray`
+            # TODO: add comment
+        markups_downstream: `ndarray`
+            # TODO: add comment
+        markups_upstream: `ndarray`
+            # TODO: add comment
+        taus: `ndarray`
+            # TODO: add comment
+        mc: `ndarray`
+            # TODO: add comment
+        g: `ndarray`
+            # TODO: add comment
+        Q: `ndarray`
+            # TODO: add comment
+        RV_numerator: `ndarray`
+            # TODO: add comment
+        RV_denominator: `ndarray`
+            # TODO: add comment
+        TRV: `ndarray`
+            # TODO: add comment
+        F: `ndarray`
+            # TODO: add comment
+        MCS_pvalues: `ndarray`
+            # TODO: add comment
+        rho: `ndarray`
+            # TODO: add comment
+        unscaled_F: `ndarray`
+            # TODO: add comment
+        AR_variance: `ndarray`
+            # TODO: add comment
+        F_cv_size_list: `ndarray`
+            # TODO: add comment
+        F_cv_power_list: `ndarray`
+            # TODO: add comment
+        symbols_size_list: `ndarray`
+            # TODO: add comment
+        symbols_power_list: `ndarray`
+            # TODO: add comment
 
     """
 
@@ -91,20 +133,6 @@ class ProblemResults(Results):
     def _format_Fstats_notes(self, j: int) -> str:
         """Formation information about the formulations of the economy as a string."""
 
-        # create table end notes
-        cvs: List[List[str]] = []
-        cvs.append(['Significance of size and power diagnostic reported below each F-stat'])
-        cvs.append(['*, **, or *** indicate that F > cv for a target size of 0.125, 0.10, and 0.075 given d_z and rho'])
-        cvs.append(['^, ^^, or ^^ indicate that F > cv for a maximal power of 0.50, 0.75, and 0.95 given d_z and rho'])
-        cvs.append([
-            'appropriate critical values for size are stored in the variable F_cv_size_list of the pyRVtest results '
-            'class'
-        ])
-        cvs.append([
-            'appropriate critical values for power are stored in the variable F_cv_power_list of the pyRVtest '
-            'results class'
-        ])
-
         # construct the data
         data: List[List[str]] = []
         markup_length = range(len(self.markups))
@@ -119,6 +147,20 @@ class ProblemResults(Results):
                 [self.symbols_size_list[j][k, i] + " " + self.symbols_power_list[j][k, i] for i in markup_length] +
                 [""] + [""]
             )
+
+        # create table end notes
+        cvs: List[List[str]] = []
+        cvs.append(['Significance of size and power diagnostic reported below each F-stat'])
+        cvs.append(['*, **, or *** indicate that F > cv for a target size of 0.125, 0.10, and 0.075 given d_z and rho'])
+        cvs.append(['^, ^^, or ^^ indicate that F > cv for a maximal power of 0.50, 0.75, and 0.95 given d_z and rho'])
+        cvs.append([
+            'appropriate critical values for size are stored in the variable F_cv_size_list of the pyRVtest results '
+            'class'
+        ])
+        cvs.append([
+            'appropriate critical values for power are stored in the variable F_cv_power_list of the pyRVtest '
+            'results class'
+        ])
         
         # construct the header
         header = [" TRV: "] + [f"  " for i in range(len(self.markups))] + [" F-stats: "] \
@@ -129,3 +171,15 @@ class ProblemResults(Results):
             header, subheader, *data, title="Testing Results - Instruments z{0}".format(j), notes=cvs,
             line_indices=[len(self.markups), 2 * len(self.markups) + 1]
         )
+
+    def to_pickle(self, path: Union[str, Path]) -> None:
+        """Save these results as a pickle file. This function is copied from PyBLP.
+
+        Parameters
+        ----------
+        path: `str or Path`
+            File path to which these results will be saved.
+
+        """
+        with open(path, 'wb') as handle:
+            pickle.dump(self, handle)

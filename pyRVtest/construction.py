@@ -2,7 +2,9 @@
 
 import contextlib
 import os
-from typing import Mapping, Optional
+from pathlib import Path
+import pickle
+from typing import Mapping, Optional, Union
 
 import numpy as np
 from numpy.linalg import inv
@@ -24,7 +26,7 @@ def build_markups(
             - monopoly
             - bilateral oligopoly with any combination of the above models upstream and downstream
             - bilateral oligopoly as above but with subset of products vertically integrated
-            - any of the above with consumer surplus weights (maybe)  # TODO: do we have this?
+            - any of the above with consumer surplus weights
 
         Parameters
         ----------
@@ -33,13 +35,14 @@ def build_markups(
         demand_results : `Mapping`
             results structure from pyBLP demand estimation
         model_downstream: Array
-            Can be one of ['bertrand', 'cournot', 'monopoly', 'perfect_competition']. If model_upstream not specified,
-            this is a model without vertical integration.
+            Can be one of [`bertrand`, `cournot`, `monopoly`, `perfect_competition`, `other`]. If model_upstream not
+            specified, this is a model without vertical integration. Only specify option `other` if supplying a custom
+            markup formula.
         ownership_downstream: Array
             (optional, default is standard ownership) ownership matrix for price or quantity setting
         model_upstream: Optional[Array]
-            Can be one of ['none' (default), bertrand', 'cournot', 'monopoly', 'perfect_competition']. Upstream firm's
-            model.
+            Can be one of ['none' (default), `bertrand`, `cournot`, `monopoly`, `perfect_competition`, `other`].
+            Upstream firm's model. Only specify option `other` if supplying a custom markup formula.
         ownership_upstream: Optional[Array]
             (optional, default is standard ownership) ownership matrix for price or quantity setting of upstream firms
         vertical_integration: Optional[Array]
@@ -59,8 +62,8 @@ def build_markups(
         _____
         For models without vertical integration, firm_ids must be defined in product_data for vi models, and
         firm_ids_upstream and firm_ids (=firm_ids_downstream) must be defined.
+
     """
-    # TODO: add error if model is other custom model and custom markup can't be None
 
     # initialize
     N = np.size(products.prices)
@@ -69,7 +72,6 @@ def build_markups(
     number_models = len(model_downstream)
     markets = np.unique(products.market_ids)
 
-    # TODO: is there a better way to initialize these?
     # initialize markups
     markups = [None] * number_models
     markups_upstream = [None] * number_models
@@ -163,6 +165,23 @@ def compute_markups(
             if custom_model_specification is not None:
                 custom_model, custom_model_formula = next(iter(custom_model_specification.items()))
                 markups[index] = eval(custom_model_formula)
-                model_type = custom_model  # TODO: have custom model name in table output
 
     return markups, ownership_matrix
+
+
+def read_pickle(path: Union[str, Path]) -> object:
+    """Load a pickled object into memory.
+    This is a simple wrapper around `pickle.load`, copied from PyBLP.
+
+    Parameters
+    ----------
+    path : `str or Path`
+        File path of a pickled object.
+    Returns
+    -------
+    `object`
+        The unpickled object.
+
+    """
+    with open(path, 'rb') as handle:
+        return pickle.load(handle)
