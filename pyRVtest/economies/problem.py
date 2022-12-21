@@ -1,4 +1,4 @@
-"""Economy-level BLP problem functionality."""
+"""Economy-level conduct testing problem functionality."""
 
 import abc
 import contextlib
@@ -39,23 +39,40 @@ class ProblemEconomy(Economy):
         )
 
     def solve(
-            self, demand_adjustment: bool = False, se_type: str = 'unadjusted') -> ProblemResults:
+            self, demand_adjustment: Optional[bool] = False, se_type: Optional[str] = 'unadjusted') -> ProblemResults:
         r"""Solve the problem.
 
-        # TODO: add general overview
+        Given demand estimates from PyBLP, we compute implied markups for each model :math:`m` being tested. Marginal
+        cost is a linear function of observed cost shifters and an unobserved shock.
+
+        The rest of the testing procedure is done for each pair of models, for each set of instruments. A GMM measure of
+        fit is computed for each model-instrument pair. This measure of fit is used to construct the test statistic.
 
         Parameters
         ----------
-        demand_adjustment: `bool'
-            Configuration that allows user to specify whether or not to compute a two-step demand adjustment.
-        se_type: `str'
-            Configuration that specifies what kind of errors to compute.
+        demand_adjustment: Optional[bool]
+            (optional, default is False) Configuration that allows user to specify whether to compute a two-step demand
+            adjustment. Options are True or False.
+        se_type: Optional[str]
+            (optional, default is unadjusted) Configuration that specifies what kind of errors to compute. The errors
+            can be `robust`, `unadjusted` or `clustered`.
+
+        Returns
+        -------
+        `ProblemResults`
+            :class:`ProblemResults` of the solved problem.
 
         """
 
         # keep track of how long it takes to solve the problem
         output("Solving the problem ...")
         step_start_time = time.time()
+
+        # initialize constants and precomputed values
+        M = self.M
+        N = self.N
+        L = self.L
+        markups = self.markups
 
         # validate settings
         if not isinstance(demand_adjustment, bool):
@@ -64,29 +81,23 @@ class ProblemEconomy(Economy):
             raise ValueError("se_type must be 'robust', 'unadjusted', or 'clustered'.")
         if se_type == 'clustered' and np.shape(self.products.clustering_ids)[1] != 1:
             raise ValueError("product_data.clustering_ids must be specified with se_type 'clustered'.")
-        # TODO: add validation - when user specifies user_supplied_markups, need to turn off clustering and
-        #  demand_adjustment (maybe turn off and give a warning?)
-
-        # initialize constants and precomputed values
-        M = self.M
-        N = self.N
-        L = self.L
-        markups = self.markups
+        for m in range(M):
+            if self.model_formulations[m]._user_supplied_markups is not None:
+                if se_type != 'unadjusted' or demand_adjustment:
+                    raise ValueError(
+                        "If using own markups, demand_adjustment should be False and se_type should be unadjusted."
+                    )
 
         # initialize variables to be computed
         markups_upstream = np.zeros(M, dtype=options.dtype)
         markups_downstream = np.zeros(M, dtype=options.dtype)
         markups_orthogonal = np.zeros((M, N), dtype=options.dtype)
         marginal_cost_orthogonal = np.zeros((M, N), dtype=options.dtype)
-        tau_list = np.zeros((M, self.products.w.shape[1]), dtype=options.dtype)  # TODO: why do we need additional dimension here, but not for markups?
+        tau_list = np.zeros((M, self.products.w.shape[1]), dtype=options.dtype)
         markups_errors = np.zeros(M, dtype=options.dtype)
         marginal_cost_errors = np.zeros(M, dtype=options.dtype)
 
-        # TODO: change data type these are stored in?
-        #   markups_effective = np.zeros((M, N), dtype=options.dtype)
-        #   markups_out = np.zeros(M, dtype=options.dtype)
-        #   tax_av_adj = np.zeros(M, dtype=options.dtype)
-        # new variables for tax stuff
+        # initialize tax-related variables
         markups_effective = [None] * M
         markups_out = [None] * M
         tax_av_adj = [None] * M
@@ -94,7 +105,6 @@ class ProblemEconomy(Economy):
         # if there are no markups, compute them
         if markups[0] is None:
             print('Computing Markups ... ')
-            # TODO: want to report these three objects
             markups, markups_downstream, markups_upstream = build_markups(
                 self.products, self.demand_results, self.models.models_downstream, self.models.ownership_downstream,
                 self.models.models_upstream, self.models.ownership_upstream, self.models.vertical_integration,
@@ -104,7 +114,7 @@ class ProblemEconomy(Economy):
         # for each model, use computed markups to compute the marginal costs
         marginal_cost = self.products.prices - markups
 
-        # for each model, use computed markups to compute the marginal costs
+        # for the setting with taxes, adjust the markup computation to account for marginal costs
         tax_u = self.models.tax_u
         tax_av = self.models.tax_av
         cost_scaling = self.models.cost_scaling
@@ -117,14 +127,11 @@ class ProblemEconomy(Economy):
             markups_effective[m] = self.products.prices - marginal_cost[m]
 
         # absorb any cost fixed effects from prices, markups, and instruments
-        # TODO: will the errors list always be empty? why is it empty? will we ever need or use these errors?
-        # TODO: get rid of looping over models where possible - can I parallelize over model?
         if self._absorb_cost_ids is not None:
             output("Absorbing cost-side fixed effects ...")
             self.products.w, w_errors = self._absorb_cost_ids(self.products.w)
             prices_orthogonal, prices_errors = self._absorb_cost_ids(self.products.prices)
             for m in range(M):
-                # TODO: look up - unpack tuple and apply func to each element before assignment
                 value, error = self._absorb_cost_ids(markups_effective[m])
                 markups_orthogonal[m] = np.squeeze(value)
                 markups_errors[m] = np.nan if not error else error
@@ -165,9 +172,9 @@ class ProblemEconomy(Economy):
             try:
                 partial_y_theta = self.demand_results.problem._absorb_demand_ids(partial_y_theta)
             except Exception:
-                return f'The demand adjustment failed because the required pyblp object was empty. This can happen ' \
-                       f'if you run demand estimation with the "return" option for optimization and specify' \
-                       f'demand_adjustment=True. Try setting demand_adjustment=False'
+                return "The demand adjustment failed because the required pyblp object was empty. This can happen if " \
+                       "you run demand estimation with the 'return' option for optimization and specify " \
+                       "demand_adjustment=True. Try setting demand_adjustment=False "
             partial_y_theta = np.reshape(partial_y_theta[0], [N, len(self.demand_results.theta) + 1])
             if np.shape(XD)[1] == 0:
                 partial_xi_theta = partial_y_theta
@@ -180,18 +187,14 @@ class ProblemEconomy(Economy):
 
             # build adjustment to psi for each model
             epsilon = options.finite_differences_epsilon
-            # TODO: convert to array, but depends on instruments dimension which changes with different iterations
-            #   idea - add new dimension within loop?
             G_m = [None] * M
             gradient_markups = np.zeros((M, N, len(self.demand_results.theta) + 1), dtype=options.dtype)
 
-            # TODO: for which of the following can I use the compute perturbations function?
             # compute sigma
             theta_index = 0
             delta_estimate = self.demand_results.delta
 
-            # TODO: make sure it's okay to have this inner function
-            def markups_computation(markups_m):  # TODO: does this take a lot of time?
+            def markups_computation(markups_m):
                 denominator = (1 + cost_scaling[m] * tax_av_adj[m])
                 computation = (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_m - tax_u[m])
                 return self.products.prices - computation / denominator
@@ -203,7 +206,7 @@ class ProblemEconomy(Economy):
                     # reduce sigma by small increment, update delta, and recompute markups
                     self.demand_results.sigma[i, j] = sigma_initial - epsilon / 2
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
-                        delta_new = self.demand_results.compute_delta()  # TODO: add parallel computing here from pyblp - does it speed up code
+                        delta_new = self.demand_results.compute_delta()
                     self.demand_results.delta = delta_new
                     markups_l, md, ml = build_markups(
                         self.products, self.demand_results, self.models.models_downstream,
@@ -224,7 +227,7 @@ class ProblemEconomy(Economy):
                         self.models.custom_model_specification, self.models.user_supplied_markups
                     )
 
-                    # do the tax stuff
+                    # compute markup perturbations for taxes
                     for m in range(M):
                         markups_u[m] = markups_computation(markups_u[m])
                         markups_l[m] = markups_computation(markups_l[m])
@@ -244,7 +247,6 @@ class ProblemEconomy(Economy):
                     perturbations = [pi_initial - epsilon / 2, pi_initial + epsilon / 2]
                     markups_l, md, ml = self._compute_perturbation(i, j, perturbations[0])
                     markups_u, mu, mu = self._compute_perturbation(i, j, perturbations[1])
-
                     for m in range(M):
                         markups_u[m] = markups_computation(markups_u[m])
                         markups_l[m] = markups_computation(markups_l[m])
@@ -275,6 +277,7 @@ class ProblemEconomy(Economy):
                         self.models.user_supplied_markups
                     )
 
+                    # compute markup perturbations for taxes
                     for m in range(M):
                         markups_u[m] = markups_computation(markups_u[m])
                         markups_l[m] = markups_computation(markups_l[m])
@@ -308,6 +311,7 @@ class ProblemEconomy(Economy):
                     self.models.custom_model_specification, self.models.user_supplied_markups
                 )
 
+                # compute markup perturbations for taxes
                 for m in range(M):
                     markups_u[m] = markups_computation(markups_u[m])
                     markups_l[m] = markups_computation(markups_l[m])
@@ -318,8 +322,6 @@ class ProblemEconomy(Economy):
                 self.demand_results.rho = rho_initial
 
         # initialize empty lists to store statistic related values for each model
-        # TODO: possibly update to g_list = np.zeros((M, L), dtype=options.dtype)
-        #      same problem as converting array above (dimensions change for different sets of instruments)
         g_list = [None] * L
         Q_list = [None] * L
         RV_numerator_list = [None] * L
@@ -357,7 +359,7 @@ class ProblemEconomy(Economy):
             # compute the weight matrix
             W_inverse = 1 / N * (Z_orthogonal.T @ Z_orthogonal)
             W_inverse = np.reshape(W_inverse, [K, K])
-            weight_matrix = inv(W_inverse)  # TODO: commented out Jeff's precisely invert before - why not use it?
+            weight_matrix = inv(W_inverse)
 
             # for each model compute GMM measure of fit
             for m in range(M):
@@ -544,10 +546,6 @@ class ProblemEconomy(Economy):
                     symbols_size[i, m] = ""
                     symbols_power[i, m] = ""
 
-            # set a random seed
-            # TODO: maybe change to random state instead?
-            np.random.seed(options.random_seed)
-
             # construct the model confidence set by iterating through all model pairs and comparing their test
             #    statistics
             converged = False
@@ -615,7 +613,6 @@ class ProblemEconomy(Economy):
             rho_list, unscaled_F_statistic_list, AR_variance_list, F_cv_size_list, F_cv_power_list, symbols_size_list,
             symbols_power_list
         ))
-        # TODO: should time outputs be in Progress?
         step_end_time = time.time()
         total_time = step_end_time - step_start_time
         print('Total Time is ... ' + str(total_time))
