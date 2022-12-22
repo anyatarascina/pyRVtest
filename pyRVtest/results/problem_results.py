@@ -7,7 +7,7 @@ from typing import List, Union, TYPE_CHECKING
 from pyblp.utilities.basics import (Array, format_table)
 
 from .results import Results
-from ..utilities.basics import format_table_notes
+from ..utilities.basics import format_table
 
 
 # only import objects that create import cycles when checking types
@@ -110,66 +110,43 @@ class ProblemResults(Results):
         self.symbols_power_list = progress.symbols_power_list
 
     def __str__(self) -> str:
-        """Format economy information as a string."""
+        """Format results information as a string."""
         out = ""
         for i in range(len(self.TRV)):
-            tmp = "\n\n".join([self._format_Fstats_notes(i)])
+            tmp = "\n\n".join([self._format_results_tables(i)])
             out = "\n\n".join([out, tmp])
         return out
 
-    def _format_rv_stats(self, i: int) -> str:
-        """Formation information about the formulations of the economy as a string."""
+    def _format_results_tables(self, j: int) -> str:
+        """Formation information about the testing results as a string."""
 
         # construct the data
         data: List[List[str]] = []
-        for k in range(len(self.markups)):
-            data.append([str(k)] + [round(self.TRV[i][k, j], 3) for j in range(len(self.markups))])
-    
-        # construct the header
-        header = [" "] + [f" {i} " for i in range(len(self.markups))]
-
-        return format_table(header, *data, title="RV test statistics - Instruments {0}".format(i))
-
-    def _format_Fstats_notes(self, j: int) -> str:
-        """Formation information about the formulations of the economy as a string."""
-
-        # construct the data
-        data: List[List[str]] = []
-        markup_length = range(len(self.markups))
-        for k in markup_length:
-            data.append(
-                [str(k)] + [round(self.TRV[j][k, i], 3) for i in range(len(self.markups))] + [str(k)]
-                + [round(self.F[j][k, i], 1) for i in range(len(self.markups))] + [str(k)]
-                + [str(round(self.MCS_pvalues[j][k][0], 3))]
-            )
-            data.append(
-                [""] + ["" for i in range(len(self.markups))] + [""] +
-                [self.symbols_size_list[j][k, i] + " " + self.symbols_power_list[j][k, i] for i in markup_length] +
-                [""] + [""]
-            )
-
-        # create table end notes
-        cvs: List[List[str]] = []
-        cvs.append(['Significance of size and power diagnostic reported below each F-stat'])
-        cvs.append(['*, **, or *** indicate that F > cv for a target size of 0.125, 0.10, and 0.075 given d_z and rho'])
-        cvs.append(['^, ^^, or ^^ indicate that F > cv for a maximal power of 0.50, 0.75, and 0.95 given d_z and rho'])
-        cvs.append([
-            'appropriate critical values for size are stored in the variable F_cv_size_list of the pyRVtest results '
-            'class'
-        ])
-        cvs.append([
-            'appropriate critical values for power are stored in the variable F_cv_power_list of the pyRVtest '
-            'results class'
-        ])
+        number_models = len(self.markups)
+        for k in range(number_models):
+            rv_results = [round(self.TRV[j][k, i], 3) for i in range(number_models)]
+            f_stat_results = [round(self.F[j][k, i], 1) for i in range(number_models)]
+            pvalues_results = [str(round(self.MCS_pvalues[j][k][0], 3))]
+            symbols_results = [
+                self.symbols_size_list[j][k, i] + " " + self.symbols_power_list[j][k, i] for i in range(number_models)
+            ]
+            data.append([str(k)] + rv_results + [str(k)] + f_stat_results + [str(k)] + pvalues_results)
+            data.append([""] + ["" for i in range(number_models)] + [""] + symbols_results + [""] + [""])
         
         # construct the header
-        header = [" TRV: "] + [f"  " for i in range(len(self.markups))] + [" F-stats: "] \
-            + [f"  " for i in range(len(self.markups))] + [" MCS: "] + [" "]
-        subheader = [" models "] + [f" {i} " for i in range(len(self.markups))] + [" models "] \
-            + [f" {i} " for i in range(len(self.markups))] + ["models"] + ["MCS p-values"]
-        return format_table_notes(
-            header, subheader, *data, title="Testing Results - Instruments z{0}".format(j), notes=cvs,
-            line_indices=[len(self.markups), 2 * len(self.markups) + 1]
+        header = [" TRV: "] + [f"  " for i in range(number_models)] + [" F-stats: "] \
+            + [f"  " for i in range(number_models)] + [" MCS: "] + [" "]
+        subheader = [" models "] + [f" {i} " for i in range(number_models)] + [" models "] \
+            + [f" {i} " for i in range(number_models)] + ["models"] + ["MCS p-values"]
+
+        # if on the last table, set table notes to true
+        last_table = False
+        if j == (len(self.TRV) - 1):
+            last_table = True
+
+        return format_table(
+            header, subheader, *data, title="Testing Results - Instruments z{0}".format(j), include_notes=last_table,
+            line_indices=[number_models, 2 * number_models + 1]
         )
 
     def to_pickle(self, path: Union[str, Path]) -> None:
