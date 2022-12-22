@@ -77,9 +77,11 @@ def format_table(
         notes: List[List[str]] = []
         notes.append(['Significance of size and power diagnostic reported below each F-stat'])
         notes.append(
-            ['*, **, or *** indicate that F > cv for a target size of 0.125, 0.10, and 0.075 given d_z and rho'])
+            ['*, **, or *** indicate that F > cv for a target size of 0.125, 0.10, and 0.075 given d_z and rho']
+        )
         notes.append(
-            ['^, ^^, or ^^ indicate that F > cv for a maximal power of 0.50, 0.75, and 0.95 given d_z and rho'])
+            ['^, ^^, or ^^ indicate that F > cv for a maximal power of 0.50, 0.75, and 0.95 given d_z and rho']
+        )
         notes.append([
             'appropriate critical values for size are stored in the variable F_cv_size_list of the pyRVtest results '
             'class'
@@ -89,7 +91,6 @@ def format_table(
             'results class'
         ])
         notes_rows = [[str(c) for c in r] + [""] * (len(header) - len(r)) for r in notes]
-
         lines.extend([template_notes.format(*r) for r in notes_rows])
         lines.append("=" * len(template_notes.format(*[""] * len(widths))))
     return "\n".join(lines)

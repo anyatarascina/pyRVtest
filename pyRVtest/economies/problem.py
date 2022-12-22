@@ -756,19 +756,10 @@ class Problem(ProblemEconomy):
             output(self)
 
 
-class InitialProgress(object):
-    """Structured information about initial estimation progress."""
-
-    problem: ProblemEconomy
-
-    def __init__(self, problem: ProblemEconomy) -> None:
-        """Store initial progress information, computing the projected gradient and the reduced Hessian."""
-        self.problem = problem
-        
-
-class Progress(InitialProgress):
+class Progress(object):
     """Structured information about estimation progress."""
 
+    problem: ProblemEconomy
     markups: Array
     markups_downstream: Array
     markups_upstream: Array
@@ -780,10 +771,14 @@ class Progress(InitialProgress):
     RV_denominator: Array
     test_statistic_RV: Array
     F: Array
-    MCS_p_values: Array
+    MCS_pvalues: Array
     rho: Array
     unscaled_F: Array
     AR_variance: Array
+    F_cv_size_list: Array
+    F_cv_power_list: Array
+    symbols_size_list: Array
+    symbols_power_list: Array
 
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
@@ -791,9 +786,8 @@ class Progress(InitialProgress):
             F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, AR_variance: Array, F_cv_size_list: Array,
             F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
-        super().__init__(
-            problem
-        )
+
+        self.problem = problem
         self.markups = markups
         self.markups_downstream = markups_downstream
         self.markups_upstream = markups_upstream
@@ -805,7 +799,7 @@ class Progress(InitialProgress):
         self.RV_denominator = RV_denom
         self.test_statistic_RV = test_statistic_RV
         self.F = F
-        self.MCS_p_values = MCS_pvalues
+        self.MCS_pvalues = MCS_pvalues
         self.rho = rho
         self.unscaled_F = unscaled_F
         self.AR_variance = AR_variance
