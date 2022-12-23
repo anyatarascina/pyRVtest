@@ -7,9 +7,10 @@ import numpy as np
 import pandas as pd
 from pyblp.utilities.basics import Array, Data, Groups, RecArray, extract_matrix, structure_matrices
 from pyblp.construction import build_ownership
+from pyblp.configurations.formulation import ColumnFormulation
 
 from . import options
-from .configurations.formulation import ColumnFormulation, Formulation, ModelFormulation
+from .configurations.formulation import Formulation, ModelFormulation
 
 
 class Products(object):
@@ -185,41 +186,43 @@ class Models(object):
     Attributes
     ----------
     ownership_matrices_downstream: `ndarray`
-        # TODO: add comment
+        Matrix of ownership relationships between downstream firms.
     ownership_matrices_upstream: `ndarray`
-        # TODO: add comment
+        Matrix of ownership relationships between upstream firms.
     firm_ids_downstream: `ndarray`
-        # TODO: add comment
+        Vector of firm ids used to construct ownership for downstream firms.
     firm_ids_upstream: `ndarray`
-        # TODO: add comment
-    vertical_integration: `ndarray`
-        # TODO: add comment
-    vertical_integration_index: `ndarray`
-        # TODO: add comment
-    models_upstream: `ndarray`
-        # TODO: add comment
+        Vector of firm ids used to construct ownership for upstream firms.
+    vertical_integration: `ndarray, optional`
+        Vector indicating which product_ids are vertically integrated (ie store brands).
+    vertical_integration_index: `ndarray, optional`
+        Indicates the index for a particular vertical relationship (which model it corresponds to).
     models_downstream: `ndarray`
-        # TODO: add comment
-    custom_model: `ndarray`
-        # TODO: add comment
-    unit_tax: `ndarray`
-        # TODO: add comment
-    advalorem_tax: `ndarray`
-        # TODO: add comment
-    advalorem_payer: `ndarray`
-        # TODO: add comment
-    tax_u: `ndarray`
-        # TODO: add comment
-    tax_av: `ndarray`
-        # TODO: add comment
-    cost_scaling: `ndarray`
-        # TODO: add comment
-    cost_scaling_column: `ndarray`
-        # TODO: add comment
-    user_supplied_markups: `ndarray`
-        # TODO: add comment
-    user_supplied_markups_name: `ndarray`
-        # TODO: add comment
+        Model of conduct for downstream firms. This is used to construct downstream markups.
+    models_upstream: `ndarray, optional`
+        Model of conduct for upstream firms. This is used to construct upstream markups.
+    custom_model: `dict, optional`
+        A custom formula used to compute markups, optionally specified by the user.
+    unit_tax: `ndarray, optional`
+        A vector containing information on unit taxes.
+    advalorem_tax: `ndarray, optional`
+        A vector containing information on advalorem taxes.
+    advalorem_payer: `str, optional`
+        If there are advalorem taxes in the model, this specifies who the payer of these taxes are. It can be either the
+        consumer or the firm.
+    unit_tax_name: `str, optional`
+        The column name for the column containing unit taxes.
+    advalorem_tax_name: ``str, optional`
+        The column name for the column containing advalorem taxes.
+    cost_scaling: `ndarray, optional`
+        The cost scaling parameter.
+    cost_scaling_column: `str, optional`
+        The name of the column containing the cost scaling parameter.
+    user_supplied_markups: `ndarray, optional`
+        A vector of user computed markups.
+    user_supplied_markups_name: `str, optional`
+        The name of the column containing user-supplied markups.
+
     """
 
     ownership_matrices_downstream: Array
@@ -234,8 +237,8 @@ class Models(object):
     unit_tax: Array
     advalorem_tax: Array
     advalorem_payer: Array
-    tax_u: Array
-    tax_av: Array
+    unit_tax_name: Array
+    advalorem_tax_name: Array
     cost_scaling: Array
     cost_scaling_column: Array
     user_supplied_markups: Array
@@ -266,8 +269,8 @@ class Models(object):
         unit_tax = [None] * M
         advalorem_tax = [None] * M
         advalorem_payer = [None] * M
-        tax_u = [None] * M
-        tax_av = [None] * M
+        unit_tax_name = [None] * M
+        advalorem_tax_name = [None] * M
         cost_scaling = [None] * M
         cost_scaling_column = [None] * M
         user_supplied_markups = [None] * M
@@ -307,19 +310,19 @@ class Models(object):
 
             # define unit tax
             if model['unit_tax'] is not None:
-                tax_u[m] = extract_matrix(product_data, model['unit_tax'])
-                unit_tax[m] = model['unit_tax']
+                unit_tax[m] = extract_matrix(product_data, model['unit_tax'])
+                unit_tax_name[m] = model['unit_tax']
             elif model['unit_tax'] is None:
-                tax_u[m] = np.zeros((N, 1))
+                unit_tax[m] = np.zeros((N, 1))
 
             # define ad valorem tax
             if model['advalorem_tax'] is not None:
-                tax_av[m] = extract_matrix(product_data, model['advalorem_tax'])
-                advalorem_tax[m] = model['advalorem_tax']
+                advalorem_tax[m] = extract_matrix(product_data, model['advalorem_tax'])
+                advalorem_tax_name[m] = model['advalorem_tax']
                 advalorem_payer[m] = model['advalorem_payer']
                 advalorem_payer[m] = advalorem_payer[m].replace('consumers', 'consumer').replace('firms', 'firm')
             elif model['advalorem_tax'] is None:
-                tax_av[m] = np.zeros((N, 1))
+                advalorem_tax[m] = np.zeros((N, 1))
 
             # define cost scaling
             if model['cost_scaling'] is not None:
@@ -343,11 +346,11 @@ class Models(object):
             'ownership_upstream': ownership_matrices_upstream,
             'vertical_integration': vertical_integration,
             'vertical_integration_index': vertical_integration_index,
-            'tax_av': tax_av,
+            'unit_tax': unit_tax,
             'advalorem_tax': advalorem_tax,
             'advalorem_payer': advalorem_payer,
-            'tax_u': tax_u,
-            'unit_tax': unit_tax,
+            'unit_tax_name': unit_tax_name,
+            'advalorem_tax_name': advalorem_tax_name,
             'cost_scaling_column': cost_scaling_column,
             'cost_scaling': cost_scaling,
             'custom_model_specification': custom_model,
@@ -374,7 +377,6 @@ class Container(abc.ABC):
         self.models = models
         self._w_formulation = self.products.dtype.fields['w'][2]
 
-        # TODO: better way to do this?
         i = 0
         while 'Z{0}'.format(i) in self.products.dtype.fields:
             self._Z_formulation = self.products.dtype.fields['Z{0}'.format(i)][2]

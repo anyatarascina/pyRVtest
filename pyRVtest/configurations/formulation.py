@@ -1,9 +1,7 @@
 """Formulation of data matrices and absorption of fixed effects."""
 
-import functools
-import numbers
 import token
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import numpy as np
 import patsy
@@ -12,16 +10,18 @@ import patsy.contrasts
 import patsy.desc
 import patsy.design_info
 import patsy.origin
-from pyblp.utilities.basics import (Array, Data, Error, StringRepresentation, extract_size, interact_ids)
-from pyblp import exceptions
+from pyblp.utilities.basics import (Array, Data, StringRepresentation, extract_size, interact_ids)
+from pyblp.configurations.formulation import (
+    Absorb, ColumnFormulation, CategoricalTreatment, parse_terms, design_matrix, parse_term_expression
+)
 import sympy as sp
 import sympy.parsing.sympy_parser
 
-from .. import options
-
 
 class Formulation(StringRepresentation):
-    r"""Configuration for designing matrices and absorbing fixed effects.
+    r"""Note: This class is a copy of the Formulation class from PyBLP.
+
+    Configuration for designing matrices and absorbing fixed effects.
 
     Internally, the `patsy <https://patsy.readthedocs.io/en/stable/>`_ package is used to convert data and R-style
     formulas into matrices. All of the standard
@@ -70,24 +70,9 @@ class Formulation(StringRepresentation):
         multiple dimensions, non-accelerated MAP is unlikely to be the fastest algorithm. If fixed effect absorption
         seems to be taking a long time, consider using a different method such as ``'lsmr'``, using ``absorb_options``
         to specify a MAP acceleration method, or configuring other options such as termination tolerances.
-
     absorb_options : `dict, optional`
         Configuration options for the chosen ``method``, which will be passed to the ``options`` argument of
         :func:`pyhdfe.create`.
-
-    Examples
-    --------
-    .. raw:: latex
-
-       \begin{examplenotebook}
-
-    .. toctree::
-
-       /_notebooks/api/formulation.ipynb
-
-    .. raw:: latex
-
-       \end{examplenotebook}
 
     """
 
@@ -262,39 +247,51 @@ class ModelFormulation(object):
 
     Parameters
     ----------
-    model_ downstream : `str`
-        model of conduct downstream (or if no vertical structure, the model of conduct) "bertrand", "couront", "monopoly".
+    model_downstream : `str`
+        The model of conduct for downstream firms (or if no vertical structure, the model of conduct). One of
+        "bertrand", "cournot", "monopoly", "perfect_competition", or "other".
     model_upstream : `str, optional`
-        model of conduct upstream. "bertrand", "cournot", "monopoly"
-    absorb_method : `str, optional`
-        Method by which fixed effects will be absorbed. For a full list of supported methods, refer to the
-        ``residualize_method`` argument of :func:`pyhdfe.create`.
-
-        By default, the simplest methods are used: simple de-meaning for a single fixed effect and simple iterative
-        de-meaning by way of the method of alternating projections (MAP) for multiple dimensions of fixed effects. For
-        multiple dimensions, non-accelerated MAP is unlikely to be the fastest algorithm. If fixed effect absorption
-        seems to be taking a long time, consider using a different method such as ``'lsmr'``, using ``absorb_options``
-        to specify a MAP acceleration method, or configuring other options such as termination tolerances.
-
-    absorb_options : `dict, optional`
-        Configuration options for the chosen ``method``, which will be passed to the ``options`` argument of
-        :func:`pyhdfe.create`.
-
-    Examples
-    --------
-    .. raw:: latex
-
-       \begin{examplenotebook}
-
-    .. toctree::
-
-       /_notebooks/api/formulation.ipynb
-
-    .. raw:: latex
-
-       \end{examplenotebook}
+        The model of conduct for upstream firms. One of "bertrand", "cournot", "monopoly", "perfect_competition", or
+        "other".
+    ownership_downstream: `str, optional`
+        Column indicating which firm ids to use for ownership matrix construction for downstream firms.
+    ownership_upstream: `str, optional`
+        Column indicating which firm ids to use for ownership matrix construction for upstream firms.
+    custom_model_specification: `dict, optional`
+        A dictionary containing an optional custom markup formula specified by the user. The specified function must
+        consist of objects computed within the package.
+    vertical_integration: `str, optional`
+        The column name for the data column which indicates the vertical ownership structure.
+     unit_tax: `str, optional`
+        The column name for the vector containing information on unit taxes.
+    advalorem_tax: `str, optional`
+        The column name for the vector containing information on advalorem taxes.
+    advalorem_payer: `str, optional`
+        A string indicating who pays for the advalorem tax in the given model.
+    cost_scaling: `str, optional`
+        The column name for the cost scaling parameter.
+    kappa_specification_downstream: `Union[str, Callable[[Any, Any], float]]], optional`
+        Information on the degree of cooperation among downstream firms for each market.
+    kappa_specification_upstream: `Union[str, Callable[[Any, Any], float]]], optional`
+        Information on the degree of cooperation among upstream firms for each market.
+    user_supplied_markups: `str, optional`
+        The name of the column containing user-supplied markups.
 
     """
+
+    _model_downstream: str
+    _model_upstream: Optional[str]
+    _ownership_downstream: Optional[str]
+    _ownership_upstream: Optional[str]
+    _custom_model_specification: Optional[dict]
+    _vertical_integration: Optional[str]
+    _unit_tax: Optional[str]
+    _advalorem_tax: Optional[str]
+    _advalorem_payer: Optional[str]
+    _cost_scaling: Optional[str]
+    _kappa_specification_downstream: Optional[Union[str, Callable[[Any, Any], float]]]
+    _kappa_specification_upstream: Optional[Union[str, Callable[[Any, Any], float]]]
+    _user_supplied_markups: Optional[str]
 
     def __init__(
             self, model_downstream: str, model_upstream: Optional[str] = None,
@@ -336,20 +333,6 @@ class ModelFormulation(object):
         if cost_scaling is not None and not isinstance(cost_scaling, str):
             raise TypeError("cost_scaling must be a None or a str.")
 
-        _model_downstream: str
-        _model_upstream: Optional[str]
-        _ownership_downstream: Optional[str]
-        _ownership_upstream: Optional[str]
-        _custom_model_specification: Optional[dict]
-        _vertical_integration: Optional[str]
-        _advalorem_tax: Optional[str]
-        _advalorem_payer: Optional[str]
-        _unit_tax: Optional[str]
-        _cost_scaling: Optional[str]
-        _kappa_specification_downstream: Optional[Union[str, Callable[[Any, Any], float]]]
-        _kappa_specification_upstream: Optional[Union[str, Callable[[Any, Any], float]]]
-        _user_supplied_markups: Optional[str]
-
         # parse the formulas into patsy terms
         self._model_downstream = model_downstream
         self._model_upstream = model_upstream
@@ -375,7 +358,7 @@ class ModelFormulation(object):
 
     def __str__(self) -> str:
         """Format the terms as a string."""
-        names: List[str] = [self._model_downstream,self._model_upstream]
+        names: List[str] = [self._model_downstream, self._model_upstream]
         return ' + '.join(names)
 
     def _build_matrix(self, data: Mapping) -> Dict:
@@ -383,7 +366,6 @@ class ModelFormulation(object):
         describe the columns of the matrix, and a mapping from variable names to arrays of data underlying the matrix,
         which include unchanged continuous variables and indicators constructed from categorical variables.
         """
-           
         model_mapping: Dict[Union[str, Array]] = {}
         model_mapping.update({
             'model_downstream': self._model_downstream,
@@ -400,199 +382,14 @@ class ModelFormulation(object):
             'kappa_specification_upstream': self._kappa_specification_upstream,
             'user_supplied_markups': self._user_supplied_markups
         })
-
         return model_mapping
 
 
-class Absorb(object):
-    """Wrapper for PyHDFE fixed effect absorption."""
-
-    def __init__(self, algorithm: Any) -> None:
-        """Store the PyHDFE algorithm."""
-        self.algorithm = algorithm
-
-    def __call__(self, matrix: Array) -> Tuple[Array, List[Error]]:
-        """Handle any absorption errors."""
-        errors: List[Error] = []
-        try:
-            matrix = self.algorithm.residualize(matrix)
-        except Exception as exception:
-            errors.append(exceptions.AbsorptionError(exception))
-        return matrix, errors
-
-
-class ColumnFormulation(object):
-    """Information about a single column in a matrix formulation."""
-
-    names: Set[str]
-    expression: sp.Expr
-    derivatives: Dict[str, sp.Expr]
-
-    def __init__(self, formula: str, expression: sp.Expr) -> None:
-        """Parse the column name into a patsy term and replace any categorical variables in its SymPy expression with
-        the correct indicator variable symbols.
-        """
-        self.expression = expression
-        self.names = {str(s) for s in expression.free_symbols}
-
-        # replace categorical variable symbols with their indicator counterparts
-        for factor in parse_terms(formula)[-1].factors:
-            name = factor.name()
-            base_symbol = CategoricalTreatment.parse_base_symbol(name)
-            if base_symbol is not None:
-                self.expression = self.expression.replace(base_symbol, CategoricalTreatment.parse_full_symbol(name))
-
-        # cache evaluated derivatives
-        self.derivatives: Dict[str, sp.Expr] = {}
-
-    def __str__(self) -> str:
-        """Format the expression as a string."""
-        return str(self.expression)
-
-    def __repr__(self) -> str:
-        """Defer to the string representation."""
-        return str(self)
-
-    def __hash__(self) -> int:
-        """Hash the expression."""
-        return hash(self.expression)
-
-    def __eq__(self, other: Any) -> bool:
-        """Defer to the string representation."""
-        return str(self) == str(other)
-
-    def evaluate(self, data: Mapping, data_override: Optional[Mapping] = None) -> Array:
-        """Evaluate the SymPy column expression at the values supplied by mappings from variable names to arrays."""
-        return evaluate_expression(self.expression, data, data_override)
-
-    def evaluate_derivative(self, name: str, data: Mapping, data_override: Optional[Mapping] = None) -> Array:
-        """Differentiate the SymPy column expression with respect to a variable name and evaluate the derivative at
-        values supplied by mappings from variable names to arrays.
-        """
-        return evaluate_expression(self.differentiate(name), data, data_override)
-
-    def differentiate(self, name: str) -> sp.Expr:
-        """Differentiate the SymPy column expression with respect to a variable name. Cache calls for speed."""
-        derivative = self.derivatives.get(name)
-        if derivative is None:
-            derivative = self.expression.diff(sp.Symbol(name))
-            self.derivatives[name] = derivative
-        return derivative
-
-
-class EvaluationEnvironment(patsy.eval.EvalEnvironment):
-    """Execution environment that parses SymPy expressions from strings and evaluates them at values from a data mapping
-    represented as a namespace.
-    """
-
-    flags: int
-    _namespaces: List[Data]
-
-    def subset(self, _: Any) -> patsy.eval.EvalEnvironment:
-        """Override the default patsy behavior to create a new patsy evaluation environment instead of a new instance
-        of this same class.
-        """
-        return self.__class__(self._namespaces, self.flags)
-
-    def eval(self, string: str, **_: Any) -> Array:
-        """Parse a SymPy expression from a string and evaluate it at data represented as the environment's only
-        namespace.
-        """
-        data = self._namespaces[0].copy()
-
-        # parse the SymPy expression, preserving the function that marks variables as categorical
-        expression = parse_expression(string, mark_categorical=True)
-
-        # replace categorical variables with unicode objects and explicitly mark them as categorical so that labels are
-        #   unique and so that all categorical variables are treated the same
-        C = sp.Function('C')
-        for symbol in expression.free_symbols:
-            if not np.issubdtype(data[symbol.name].dtype, getattr(np, 'number')):
-                expression = expression.replace(symbol, C(symbol))
-                data[symbol.name] = data[symbol.name].astype(np.unicode_).astype(np.object_)
-
-        # evaluate the expression and handle universally-marked categorical variables with a non-default coding class
-        evaluated = evaluate_expression(expression, self._namespaces[0], function_mapping={
-            'C': functools.partial(patsy.builtins.C, contrast=CategoricalTreatment)
-        })
-
-        # if the evaluated expression is a scalar, it is a constant that needs to be repeated
-        if isinstance(evaluated, (numbers.Number, np.ndarray)) and np.asarray(evaluated).size == 1:
-            size = next(iter(data.values())).shape[0]
-            evaluated = np.ones(size) * evaluated
-        return evaluated
-
-
-class CategoricalTreatment(patsy.contrasts.Treatment):
-    """Standard treatment coding with universal level naming and additional functionality used to parse SymPy symbols
-    from categorical variable names that include levels.
-    """
-
-    @classmethod
-    def code_with_intercept(cls, levels: Sequence) -> patsy.contrasts.ContrastMatrix:
-        """Code a full-rank contrast matrix."""
-        return patsy.contrasts.ContrastMatrix(np.eye(len(levels)), [cls.format_suffix(l) for l in levels])
-
-    @classmethod
-    def code_without_intercept(cls, levels: Sequence) -> patsy.contrasts.ContrastMatrix:
-        """Code a reduced-rank contrast matrix. Choose the first level as the reference level."""
-        contrast = cls.code_with_intercept(levels[1:])
-        contrast.matrix = np.r_[np.zeros((1, contrast.matrix.shape[1])), contrast.matrix]
-        return contrast
-
-    @staticmethod
-    def format_suffix(level: Any) -> str:
-        """Format a level as an indicator variable suffix. Using the level's string representation guarantees a
-        one-to-one mapping between indicator variables and their names because categorical variables have already been
-        normalized as string objects. It also guarantees that the indicator variable name can be represented as SymPy
-        symbol.
-        """
-        return f'[{level!r}]'
-
-    @staticmethod
-    def remove_suffix(name: str) -> Optional[str]:
-        """Drop the suffix from an indicator variable name."""
-        return name[:name.index('[')] if '[' in name else None
-
-    @staticmethod
-    def extract_suffix(name: str) -> Optional[str]:
-        """Keep only the suffix from an indicator variable name."""
-        return name[name.index('['):] if '[' in name else None
-
-    @classmethod
-    def parse_base_symbol(cls, name: str) -> Optional[sp.Symbol]:
-        """Parse a SymPy symbol from an indicator variable name that represents the original categorical variable. The
-        base name needs to be parsed because it could be encapsulated by the function that explicitly marks categorical
-        variables.
-        """
-        base = cls.remove_suffix(name)
-        return None if base is None else parse_expression(base)
-
-    @classmethod
-    def parse_full_symbol(cls, name: str) -> Optional[sp.Symbol]:
-        """Parse a SymPy symbol from an indicator variable name that includes the suffix and hence represents the actual
-        indicator variable.
-        """
-        suffix = cls.extract_suffix(name)
-        return None if suffix is None else sp.Symbol(f'{cls.parse_base_symbol(name)}{suffix}')
-
-
-def parse_terms(formula: str) -> List[patsy.desc.Term]:
-    """Parse patsy terms from a string. Validate that the string contains only right-hand side terms."""
-    description = patsy.highlevel.ModelDesc.from_formula(formula)
-    if description.lhs_termlist:
-        end = formula.index('~') + 1 if '~' in formula else len(formula)
-        raise patsy.PatsyError("Formulas should not have left-hand sides.", patsy.origin.Origin(formula, 0, end))
-    return description.rhs_termlist
-
-
-def design_matrix(terms: Sequence[patsy.desc.Term], data: Mapping) -> patsy.design_info.DesignInfo:
-    """Design a patsy matrix."""
-    return patsy.build.design_matrix_builders([terms], lambda: iter([data]), EvaluationEnvironment([data]))[0]
-
-
 def build_matrix(design: patsy.design_info.DesignInfo, data: Mapping) -> Array:
-    """Build a matrix according to its design and data mapping variable names to arrays."""
+    """This function is a copy of the same one from PyBLP.
+
+    Build a matrix according to its design and data mapping variable names to arrays.
+    """
 
     # identify the number of rows in the data
     size = next(iter(data.values())).shape[0]
@@ -608,20 +405,10 @@ def build_matrix(design: patsy.design_info.DesignInfo, data: Mapping) -> Array:
     return matrix if matrix.shape[0] == size else np.repeat(matrix[[0]], size, axis=0)
 
 
-def parse_term_expression(term: patsy.desc.Term) -> sp.Expr:
-    """Multiply the SymPy expressions parsed from each factor in a patsy term."""
-    expression = sp.Integer(1)
-    for factor in term.factors:
-        try:
-            expression *= parse_expression(factor.name())
-        except Exception as exception:
-            raise patsy.PatsyError("Failed to parse a term.", factor.origin) from exception
-
-    return expression
-
-
 def parse_expression(string: str, mark_categorical: bool = False) -> sp.Expr:
-    """Parse a SymPy expression from a string. Optionally, preserve the categorical marker function instead of treating
+    """This function is a copy of the same one from PyBLP.
+
+    Parse a SymPy expression from a string. Optionally, preserve the categorical marker function instead of treating
     it like the identify function.
     """
 
@@ -684,27 +471,3 @@ def parse_expression(string: str, mark_categorical: bool = False) -> sp.Expr:
 
     return expression
 
-
-def evaluate_expression(
-        expression: Union[sp.Expr, sp.Symbol], data: Mapping, data_override: Optional[Mapping] = None,
-        function_mapping: Optional[Mapping[str, Callable]] = None) -> Array:
-    """Evaluate a SymPy expression at data mapping variable names to arrays. Optionally, supplement the default suite of
-    NumPy functions with a mapping from non-default function names to functions.
-    """
-    if expression.is_number:
-        return np.asarray(float(expression), options.dtype)
-    if expression.is_symbol:
-        return get_symbol_data(expression, data, data_override)
-    symbols = list(expression.free_symbols)
-    modules = [function_mapping or {}, 'numpy']
-    columns = (get_symbol_data(s, data, data_override) for s in symbols)
-    return sp.lambdify(symbols, expression, modules)(*columns)
-
-
-def get_symbol_data(symbol: sp.Symbol, data: Mapping, data_override: Optional[Mapping] = None) -> Any:
-    """Fetch data corresponding to a symbol from data mapping variable names to arrays."""
-    try:
-        assert data_override is not None
-        return data_override[symbol.name]
-    except Exception:
-        return data[symbol.name]

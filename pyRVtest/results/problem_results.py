@@ -7,7 +7,7 @@ from typing import List, Union, TYPE_CHECKING
 from pyblp.utilities.basics import (Array, format_table)
 
 from .results import Results
-from ..utilities.basics import format_table_notes
+from ..utilities.basics import format_table
 
 
 # only import objects that create import cycles when checking types
@@ -16,56 +16,49 @@ if TYPE_CHECKING:
 
 
 class ProblemResults(Results):
-    r"""Results of a testing procedures.
+    r"""Results of running the firm conduct testing procedures.
 
     Attributes
     ----------
-        Delta: `ndarray`
-            # TODO: add comment
         problem: `ndarray`
-            # TODO: add comment
+            An instance of the Problem class.
         markups: `ndarray`
-            # TODO: add comment
+            Array of the total markups implied by each model (sum of retail and wholesale markups).
         markups_downstream: `ndarray`
-            # TODO: add comment
+            Array of the retail markups implied by each model.
         markups_upstream: `ndarray`
-            # TODO: add comment
+            Array of the manufacturer markups implied by each model of double marginalization.
         taus: `ndarray`
-            # TODO: add comment
+            Array of coefficients from regressing implied marginal costs for each model on observed cost shifters.
         mc: `ndarray`
-            # TODO: add comment
+            Array of implied marginal costs for each model.
         g: `ndarray`
-            # TODO: add comment
+            Array of moments for each model and each instrument set of conduct between implied residualized cost
+            unobservable and the instruments.
         Q: `ndarray`
-            # TODO: add comment
+            Array of lack of fit given by GMM objective function with 2SLS weight matrix for each set of instruments and
+            each model.
         RV_numerator: `ndarray`
-            # TODO: add comment
+            Array of numerators of pairwise RV test statistics for each instrument set and each pair of models.
         RV_denominator: `ndarray`
-            # TODO: add comment
+            Array of denominators of pairwise RV test statistics for each instrument set and each pair of models.
         TRV: `ndarray`
-            # TODO: add comment
+            Array of pairwise RV test statistics for each instrument set and each pair of models.
         F: `ndarray`
-            # TODO: add comment
+            Array of pairwise F-statistics for each instrument set and each pair of models.
         MCS_pvalues: `ndarray`
-            # TODO: add comment
+            Array of MCS p-values for each instrument set and each model.
         rho: `ndarray`
-            # TODO: add comment
+            Scaling parameter for F-statistics.
         unscaled_F: `ndarray`
-            # TODO: add comment
-        AR_variance: `ndarray`
-            # TODO: add comment
+            Array of pairwise F-statistics without scaling by rho.
         F_cv_size_list: `ndarray`
-            # TODO: add comment
+            Vector of critical values for size for each pairwise F-statistic.
         F_cv_power_list: `ndarray`
-            # TODO: add comment
-        symbols_size_list: `ndarray`
-            # TODO: add comment
-        symbols_power_list: `ndarray`
-            # TODO: add comment
+            Vector of critical values for power for each pairwise F-statistic.
 
     """
 
-    Delta: Array
     problem: Array
     markups: Array
     markups_downstream: Array
@@ -84,8 +77,8 @@ class ProblemResults(Results):
     AR_variance: Array
     F_cv_size_list: Array
     F_cv_power_list: Array
-    symbols_size_list: Array
-    symbols_power_list: Array
+    _symbols_size_list: Array
+    _symbols_power_list: Array
 
     def __init__(self, progress: 'Progress') -> None:
         self.problem = progress.problem
@@ -100,76 +93,52 @@ class ProblemResults(Results):
         self.RV_denominator = progress.RV_denominator
         self.TRV = progress.test_statistic_RV
         self.F = progress.F
-        self.MCS_pvalues = progress.MCS_p_values
+        self.MCS_pvalues = progress.MCS_pvalues
         self.rho = progress.rho
         self.unscaled_F = progress.unscaled_F
         self.AR_variance = progress.AR_variance
         self.F_cv_size_list = progress.F_cv_size_list
         self.F_cv_power_list = progress.F_cv_power_list
-        self.symbols_size_list = progress.symbols_size_list
-        self.symbols_power_list = progress.symbols_power_list
+        self._symbols_size_list = progress.symbols_size_list
+        self._symbols_power_list = progress.symbols_power_list
 
     def __str__(self) -> str:
-        """Format economy information as a string."""
+        """Format results information as a string."""
         out = ""
         for i in range(len(self.TRV)):
-            tmp = "\n\n".join([self._format_Fstats_notes(i)])
+            tmp = "\n\n".join([self._format_results_tables(i)])
             out = "\n\n".join([out, tmp])
         return out
 
-    def _format_rv_stats(self, i: int) -> str:
-        """Formation information about the formulations of the economy as a string."""
+    def _format_results_tables(self, j: int) -> str:
+        """Formation information about the testing results as a string."""
 
         # construct the data
         data: List[List[str]] = []
-        for k in range(len(self.markups)):
-            data.append([str(k)] + [round(self.TRV[i][k, j], 3) for j in range(len(self.markups))])
-    
-        # construct the header
-        header = [" "] + [f" {i} " for i in range(len(self.markups))]
-
-        return format_table(header, *data, title="RV test statistics - Instruments {0}".format(i))
-
-    def _format_Fstats_notes(self, j: int) -> str:
-        """Formation information about the formulations of the economy as a string."""
-
-        # construct the data
-        data: List[List[str]] = []
-        markup_length = range(len(self.markups))
-        for k in markup_length:
-            data.append(
-                [str(k)] + [round(self.TRV[j][k, i], 3) for i in range(len(self.markups))] + [str(k)]
-                + [round(self.F[j][k, i], 1) for i in range(len(self.markups))] + [str(k)]
-                + [str(round(self.MCS_pvalues[j][k][0], 3))]
-            )
-            data.append(
-                [""] + ["" for i in range(len(self.markups))] + [""] +
-                [self.symbols_size_list[j][k, i] + " " + self.symbols_power_list[j][k, i] for i in markup_length] +
-                [""] + [""]
-            )
-
-        # create table end notes
-        cvs: List[List[str]] = []
-        cvs.append(['Significance of size and power diagnostic reported below each F-stat'])
-        cvs.append(['*, **, or *** indicate that F > cv for a target size of 0.125, 0.10, and 0.075 given d_z and rho'])
-        cvs.append(['^, ^^, or ^^ indicate that F > cv for a maximal power of 0.50, 0.75, and 0.95 given d_z and rho'])
-        cvs.append([
-            'appropriate critical values for size are stored in the variable F_cv_size_list of the pyRVtest results '
-            'class'
-        ])
-        cvs.append([
-            'appropriate critical values for power are stored in the variable F_cv_power_list of the pyRVtest '
-            'results class'
-        ])
+        number_models = len(self.markups)
+        for k in range(number_models):
+            rv_results = [round(self.TRV[j][k, i], 3) for i in range(number_models)]
+            f_stat_results = [round(self.F[j][k, i], 1) for i in range(number_models)]
+            pvalues_results = [str(round(self.MCS_pvalues[j][k][0], 3))]
+            symbols_results = [
+                self._symbols_size_list[j][k, i] + " " + self._symbols_power_list[j][k, i] for i in range(number_models)
+            ]
+            data.append([str(k)] + rv_results + [str(k)] + f_stat_results + [str(k)] + pvalues_results)
+            data.append([""] + ["" for i in range(number_models)] + [""] + symbols_results + [""] + [""])
         
         # construct the header
-        header = [" TRV: "] + [f"  " for i in range(len(self.markups))] + [" F-stats: "] \
-            + [f"  " for i in range(len(self.markups))] + [" MCS: "] + [" "]
-        subheader = [" models "] + [f" {i} " for i in range(len(self.markups))] + [" models "] \
-            + [f" {i} " for i in range(len(self.markups))] + ["models"] + ["MCS p-values"]
-        return format_table_notes(
-            header, subheader, *data, title="Testing Results - Instruments z{0}".format(j), notes=cvs,
-            line_indices=[len(self.markups), 2 * len(self.markups) + 1]
+        blanks = [f"  " for i in range(number_models)]
+        numbers = [f" {i} " for i in range(number_models)]
+        header = [" TRV: "] + blanks + [" F-stats: "] + blanks + [" MCS: "] + [" "]
+        subheader = [" models "] + numbers + [" models "] + numbers + [" models "] + ["MCS p-values"]
+
+        # if on the last table, set table notes to true
+        last_table = False
+        if j == (len(self.TRV) - 1):
+            last_table = True
+        return format_table(
+            header, subheader, *data, title="Testing Results - Instruments z{0}".format(j), include_notes=last_table,
+            line_indices=[number_models, 2 * number_models + 1]
         )
 
     def to_pickle(self, path: Union[str, Path]) -> None:

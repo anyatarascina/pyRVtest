@@ -100,7 +100,7 @@ class ProblemEconomy(Economy):
         # initialize tax-related variables
         markups_effective = [None] * M
         markups_out = [None] * M
-        tax_av_adj = [None] * M
+        advalorem_tax_adj = [None] * M
 
         # if there are no markups, compute them
         if markups[0] is None:
@@ -115,15 +115,15 @@ class ProblemEconomy(Economy):
         marginal_cost = self.products.prices - markups
 
         # for the setting with taxes, adjust the markup computation to account for marginal costs
-        tax_u = self.models.tax_u
-        tax_av = self.models.tax_av
+        unit_tax = self.models.unit_tax
+        advalorem_tax = self.models.advalorem_tax
         cost_scaling = self.models.cost_scaling
         for m in range(M):
-            tax_av_adj[m] = 1 / (1 + tax_av[m]) if self.models.advalorem_payer[m] == "consumer" else (1 - tax_av[m])
-            numerator = (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups[m] - tax_u[m])
-            denominator = (1 + cost_scaling[m] * tax_av_adj[m])
+            advalorem_tax_adj[m] = 1 / (1 + advalorem_tax[m]) if self.models.advalorem_payer[m] == "consumer" else (1 - advalorem_tax[m])
+            numerator = (advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups[m] - unit_tax[m])
+            denominator = (1 + cost_scaling[m] * advalorem_tax_adj[m])
             marginal_cost[m] = numerator / denominator
-            markups_out[m] = (markups[m] + cost_scaling[m] * marginal_cost[m]) * tax_av_adj[m]
+            markups_out[m] = (markups[m] + cost_scaling[m] * marginal_cost[m]) * advalorem_tax_adj[m]
             markups_effective[m] = self.products.prices - marginal_cost[m]
 
         # absorb any cost fixed effects from prices, markups, and instruments
@@ -195,8 +195,8 @@ class ProblemEconomy(Economy):
             delta_estimate = self.demand_results.delta
 
             def markups_computation(markups_m):
-                denominator = (1 + cost_scaling[m] * tax_av_adj[m])
-                computation = (tax_av_adj[m] * self.products.prices - tax_av_adj[m] * markups_m - tax_u[m])
+                denominator = (1 + cost_scaling[m] * advalorem_tax_adj[m])
+                computation = (advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups_m - unit_tax[m])
                 return self.products.prices - computation / denominator
 
             for (i, j) in itertools.product(range(K2), range(K2)):
@@ -464,7 +464,7 @@ class ProblemEconomy(Economy):
                 if demand_adjustment:
                     phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ adjustment_value[m])
 
-            # compute just the diagonal elements for AR variance
+            # construct the AR variance
             for m in range(M):
                 AR_variance[m] = 1 / N * (phi[m].T @ phi[m])
                 if se_type == 'clustered':
@@ -493,6 +493,18 @@ class ProblemEconomy(Economy):
                     rho[i, m] = numerator_sqrt / denominator_sqrt
                     rho_squared = np.square(rho[i, m])
 
+                    # construct F statistic
+                    operations = np.array([sigma[1], sigma[0], -2 * sigma[2]])
+                    moments = np.array([
+                        g[i].T @ weight_matrix @ g[i],
+                        g[m].T @ weight_matrix @ g[m],
+                        g[i].T @ weight_matrix @ g[m]
+                    ]).flatten()
+                    F_numerator = operations @ moments
+                    F_denominator = (sigma[0] * sigma[1] - sigma[2] ** 2)
+                    unscaled_F[i, m] = N / (2 * K) * F_numerator / F_denominator
+                    F[i, m] = (1 - rho_squared) * N / (2 * K) * F_numerator / F_denominator
+
                     # pull out critical values for size and power
                     rho_lookup = np.round(np.abs(rho[i, m]), 2)
                     if rho_lookup > .99:
@@ -508,18 +520,6 @@ class ProblemEconomy(Economy):
                         critical_values_power['r_75'][ind],
                         critical_values_power['r_95'][ind]
                     ], dtype=object)
-
-                    # construct F statistic
-                    operations = np.array([sigma[1], sigma[0], -2 * sigma[2]])
-                    moments = np.array([
-                        g[i].T @ weight_matrix @ g[i],
-                        g[m].T @ weight_matrix @ g[m],
-                        g[i].T @ weight_matrix @ g[m]
-                    ]).flatten()
-                    F_numerator = operations @ moments
-                    F_denominator = (sigma[0] * sigma[1] - sigma[2] ** 2)
-                    unscaled_F[i, m] = N / (2 * K) * F_numerator / F_denominator
-                    F[i, m] = (1 - rho_squared) * N / (2 * K) * F_numerator / F_denominator
 
                     # determine F-stat critical values for size
                     if F[i, m] < F_cv_size[i, m][0]:
@@ -551,6 +551,7 @@ class ProblemEconomy(Economy):
             converged = False
             model_confidence_set_pvalues = np.ones([M, 1])
             while not converged:
+
                 # if we are on the last pair of models, use the model of worst fit to compute the p-value
                 if np.shape(model_confidence_set)[0] == 2:
                     max_test_statistic = rv_test_statistic[model_confidence_set[0], model_confidence_set[1]]
@@ -756,19 +757,10 @@ class Problem(ProblemEconomy):
             output(self)
 
 
-class InitialProgress(object):
-    """Structured information about initial estimation progress."""
-
-    problem: ProblemEconomy
-
-    def __init__(self, problem: ProblemEconomy) -> None:
-        """Store initial progress information, computing the projected gradient and the reduced Hessian."""
-        self.problem = problem
-        
-
-class Progress(InitialProgress):
+class Progress(object):
     """Structured information about estimation progress."""
 
+    problem: ProblemEconomy
     markups: Array
     markups_downstream: Array
     markups_upstream: Array
@@ -780,10 +772,14 @@ class Progress(InitialProgress):
     RV_denominator: Array
     test_statistic_RV: Array
     F: Array
-    MCS_p_values: Array
+    MCS_pvalues: Array
     rho: Array
     unscaled_F: Array
     AR_variance: Array
+    F_cv_size_list: Array
+    F_cv_power_list: Array
+    symbols_size_list: Array
+    symbols_power_list: Array
 
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
@@ -791,9 +787,8 @@ class Progress(InitialProgress):
             F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, AR_variance: Array, F_cv_size_list: Array,
             F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
-        super().__init__(
-            problem
-        )
+
+        self.problem = problem
         self.markups = markups
         self.markups_downstream = markups_downstream
         self.markups_upstream = markups_upstream
@@ -805,7 +800,7 @@ class Progress(InitialProgress):
         self.RV_denominator = RV_denom
         self.test_statistic_RV = test_statistic_RV
         self.F = F
-        self.MCS_p_values = MCS_pvalues
+        self.MCS_pvalues = MCS_pvalues
         self.rho = rho
         self.unscaled_F = unscaled_F
         self.AR_variance = AR_variance
