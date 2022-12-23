@@ -20,46 +20,45 @@ class ProblemResults(Results):
 
     Attributes
     ----------
-        Delta: `ndarray`
-            # TODO: add comment
         problem: `ndarray`
-            # TODO: add comment
+            An instance of the Problem class.
         markups: `ndarray`
-            # TODO: add comment
+            Array of the total markups implied by each model (sum of retail and wholesale markups).
         markups_downstream: `ndarray`
-            # TODO: add comment
+            Array of the retail markups implied by each model.
         markups_upstream: `ndarray`
-            # TODO: add comment
+            Array of the manufacturer markups implied by each model of double marginalization.
         taus: `ndarray`
-            # TODO: add comment
+            Array of coefficients from regressing implied marginal costs for each model on observed cost shifters.
         mc: `ndarray`
-            # TODO: add comment
+            Array of implied marginal costs for each model.
         g: `ndarray`
-            # TODO: add comment
+            Array of moments for each model and each instrument set of conduct between implied residualized cost
+            unobservable and the instruments.
         Q: `ndarray`
-            # TODO: add comment
+            Array of lack of fit given by GMM objective function with 2SLS weight matrix for each set of instruments and
+            each model.
         RV_numerator: `ndarray`
-            # TODO: add comment
+            Array of numerators of pairwise RV test statistics for each instrument set and each pair of models.
         RV_denominator: `ndarray`
-            # TODO: add comment
+            Array of denominators of pairwise RV test statistics for each instrument set and each pair of models.
         TRV: `ndarray`
-            # TODO: add comment
+            Array of pairwise RV test statistics for each instrument set and each pair of models.
         F: `ndarray`
-            # TODO: add comment
+            Array of pairwise F-statistics for each instrument set and each pair of models.
         MCS_pvalues: `ndarray`
-            # TODO: add comment
+            Array of MCS p-values for each instrument set and each model.
         rho: `ndarray`
-            # TODO: add comment
+            Scaling parameter for F-statistics.
         unscaled_F: `ndarray`
-            # TODO: add comment
+            Array of pairwise F-statistics without scaling by rho.
         F_cv_size_list: `ndarray`
-            # TODO: add comment
+            Vector of critical values for size for each pairwise F-statistic.
         F_cv_power_list: `ndarray`
-            # TODO: add comment
+            Vector of critical values for power for each pairwise F-statistic.
 
     """
 
-    Delta: Array
     problem: Array
     markups: Array
     markups_downstream: Array

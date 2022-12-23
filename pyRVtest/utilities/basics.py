@@ -1,8 +1,6 @@
 """Basic functionality."""
 
-from typing import (
-    Any, Container, Dict, List, Optional, Sequence, Tuple
-)
+from typing import Any, Container, Dict, List, Optional, Sequence, Tuple
 
 
 # define common types

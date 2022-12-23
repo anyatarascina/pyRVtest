@@ -131,16 +131,15 @@ class Economy(Container, StringRepresentation):
             data.append(["Firm IDs - Upstream"] + [self.models.firm_ids_upstream[i] for i in range(self.M)])
             data.append(["VI Index"] + [self.models.vertical_integration_index[i] for i in range(self.M)])
             data.append(["Cost Scaling Column"] + [self.models.cost_scaling_column[i] for i in range(self.M)])
-            data.append(["Unit Tax"] + [self.models.unit_tax[i] for i in range(self.M)])
-            data.append(["Advalorem Tax"] + [self.models.advalorem_tax[i] for i in range(self.M)])
+            data.append(["Unit Tax"] + [self.models.unit_tax_name[i] for i in range(self.M)])
+            data.append(["Advalorem Tax"] + [self.models.advalorem_tax_name[i] for i in range(self.M)])
             data.append(["Advalorem Payer"] + [self.models.advalorem_payer[i] for i in range(self.M)])
             data.append(
                 ["User Supplied Markups"] + [self.models.user_supplied_markups_name[i] for i in range(self.M)]
             )
             header = [" "] + [f" {i} " for i in range(self.M)]
         else:
-            data.append(["Markups Supplied by User"])    
-            # TODO: is this header correct?
+            data.append(["Markups Supplied by User"])
             header = [" "]
 
         return format_table(header, *data, title="Models")    

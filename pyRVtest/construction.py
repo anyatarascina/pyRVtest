@@ -31,27 +31,27 @@ def build_markups(
         Parameters
         ----------
         products : `RecArray`
-            product_data used for pytBLP demand estimation
+            The `product_data` containing information on markets and product characteristics, which is also used for
+            demand estimation.
         demand_results : `Mapping`
-            results structure from pyBLP demand estimation
-        model_downstream: Array
-            Can be one of [`bertrand`, `cournot`, `monopoly`, `perfect_competition`, `other`]. If model_upstream not
+            The results object obtained from using the pyBLP demand estimation procedure.
+        model_downstream: `ndarray`
+            Can be one of [`bertrand`, `cournot`, `monopoly`, `perfect_competition`, `other`]. If `model_upstream` not
             specified, this is a model without vertical integration. Only specify option `other` if supplying a custom
             markup formula.
-        ownership_downstream: Array
-            (optional, default is standard ownership) ownership matrix for price or quantity setting
-        model_upstream: Optional[Array]
-            Can be one of ['none' (default), `bertrand`, `cournot`, `monopoly`, `perfect_competition`, `other`].
-            Upstream firm's model. Only specify option `other` if supplying a custom markup formula.
-        ownership_upstream: Optional[Array]
-            (optional, default is standard ownership) ownership matrix for price or quantity setting of upstream firms
-        vertical_integration: Optional[Array]
-            (optional, default is no vertical integration) vector indicating which product_ids are vertically integrated
-            (ie store brands)
-        custom_model_specification: Optional[dict]
-            (optional, default is None) dictionary containing a custom markup formula and the name of the formula
-        user_supplied_markups: Optional[array]
-            (optional, default is None) vector containing user-computed markups
+        ownership_downstream: `ndarray`
+            (optional, default is standard ownership) ownership matrix for price or quantity setting.
+        model_upstream: `Optional[Array]`
+            Upstream firm's model. Only specify option `other` if supplying a custom markup formula. Can be one of
+            ['none' (default), `bertrand`, `cournot`, `monopoly`, `perfect_competition`, `other`].
+        ownership_upstream: `Optional[Array]`
+            Ownership matrix for price or quantity setting of upstream firms.
+        vertical_integration: `Optional[Array]`
+            Vector indicating which `product_ids` are vertically integrated (ie store brands).
+        custom_model_specification: `Optional[dict]`
+            Dictionary containing a custom markup formula and the name of the formula.
+        user_supplied_markups: `Optional[array]`
+            Vector containing user-computed markups.
 
         Returns
         -------
@@ -143,7 +143,7 @@ def build_markups(
 def compute_markups(
         index, model_type, type_ownership_matrix, response_matrix, shares, markups, custom_model_specification,
         markup_type):
-    """ Compute markups for some standard models including Bertrand, Cournot, monopoly, and perfect competition. Allow
+    """Compute markups for some standard models including Bertrand, Cournot, monopoly, and perfect competition. Allow
     user to pass in their own markup function as well.
     """
     if (markup_type == 'downstream') or (markup_type == 'upstream' and model_type is not None):
@@ -171,7 +171,7 @@ def compute_markups(
 
 def read_pickle(path: Union[str, Path]) -> object:
     """Load a pickled object into memory.
-    This is a simple wrapper around `pickle.load`, copied from PyBLP.
+    This is a simple wrapper around `pickle.load`.
 
     Parameters
     ----------
