@@ -9,7 +9,11 @@ __pychache__/
 *.xml
 *.iml
 .idea
+.ipynb_checkpoints
 
 # os generated files
 .DS_Store
 
+# tutorial generated files
+docs/tutorial/my_demand_estimates
+docs/tutorial/my_testing_results
