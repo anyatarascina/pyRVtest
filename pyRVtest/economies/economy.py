@@ -1,4 +1,4 @@
-"""Economy underlying the BLP model."""
+"""Economy underlying the firm conduct testing model."""
 
 import abc
 from typing import Any, Dict, Hashable, List, Mapping, Optional, Sequence, Tuple, Union

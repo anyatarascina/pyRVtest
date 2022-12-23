@@ -119,7 +119,8 @@ class ProblemEconomy(Economy):
         advalorem_tax = self.models.advalorem_tax
         cost_scaling = self.models.cost_scaling
         for m in range(M):
-            advalorem_tax_adj[m] = 1 / (1 + advalorem_tax[m]) if self.models.advalorem_payer[m] == "consumer" else (1 - advalorem_tax[m])
+            condition = self.models.advalorem_payer[m] == "consumer"
+            advalorem_tax_adj[m] = 1 / (1 + advalorem_tax[m]) if condition else (1 - advalorem_tax[m])
             numerator = (advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups[m] - unit_tax[m])
             denominator = (1 + cost_scaling[m] * advalorem_tax_adj[m])
             marginal_cost[m] = numerator / denominator
@@ -172,9 +173,11 @@ class ProblemEconomy(Economy):
             try:
                 partial_y_theta = self.demand_results.problem._absorb_demand_ids(partial_y_theta)
             except Exception:
-                return "The demand adjustment failed because the required pyblp object was empty. This can happen if " \
-                       "you run demand estimation with the 'return' option for optimization and specify " \
-                       "demand_adjustment=True. Try setting demand_adjustment=False "
+                print(
+                    "The demand adjustment failed because the required PyBLP object was empty. This can happen if you "
+                    "run demand estimation with the 'return' option for optimization and specify demand_adjustment=True"
+                    ". Try setting demand_adjustment=False "
+                )
             partial_y_theta = np.reshape(partial_y_theta[0], [N, len(self.demand_results.theta) + 1])
             if np.shape(XD)[1] == 0:
                 partial_xi_theta = partial_y_theta
@@ -195,10 +198,15 @@ class ProblemEconomy(Economy):
             delta_estimate = self.demand_results.delta
 
             def markups_computation(markups_m):
+                """Compute markups for setting with taxes."""
                 denominator = (1 + cost_scaling[m] * advalorem_tax_adj[m])
-                computation = (advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups_m - unit_tax[m])
+                computation = (
+                        advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups_m - unit_tax[m]
+                )
                 return self.products.prices - computation / denominator
 
+            # loop over pairs of nonlinear demand characteristics, and recompute markups with perturbations if
+            #   the demand coefficient estimates for sigma are not zero
             for (i, j) in itertools.product(range(K2), range(K2)):
                 if not self.demand_results.sigma[i, j] == 0:
                     sigma_initial = self.demand_results.sigma[i, j]
@@ -240,7 +248,7 @@ class ProblemEconomy(Economy):
                     theta_index = theta_index + 1
 
             # loop over nonlinear demand characteristics and demographics, and recompute markups with perturbations if
-            #   the demand results for pi are not zero
+            #   the demand coefficient estimates for pi are not zero
             for (i, j) in itertools.product(range(K2), range(D)):
                 if not self.demand_results.pi[i, j] == 0:
                     pi_initial = self.demand_results.pi[i, j]
@@ -258,7 +266,7 @@ class ProblemEconomy(Economy):
                     theta_index = theta_index + 1
             self.demand_results.delta = delta_estimate
                 
-            # if __, perturb alpha in negative (positive) direction and recompute markups
+            # perturb alpha in negative (positive) direction and recompute markups
             for i in range(len(self.demand_results.beta)):
                 if self.demand_results.beta_labels[i] == 'prices':
                     alpha_initial = self.demand_results.beta[i].copy()
@@ -321,7 +329,7 @@ class ProblemEconomy(Economy):
                 )
                 self.demand_results.rho = rho_initial
 
-        # initialize empty lists to store statistic related values for each model
+        # initialize empty lists to store statistic-related values for each model
         g_list = [None] * L
         Q_list = [None] * L
         RV_numerator_list = [None] * L
@@ -405,7 +413,7 @@ class ProblemEconomy(Economy):
             number_model_combinations = np.shape(all_model_combinations)[0]
             model_confidence_set_variance = np.zeros([number_model_combinations, 1])
 
-            # compute vii = 0 # TODO: add more descriptive comment
+            # compute the RV test statistic denominator
             for m in range(M):
                 for i in range(m):
                     if i < m:
@@ -425,17 +433,6 @@ class ProblemEconomy(Economy):
                         covariance_mc[m, m] = moments[1]
                         covariance_mc[i, i] = moments[0]
                         test_statistic_denominator[i, m] = math.sqrt(sigma_squared)
-
-            # TODO: add comment here
-            sigma_model_confidence_set = np.zeros([number_model_combinations, number_model_combinations])
-            for index_i, model_i in enumerate(all_model_combinations):
-                model_confidence_set_variance[index_i] = test_statistic_denominator[model_i[0], model_i[1]] / 2
-                for index_j, model_j in enumerate(all_model_combinations):
-                    term1 = covariance_mc[model_i[0], model_j[0]] - covariance_mc[model_i[1], model_j[0]]
-                    term2 = covariance_mc[model_i[0], model_j[1]] - covariance_mc[model_i[1], model_j[1]]
-                    sigma_model_confidence_set[index_j, index_i] = term1 - term2
-            denominator = model_confidence_set_variance @ model_confidence_set_variance.T
-            sigma_model_confidence_set = sigma_model_confidence_set / denominator
 
             # compute the pairwise RV test statistic
             rv_test_statistic = np.zeros((M, M))
@@ -546,6 +543,17 @@ class ProblemEconomy(Economy):
                     symbols_size[i, m] = ""
                     symbols_power[i, m] = ""
 
+            # compute the sigma model confidence set
+            sigma_model_confidence_set = np.zeros([number_model_combinations, number_model_combinations])
+            for index_i, model_i in enumerate(all_model_combinations):
+                model_confidence_set_variance[index_i] = test_statistic_denominator[model_i[0], model_i[1]] / 2
+                for index_j, model_j in enumerate(all_model_combinations):
+                    term1 = covariance_mc[model_i[0], model_j[0]] - covariance_mc[model_i[1], model_j[0]]
+                    term2 = covariance_mc[model_i[0], model_j[1]] - covariance_mc[model_i[1], model_j[1]]
+                    sigma_model_confidence_set[index_j, index_i] = term1 - term2
+            denominator = model_confidence_set_variance @ model_confidence_set_variance.T
+            sigma_model_confidence_set = sigma_model_confidence_set / denominator
+
             # construct the model confidence set by iterating through all model pairs and comparing their test
             #    statistics
             converged = False
@@ -569,7 +577,8 @@ class ProblemEconomy(Economy):
                     number_model_combinations = np.shape(current_combinations)[0]
                     sigma_index = np.empty(number_model_combinations, dtype=int)
 
-                    # TODO: add comment
+                    # for each pair of models, find the RV test statistic and the max test statistic among the model
+                    #   pairs
                     for model_pair in range(number_model_combinations):
                         model_1.append(current_combinations[model_pair][0])
                         model_2.append(current_combinations[model_pair][1])
@@ -578,7 +587,7 @@ class ProblemEconomy(Economy):
                     index = np.argmax(abs(test_statistic_model_confidence_set))
                     max_test_statistic = test_statistic_model_confidence_set[index]
 
-                    # TODO: add comment
+                    # find the model with the worst fit and remove it from the comparison set
                     if np.sign(max_test_statistic) >= 0:
                         worst_fit = model_1[index]
                     else:
