@@ -4,13 +4,13 @@ import abc
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
-import pandas as pd
 from pyblp.utilities.basics import Array, Data, Groups, RecArray, extract_matrix, structure_matrices
 from pyblp.construction import build_ownership
 from pyblp.configurations.formulation import ColumnFormulation
 
 from . import options
 from .configurations.formulation import Formulation, ModelFormulation
+from .data import F_CRITICAL_VALUES_POWER_RHO, F_CRITICAL_VALUES_SIZE_RHO
 
 
 class Products(object):
@@ -21,7 +21,7 @@ class Products(object):
      market_ids : `ndarray`
         IDs that associate products with markets.
     cost_ids : `ndarray`
-        IDs used to associate products with cost-side fixed effects.
+        IDs that associate products with cost-side fixed effects.
     nesting_ids : `ndarray`
         IDs that associate products with nesting groups.
     product_ids : `ndarray`
@@ -181,64 +181,66 @@ class Products(object):
 
 
 class Models(object):
-    r"""Models structured as a DataFrame.
+    r"""Models data structured as a dictionary.
 
     Attributes
     ----------
-    ownership_matrices_downstream: `ndarray`
-        Matrix of ownership relationships between downstream firms.
-    ownership_matrices_upstream: `ndarray`
-        Matrix of ownership relationships between upstream firms.
+    models_downstream: `str`
+        Model of conduct for downstream firms. This is used to construct downstream markups. This must be one of the
+        allowed models.
+    models_upstream: `str, optional`
+        Model of conduct for upstream firms. This is used to construct upstream markups. This must be one of the
+        allowed models.
     firm_ids_downstream: `ndarray`
         Vector of firm ids used to construct ownership for downstream firms.
     firm_ids_upstream: `ndarray`
         Vector of firm ids used to construct ownership for upstream firms.
+    ownership_matrices_downstream: `ndarray`
+        Matrix of ownership relationships between downstream firms.
+    ownership_matrices_upstream: `ndarray`
+        Matrix of ownership relationships between upstream firms.
     vertical_integration: `ndarray, optional`
-        Vector indicating which product_ids are vertically integrated (ie store brands).
+        Vector indicating which product_ids are vertically integrated (i.e. store brands).
     vertical_integration_index: `ndarray, optional`
         Indicates the index for a particular vertical relationship (which model it corresponds to).
-    models_downstream: `ndarray`
-        Model of conduct for downstream firms. This is used to construct downstream markups.
-    models_upstream: `ndarray, optional`
-        Model of conduct for upstream firms. This is used to construct upstream markups.
-    custom_model: `dict, optional`
-        A custom formula used to compute markups, optionally specified by the user.
     unit_tax: `ndarray, optional`
         A vector containing information on unit taxes.
+    unit_tax_name: `str, optional`
+        The column name for the column containing unit taxes.
     advalorem_tax: `ndarray, optional`
         A vector containing information on advalorem taxes.
+    advalorem_tax_name: ``str, optional`
+        The column name for the column containing advalorem taxes.
     advalorem_payer: `str, optional`
         If there are advalorem taxes in the model, this specifies who the payer of these taxes are. It can be either the
         consumer or the firm.
-    unit_tax_name: `str, optional`
-        The column name for the column containing unit taxes.
-    advalorem_tax_name: ``str, optional`
-        The column name for the column containing advalorem taxes.
     cost_scaling: `ndarray, optional`
         The cost scaling parameter.
     cost_scaling_column: `str, optional`
         The name of the column containing the cost scaling parameter.
+    custom_model: `dict, optional`
+        A custom formula used to compute markups, optionally specified by the user.
     user_supplied_markups: `ndarray, optional`
-        A vector of user computed markups.
+        A vector of user-computed markups.
     user_supplied_markups_name: `str, optional`
         The name of the column containing user-supplied markups.
 
     """
 
-    ownership_matrices_downstream: Array
-    ownership_matrices_upstream: Array
+    models_downstream: Array
+    models_upstream: Array
     firm_ids_downstream: Array
     firm_ids_upstream: Array
+    ownership_matrices_downstream: Array
+    ownership_matrices_upstream: Array
     vertical_integration: Array
     vertical_integration_index: Array
-    models_upstream: Array
-    models_downstream: Array
     custom_model: Array
     unit_tax: Array
-    advalorem_tax: Array
-    advalorem_payer: Array
     unit_tax_name: Array
+    advalorem_tax: Array
     advalorem_tax_name: Array
+    advalorem_payer: Array
     cost_scaling: Array
     cost_scaling_column: Array
     user_supplied_markups: Array
@@ -246,7 +248,7 @@ class Models(object):
 
     def __new__(
             cls, model_formulations: Sequence[Optional[ModelFormulation]], product_data: Mapping) -> RecArray:
-        """Structure agent data. Data structures may be empty."""
+        """Structure model data. Data structures may be empty."""
 
         # validate the model formulations
         if not all(isinstance(f, ModelFormulation) or f is None for f in model_formulations):
@@ -256,27 +258,27 @@ class Models(object):
             raise ValueError("At least two model formulations must be specified.")
         N = product_data.shape[0]
 
-        # define model components
-        ownership_matrices_downstream = [None] * M
-        ownership_matrices_upstream = [None] * M
+        # initialize model components
+        models_downstream = [None] * M
+        models_upstream = [None] * M
         firm_ids_downstream = [None] * M
         firm_ids_upstream = [None] * M
+        ownership_matrices_downstream = [None] * M
+        ownership_matrices_upstream = [None] * M
         vertical_integration = [None] * M
         vertical_integration_index = [None] * M
-        models_upstream = [None] * M
-        models_downstream = [None] * M
         custom_model = [None] * M
         unit_tax = [None] * M
-        advalorem_tax = [None] * M
-        advalorem_payer = [None] * M
         unit_tax_name = [None] * M
+        advalorem_tax = [None] * M
         advalorem_tax_name = [None] * M
+        advalorem_payer = [None] * M
         cost_scaling = [None] * M
         cost_scaling_column = [None] * M
         user_supplied_markups = [None] * M
         user_supplied_markups_name = [None] * M
 
-        # make ownership matrices and extract vertical integration
+        # extract data for each model
         for m in range(M):
             model = model_formulations[m]._build_matrix(product_data)
             models_downstream[m] = model['model_downstream']
@@ -337,7 +339,9 @@ class Models(object):
                 user_supplied_markups[m] = extract_matrix(product_data, model["user_supplied_markups"])
                 user_supplied_markups_name[m] = model["user_supplied_markups"]
 
-        models_mapping = pd.Series({
+        # structure product fields as a mapping
+        models_mapping: Dict[Union[str, tuple], Optional[Array]] = {}
+        models_mapping.update({
             'models_downstream': models_downstream,
             'models_upstream': models_upstream,
             'firm_ids_downstream': firm_ids_downstream,
@@ -347,17 +351,16 @@ class Models(object):
             'vertical_integration': vertical_integration,
             'vertical_integration_index': vertical_integration_index,
             'unit_tax': unit_tax,
-            'advalorem_tax': advalorem_tax,
-            'advalorem_payer': advalorem_payer,
             'unit_tax_name': unit_tax_name,
+            'advalorem_tax': advalorem_tax,
             'advalorem_tax_name': advalorem_tax_name,
+            'advalorem_payer': advalorem_payer,
             'cost_scaling_column': cost_scaling_column,
             'cost_scaling': cost_scaling,
             'custom_model_specification': custom_model,
             'user_supplied_markups': user_supplied_markups,
             'user_supplied_markups_name': user_supplied_markups_name
         })
-
         return models_mapping
 
 
@@ -382,3 +385,27 @@ class Container(abc.ABC):
             self._Z_formulation = self.products.dtype.fields['Z{0}'.format(i)][2]
             self.Dict_Z_formulation.update({"_Z{0}_formulation".format(i): self._Z_formulation})
             i += 1
+
+
+def read_critical_values_tables():
+    """Read in the critical values for size and power from the corresponding csv file. These will be used to evaluate
+    the strength of the instruments."""
+
+    # read in data for critical values for size as a structured array
+    critical_values_size = np.genfromtxt(
+        F_CRITICAL_VALUES_SIZE_RHO,
+        delimiter=',',
+        skip_header=1,
+        dtype=[('K', 'i4'), ('rho', 'f8'), ('r_075', 'f8'), ('r_10', 'f8'), ('r_125', 'f8')]
+    )
+
+    # read in data for critical values for power as a structured array
+    critical_values_power = np.genfromtxt(
+        F_CRITICAL_VALUES_POWER_RHO,
+        delimiter=',',
+        skip_header=1,
+        dtype=[('K', 'i4'), ('rho', 'f8'), ('r_50', 'f8'), ('r_75', 'f8'), ('r_95', 'f8')]
+    )
+
+    return critical_values_power, critical_values_size
+

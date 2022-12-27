@@ -245,6 +245,20 @@ class Formulation(StringRepresentation):
 class ModelFormulation(object):
     r"""Configuration for designing matrices and absorbing fixed effects.
 
+    For each model, the user can specify the downstream and upstream (optional) models, the downstream and upstream
+    ownership structure, a custom model and markup formula, and vertical integration. The user can also choose to forgo
+    markup computation and specify their own markups with `user_supplied_markups`. Additionally, there are
+    specifications related to testing conduct with taxes.
+
+    There is a built-in library of models that the researcher can choose from.
+
+    Here, we have another difference with PyBLP.  In PyBLP, if one wants to build an ownership matrix, there must be a
+    variable called `firm_id` in the `product_data`.  With pyRVtest, the researcher can pass any variable in the
+    `product_data` as `ownership_downstream` and from this, the ownership matrix in each market will be built
+
+    (Future Release Note: We are working on adding additional models to this library as well as options for the
+    researcher to specify their own markup function.)
+
     Parameters
     ----------
     model_downstream : `str`
@@ -276,6 +290,7 @@ class ModelFormulation(object):
         Information on the degree of cooperation among upstream firms for each market.
     user_supplied_markups: `str, optional`
         The name of the column containing user-supplied markups.
+
 
     """
 
@@ -386,9 +401,9 @@ class ModelFormulation(object):
 
 
 def build_matrix(design: patsy.design_info.DesignInfo, data: Mapping) -> Array:
-    """This function is a copy of the same one from PyBLP.
+    """Build a matrix according to its design and data mapping variable names to arrays.
 
-    Build a matrix according to its design and data mapping variable names to arrays.
+    (Note: This function is a copy from PyBLP. We copied it rather than importing due to computational speed.)
     """
 
     # identify the number of rows in the data
@@ -406,10 +421,10 @@ def build_matrix(design: patsy.design_info.DesignInfo, data: Mapping) -> Array:
 
 
 def parse_expression(string: str, mark_categorical: bool = False) -> sp.Expr:
-    """This function is a copy of the same one from PyBLP.
-
-    Parse a SymPy expression from a string. Optionally, preserve the categorical marker function instead of treating
+    """Parse a SymPy expression from a string. Optionally, preserve the categorical marker function instead of treating
     it like the identify function.
+
+    (Note: This function is a copy from PyBLP. We copied it rather than importing due to computational speed.)
     """
 
     # list reserved patsy and SymPy names that represent special functions and classes

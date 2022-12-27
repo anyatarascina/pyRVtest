@@ -9,7 +9,6 @@ import time
 from typing import Mapping, Optional, Sequence
 
 import numpy as np
-import pandas as pd
 from pyblp.utilities.algebra import precisely_identify_collinearity
 from pyblp.utilities.basics import Array, RecArray, format_seconds, output
 from scipy.linalg import inv, fractional_matrix_power
@@ -20,13 +19,12 @@ from .economy import Economy
 from .. import options
 from ..configurations.formulation import Formulation, ModelFormulation
 from ..construction import build_markups
-from ..primitives import Models, Products
+from ..primitives import Models, Products, read_critical_values_tables
 from ..results.problem_results import ProblemResults
-from ..data import F_CRITICAL_VALUES_POWER_RHO, F_CRITICAL_VALUES_SIZE_RHO
 
 
 class ProblemEconomy(Economy):
-    """An abstract BLP problem."""
+    """An abstract firm conduct testing problem."""
 
     @abc.abstractmethod
     def __init__(
@@ -47,6 +45,7 @@ class ProblemEconomy(Economy):
 
         The rest of the testing procedure is done for each pair of models, for each set of instruments. A GMM measure of
         fit is computed for each model-instrument pair. This measure of fit is used to construct the test statistic.
+
 
         Parameters
         ----------
@@ -73,6 +72,7 @@ class ProblemEconomy(Economy):
         N = self.N
         L = self.L
         markups = self.markups
+        critical_values_power, critical_values_size = read_critical_values_tables()
 
         # validate settings
         if not isinstance(demand_adjustment, bool):
@@ -106,20 +106,20 @@ class ProblemEconomy(Economy):
         if markups[0] is None:
             print('Computing Markups ... ')
             markups, markups_downstream, markups_upstream = build_markups(
-                self.products, self.demand_results, self.models.models_downstream, self.models.ownership_downstream,
-                self.models.models_upstream, self.models.ownership_upstream, self.models.vertical_integration,
-                self.models.custom_model_specification, self.models.user_supplied_markups
+                self.products, self.demand_results, self.models["models_downstream"], self.models["ownership_downstream"],
+                self.models["models_upstream"], self.models["ownership_upstream"], self.models["vertical_integration"],
+                self.models["custom_model_specification"], self.models["user_supplied_markups"]
             )
 
         # for each model, use computed markups to compute the marginal costs
         marginal_cost = self.products.prices - markups
 
         # for the setting with taxes, adjust the markup computation to account for marginal costs
-        unit_tax = self.models.unit_tax
-        advalorem_tax = self.models.advalorem_tax
-        cost_scaling = self.models.cost_scaling
+        unit_tax = self.models["unit_tax"]
+        advalorem_tax = self.models["advalorem_tax"]
+        cost_scaling = self.models["cost_scaling"]
         for m in range(M):
-            condition = self.models.advalorem_payer[m] == "consumer"
+            condition = self.models["advalorem_payer"][m] == "consumer"
             advalorem_tax_adj[m] = 1 / (1 + advalorem_tax[m]) if condition else (1 - advalorem_tax[m])
             numerator = (advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups[m] - unit_tax[m])
             denominator = (1 + cost_scaling[m] * advalorem_tax_adj[m])
@@ -217,10 +217,10 @@ class ProblemEconomy(Economy):
                         delta_new = self.demand_results.compute_delta()
                     self.demand_results.delta = delta_new
                     markups_l, md, ml = build_markups(
-                        self.products, self.demand_results, self.models.models_downstream,
-                        self.models.ownership_downstream, self.models.models_upstream,
-                        self.models.ownership_upstream, self.models.vertical_integration,
-                        self.models.custom_model_specification, self.models.user_supplied_markups
+                        self.products, self.demand_results, self.models["models_downstream"],
+                        self.models["ownership_downstream"], self.models["models_upstream"],
+                        self.models["ownership_upstream"], self.models["vertical_integration"],
+                        self.models["custom_model_specification"], self.models["user_supplied_markups"]
                     )
 
                     # increase sigma by small increment, update delta, and recompute markups
@@ -229,10 +229,10 @@ class ProblemEconomy(Economy):
                         delta_new = self.demand_results.compute_delta()
                     self.demand_results.delta = delta_new
                     markups_u, mu, mu = build_markups(
-                        self.products, self.demand_results, self.models.models_downstream,
-                        self.models.ownership_downstream, self.models.models_upstream,
-                        self.models.ownership_upstream, self.models.vertical_integration,
-                        self.models.custom_model_specification, self.models.user_supplied_markups
+                        self.products, self.demand_results, self.models["models_downstream"],
+                        self.models["ownership_downstream"], self.models["models_upstream"],
+                        self.models["ownership_upstream"], self.models["vertical_integration"],
+                        self.models["custom_model_specification"], self.models["user_supplied_markups"]
                     )
 
                     # compute markup perturbations for taxes
@@ -272,17 +272,17 @@ class ProblemEconomy(Economy):
                     alpha_initial = self.demand_results.beta[i].copy()
                     self.demand_results.beta[i] = alpha_initial - epsilon / 2
                     markups_l, md, ml = build_markups(
-                        self.products, self.demand_results, self.models.models_downstream,
-                        self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
-                        self.models.vertical_integration, self.models.custom_model_specification,
-                        self.models.user_supplied_markups
+                        self.products, self.demand_results, self.models["models_downstream"],
+                        self.models["ownership_downstream"], self.models["models_upstream"],
+                        self.models["ownership_upstream"], self.models["vertical_integration"],
+                        self.models["custom_model_specification"], self.models["user_supplied_markups"]
                     )
                     self.demand_results.beta[i] = alpha_initial + epsilon / 2
                     markups_u, mu, mu = build_markups(
-                        self.products, self.demand_results, self.models.models_downstream,
-                        self.models.ownership_downstream, self.models.models_upstream, self.models.ownership_upstream,
-                        self.models.vertical_integration, self.models.custom_model_specification,
-                        self.models.user_supplied_markups
+                        self.products, self.demand_results, self.models["models_downstream"],
+                        self.models["ownership_downstream"], self.models["models_upstream"],
+                        self.models["ownership_upstream"], self.models["vertical_integration"],
+                        self.models["custom_model_specification"], self.models["user_supplied_markups"]
                     )
 
                     # compute markup perturbations for taxes
@@ -304,19 +304,19 @@ class ProblemEconomy(Economy):
                 # perturb rho in the negative direction and recompute markups
                 self.demand_results.rho = rho_initial - epsilon / 2
                 markups_l, md, ml = build_markups(
-                    self.products, self.demand_results, self.models.models_downstream,
-                    self.models.ownership_downstream, self.models.models_upstream,
-                    self.models.ownership_upstream, self.models.vertical_integration,
-                    self.models.custom_model_specification, self.models.user_supplied_markups
+                    self.products, self.demand_results, self.models["models_downstream"],
+                    self.models["ownership_downstream"], self.models["models_upstream"],
+                    self.models["ownership_upstream"], self.models["vertical_integration"],
+                    self.models["custom_model_specification"], self.models["user_supplied_markups"]
                 )
 
                 # perturb rho in the positive direction and recompute markups
                 self.demand_results.rho = rho_initial + epsilon / 2
                 markups_u, mu, mu = build_markups(
-                    self.products, self.demand_results, self.models.models_downstream,
-                    self.models.ownership_downstream, self.models.models_upstream,
-                    self.models.ownership_upstream, self.models.vertical_integration,
-                    self.models.custom_model_specification, self.models.user_supplied_markups
+                    self.products, self.demand_results, self.models["models_downstream"],
+                    self.models["ownership_downstream"], self.models["models_upstream"],
+                    self.models["ownership_upstream"], self.models["vertical_integration"],
+                    self.models["custom_model_specification"], self.models["user_supplied_markups"]
                 )
 
                 # compute markup perturbations for taxes
@@ -344,9 +344,7 @@ class ProblemEconomy(Economy):
         F_cv_power_list = [None] * L
         symbols_size_list = [None] * L
         symbols_power_list = [None] * L
-        critical_values_size = pd.read_csv(F_CRITICAL_VALUES_SIZE_RHO)
-        critical_values_power = pd.read_csv(F_CRITICAL_VALUES_POWER_RHO)
-                    
+
         # compare models of conduct for each set of instruments
         for instrument in range(L):
             instruments = self.products["Z{0}".format(instrument)]
@@ -647,9 +645,9 @@ class ProblemEconomy(Economy):
             delta_new = self.demand_results.compute_delta()
         self.demand_results.delta = delta_new
         return build_markups(
-            self.products, self.demand_results, self.models.models_downstream, self.models.ownership_downstream,
-            self.models.models_upstream, self.models.ownership_upstream, self.models.vertical_integration,
-            self.models.custom_model_specification, self.models.user_supplied_markups
+            self.products, self.demand_results, self.models["models_downstream"], self.models["ownership_downstream"],
+            self.models["models_upstream"], self.models["ownership_upstream"], self.models["vertical_integration"],
+            self.models["custom_model_specification"], self.models["user_supplied_markups"]
         )
 
     def _compute_variance_covariance(self, m, i, N, se_type, var):
@@ -678,7 +676,41 @@ class ProblemEconomy(Economy):
 
 
 class Problem(ProblemEconomy):
-    r"""A BLP-type problem."""
+    r"""A firm conduct testing-type problem.
+
+    This class is initialized using the relevant data and formulations, and solved with :meth:`Problem.solve`.
+
+    Parameters
+    __________
+    cost_formulation: `Formulation`
+        :class:`Formulation` is a list of the variables for observed product characteristics. All observed cost shifters
+        included in this formulation must be variables in the `product_data`. To use a constant, one would replace `0`
+        with `1`. To absorb fixed effects, specify `absorb = 'C(variable)'`, where the `variable` must also be in the
+        `product_data`. Including this option implements fixed effects absorption using
+        [PYHDFE](https://github.com/jeffgortmaker/pyhdfe), a companion package to PyBLP.
+
+    instrument_formulation: `Formulation or sequence of Formulation`
+        :class:`Formulation` is list of the variables used as excluded instruments for testing. For each instrument
+        formulation, there should never be a constant. The user can specify as many instrument formulations as desired.
+        All instruments must be variables in `product_data`.
+
+        **Our instrument naming conventions differ from PyBLP**.
+        With PyBLP, one specifies the excluded instruments for demand estimation via a naming convention in the product_
+        data: each excluded instrument for demand estimation begins with `"demand_instrument"` followed by a number
+        ( i.e., `demand_instrument0`).  In pyRVtest, you specify directly the names of the variables in the
+        `product_data` that you want to use as excluded instruments for testing (i.e., if you want to test with one
+        instrument using the variable in the `product_data` named, "transportation_cost" one could specify
+        `pyRVtest.Formulation('0 + transportation_cost')`.
+
+    model_formulations: `sequence of ModelFormulation`
+        :class:`ModelFormulation` defines the models that the researcher wants to test. There must be at least two
+        instances of `ModelFormulation` specified to run the firm conduct testing procedure.
+   product_data: `structured array-like`
+        This is the data containing product and market observable characteristics, as well as instruments.
+    demand_results`: `structured array-like`
+        The results object returned by `pyblp.solve`.
+
+    """
 
     def __init__(
             self, cost_formulation: Formulation, instrument_formulation: Sequence[Formulation], 
@@ -758,7 +790,7 @@ class Problem(ProblemEconomy):
                     raise ValueError(
                         f"Detected collinearity issues with [w,z"+str(instrument)+"]. "
                         f"{common_message}"
-                    )    
+                    )
 
             # output information about the initialized problem
             output(f"Initialized the problem after {format_seconds(time.time() - start_time)}.")
