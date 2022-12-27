@@ -14,6 +14,6 @@ __pychache__/
 # os generated files
 .DS_Store
 
-# tutorial generated files
-docs/tutorial/my_demand_estimates
-docs/tutorial/my_testing_results
+# notebooks generated files
+docs/notebooks/my_demand_estimates
+docs/notebooks/my_testing_results
