@@ -8,9 +8,9 @@ import os
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Optional, Tuple
+# from typing import Any, Optional, Tuple
 
-import astunparse
+# import astunparse
 import pyRVtest
 import sphinx.application
 
@@ -148,19 +148,19 @@ def process_notebooks() -> None:
             updated_path.write_text(json.dumps(updated, indent=1, sort_keys=True, separators=(', ', ': ')))
 
 
-def process_signature(*args: Any) -> Optional[Tuple[str, str]]:
-    """Strip type hints from signatures."""
-    signature = args[5]
-    if signature is None:
-        return None
-    assert isinstance(signature, str)
-    node = ast.parse(f'def f{signature}: pass').body[0]
-    assert isinstance(node, ast.FunctionDef)
-    node.returns = None
-    if node.args.args:
-        for arg in node.args.args:
-            arg.annotation = None
-    return astunparse.unparse(node).splitlines()[2][5:-1], ''
+# def process_signature(*args: Any) -> Optional[Tuple[str, str]]:
+#     """Strip type hints from signatures."""
+#     signature = args[5]
+#     if signature is None:
+#         return None
+#     assert isinstance(signature, str)
+#     node = ast.parse(f'def f{signature}: pass').body[0]
+#     assert isinstance(node, ast.FunctionDef)
+#     node.returns = None
+#     if node.args.args:
+#         for arg in node.args.args:
+#             arg.annotation = None
+#     return astunparse.unparse(node).splitlines()[2][5:-1], ''
 
 
 def setup(app: sphinx.application.Sphinx) -> None:
