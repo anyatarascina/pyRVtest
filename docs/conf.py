@@ -1,6 +1,6 @@
 """Sphinx configuration."""
 
-import ast
+# import ast
 import copy
 import datetime
 import json
@@ -9,10 +9,10 @@ from pathlib import Path
 import re
 import shutil
 # from typing import Any, Optional, Tuple
-
+#
 # import astunparse
-import pyRVtest
-import sphinx.application
+# import pyblp
+# import sphinx.application
 
 
 # get the location of the source directory
@@ -31,7 +31,6 @@ language = 'en'
 project = 'pyRVtest'
 author = 'Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, Christopher Sullivan, and Anya Tarascina'
 copyright = f'{datetime.datetime.now().year}, {author}'
-release = version = pyRVtest.__version__
 
 # configure build information
 nitpicky = True
@@ -52,21 +51,24 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.mathjax',
     'sphinx.ext.napoleon',
-    'nbsphinx',
+    'nbsphinx'
 ]
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3.6/', None),
     'numpy': ('https://docs.scipy.org/doc/numpy/', None),
+    'patsy': ('https://patsy.readthedocs.io/en/stable/', None),
     'scipy': ('https://docs.scipy.org/doc/scipy/reference/', None),
+    'pandas': ('http://pandas.pydata.org/pandas-docs/stable/', None),
+    'pyhdfe': ('https://pyhdfe.readthedocs.io/en/stable/', None),
 }
 extlinks = {
     'rtd': (f'{rtd_url}/%s', None),
-    'pdf': (f'{pdf_url}/%s', None),
+    'pdf': (f'{pdf_url}/%s', None)
 }
 mathjax_config = {
     'HTML-CSS': {
         'matchFontHeight': False,
-        'fonts': ['Latin-Modern', 'TeX'],
+        'fonts': ['Latin-Modern', 'TeX']
     }
 }
 math_numfig = True
@@ -97,7 +99,7 @@ def process_notebooks() -> None:
     """Copy notebook files to _notebooks and _downloads, resetting executing counts and replacing domains with Markdown
     equivalents.
     """
-    for notebook_path in Path(source_path / 'notebooks').glob('*.ipynb'):
+    for notebook_path in Path(source_path / 'notebooks').glob('**/*.ipynb'):
         notebook = json.loads(notebook_path.read_text())
         download = copy.deepcopy(notebook)
 
@@ -146,27 +148,3 @@ def process_notebooks() -> None:
             updated_path = source_path / Path(location, *relative_parts)
             updated_path.parent.mkdir(parents=True, exist_ok=True)
             updated_path.write_text(json.dumps(updated, indent=1, sort_keys=True, separators=(', ', ': ')))
-
-
-# def process_signature(*args: Any) -> Optional[Tuple[str, str]]:
-#     """Strip type hints from signatures."""
-#     signature = args[5]
-#     if signature is None:
-#         return None
-#     assert isinstance(signature, str)
-#     node = ast.parse(f'def f{signature}: pass').body[0]
-#     assert isinstance(node, ast.FunctionDef)
-#     node.returns = None
-#     if node.args.args:
-#         for arg in node.args.args:
-#             arg.annotation = None
-#     return astunparse.unparse(node).splitlines()[2][5:-1], ''
-
-
-def setup(app: sphinx.application.Sphinx) -> None:
-    """Clean directories, process notebooks, configure extra resources, and strip type hints."""
-    clean_directories()
-    process_notebooks()
-    app.add_javascript('override.js')
-    app.add_stylesheet('override.css')
-    app.connect('autodoc-process-signature', process_signature)
