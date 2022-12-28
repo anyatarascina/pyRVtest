@@ -6,18 +6,20 @@
 pyRVtest
 ====================================
 
+.. only:: html
+
+   The documentation can be navigated with the sidebar, the links below, or the :ref:`index <genindex>`.
+
+.. raw:: latex
+
 .. toctree::
+   :caption: User Documentation
    :maxdepth: 2
-   :caption: Contents:
 
    introduction
    tutorial
    api
    legal
 
-Indices and tables
-==================
+.. raw:: latex
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`

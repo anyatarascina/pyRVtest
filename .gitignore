@@ -17,6 +17,7 @@ __pychache__/
 # documentation generated files
 docs/_api
 docs/_build
+docs/_downloads
 docs/_static
 docs/_notebooks
 docs/_templates
