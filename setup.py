@@ -10,9 +10,9 @@ read = lambda p: Path(Path(__file__).resolve().parent / p).read_text()
 # set up the package
 setup(
     name='pyRVtest',
-    author='Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, Christopher Sullivan, and Anya Tarascina',
+    author='Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, Christopher Sullivan, Anya Tarascina',
     author_email='chris.sullivan.econ@gmail.com',
-    url='https://github.com/chrissullivanecon/pyRVtest',
+    url='https://github.com/anyatarascina/pyRVtest',
     packages=find_packages(),
     python_requires='>=3.6',
     install_requires=read('requirements.txt').splitlines(),
