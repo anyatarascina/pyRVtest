@@ -16,6 +16,12 @@ setup(
     packages=find_packages(),
     python_requires='>=3.6',
     install_requires=read('requirements.txt').splitlines(),
+    extras_require={
+        'docs': [
+            'sphinx==2.0.0', 'pandas', 'ipython', 'matplotlib', 'astunparse', 'sphinx-rtd-theme==0.4.3',
+            'nbsphinx==0.5.0'
+        ],
+    },
     license='MIT',
     description='Code to perform econometric test of firm conduct',
     long_description=read('README.rst', 'r').strip(),
