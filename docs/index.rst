@@ -1,10 +1,7 @@
-.. pyRVtest documentation master file, created by
-   sphinx-quickstart on Mon Jan  2 11:43:00 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
-Welcome to pyRVtest's documentation!
+pyRVtest
 ====================================
+
+The documentation can be navigated with the sidebar, the links below, or the index.
 
 .. toctree::
    :maxdepth: 2

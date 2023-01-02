@@ -1,6 +1,8 @@
 pyRVtest
 ========
 
+.. description-start
+
 Note: This package is currently in the process of being updated. The updated tutorial no longer applies to older
 versions of the package code. An updated version of the package will be available for download by end of January 2023.
 
@@ -42,13 +44,13 @@ To update to a newer version of the package use:
 
 
 Using the package
-________________
+_________________
 
 For a detailed tutorial about how to set up and run the testing procedure, see [link to tutorial notebook]
 
 
 Citing the package
-________________
+__________________
 
 When using the package, please include the following citation:
 
@@ -60,4 +62,4 @@ Duarte, M., L. Magnolfi, M. Sølvsten, C. Sullivan, and A. Tarascina
    title={\texttt{pyRVtest}: A Python package for testing firm conduct},
    howpublished={\url{https://github.com/anyatarascina/pyRVtest}},
    year={2022}
-}
+} 
