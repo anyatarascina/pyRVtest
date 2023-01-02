@@ -5,7 +5,11 @@ formats:
 build:
     image: latest
 
+sphinx:
+   configuration: docs/conf.py
+
 python:
+    requirements: requirements.txt
     version: 3.6
     pip_install: true
     extra_requirements:

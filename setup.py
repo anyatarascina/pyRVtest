@@ -18,7 +18,8 @@ setup(
     install_requires=read('requirements.txt').splitlines(),
     extras_require={
         'docs': [
-            'sphinx', 'pandas', 'ipython', 'matplotlib', 'astunparse', 'sphinx-rtd-theme', 'nbsphinx'
+            'sphinx==5.3.0', 'pandas', 'ipython', 'matplotlib', 'astunparse', 'sphinx-rtd-theme==0.4.3',
+            'nbsphinx==0.8.10', 'jinja2~=2.11', 'docutils==0.17.1',
         ],
     },
     license='MIT',

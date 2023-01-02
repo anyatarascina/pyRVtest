@@ -31,7 +31,6 @@ objects.
    :toctree: _api
 
    build_markups
-   build_matrix
    read_pickle
 
 

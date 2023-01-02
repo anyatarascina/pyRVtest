@@ -291,7 +291,6 @@ class ModelFormulation(object):
     user_supplied_markups: `str, optional`
         The name of the column containing user-supplied markups.
 
-
     """
 
     _model_downstream: str

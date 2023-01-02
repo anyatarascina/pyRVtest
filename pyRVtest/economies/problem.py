@@ -705,8 +705,10 @@ class Problem(ProblemEconomy):
     model_formulations: `sequence of ModelFormulation`
         :class:`ModelFormulation` defines the models that the researcher wants to test. There must be at least two
         instances of `ModelFormulation` specified to run the firm conduct testing procedure.
+
    product_data: `structured array-like`
         This is the data containing product and market observable characteristics, as well as instruments.
+
     demand_results`: `structured array-like`
         The results object returned by `pyblp.solve`.
 
