@@ -62,4 +62,4 @@ Duarte, M., L. Magnolfi, M. Sølvsten, C. Sullivan, and A. Tarascina
    title={\texttt{pyRVtest}: A Python package for testing firm conduct},
    howpublished={\url{https://github.com/anyatarascina/pyRVtest}},
    year={2022}
-} 
+}

@@ -1,21 +1,32 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# For the full list of built-in configuration values, see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
-
+import ast
+import copy
+import datetime
+import json
 import os
+from pathlib import Path
+import re
+import shutil
+from typing import Any, Optional, Tuple
+
 import sys
 sys.path.insert(0, os.path.abspath('..'))
 
-# -- Project information -----------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+import astunparse
+import pyRVtest
+import sphinx.application
 
+# get the location of the source directory
+source_path = Path(__file__).resolve().parent
+
+# project information
 project = 'pyRVtest'
 copyright = '2023, Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, Christopher Sullivan, and Anya Tarascina'
 author = 'Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, Christopher Sullivan, and Anya Tarascina'
 
-# -- General configuration ---------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
+# configure locations of other configuration files
+html_static_path = ['static']
+templates_path = ['templates']
+exclude_patterns = ['_build', '_downloads', 'templates', 'notebooks', 'templates', '**.ipynb_checkpoints']
 
 # configure extensions
 extensions = [
@@ -37,11 +48,32 @@ intersphinx_mapping = {
     'pyhdfe': ('https://pyhdfe.readthedocs.io/en/stable/', None),
 }
 
-templates_path = ['_templates']
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+# configure HTML information
+html_theme = 'sphinx_rtd_theme'
 
-# -- Options for HTML output -------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'alabaster'
-html_static_path = ['_static']
+def clean_directories() -> None:
+    """Clean directories that will be generated."""
+    for name in ['_api', '_downloads', '_notebooks']:
+        shutil.rmtree(source_path / name, ignore_errors=True)
+
+
+def process_signature(*args: Any) -> Optional[Tuple[str, str]]:
+    """Strip type hints from signatures."""
+    signature = args[5]
+    if signature is None:
+        return None
+    assert isinstance(signature, str)
+    node = ast.parse(f'def f{signature}: pass').body[0]
+    assert isinstance(node, ast.FunctionDef)
+    node.returns = None
+    if node.args.args:
+        for arg in node.args.args:
+            arg.annotation = None
+    return astunparse.unparse(node).splitlines()[2][5:-1], ''
+
+
+def setup(app: sphinx.application.Sphinx) -> None:
+    """Clean directories, process notebooks, configure extra resources, and strip type hints."""
+    clean_directories()
+    app.connect('autodoc-process-signature', process_signature)
