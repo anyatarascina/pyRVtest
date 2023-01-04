@@ -7,4 +7,4 @@ example problems, compute post-estimation outputs, and simulate problems.
 .. toctree::
    :maxdepth: 2
 
-   notebooks/testing_firm_conduct.ipynb
+   _notebooks/testing_firm_conduct.ipynb
