@@ -14,12 +14,12 @@ setup(
     author_email='chris.sullivan.econ@gmail.com',
     url='https://github.com/anyatarascina/pyRVtest',
     packages=find_packages(),
-    python_requires='>=3.6',
+    python_requires='>=3.7',
     install_requires=read('requirements.txt').splitlines(),
     extras_require={
         'docs': [
-            'sphinx==5.3.0', 'pandas', 'ipython', 'matplotlib', 'astunparse', 'sphinx-rtd-theme==0.4.3',
-            'nbsphinx==0.8.10', 'jinja2~=2.11', 'docutils==0.17.1',
+            'sphinx==5.0.2', 'pandas', 'ipython', 'astunparse', 'sphinx-rtd-theme==1.1.1',
+            'nbsphinx==0.8.11', 'jinja2==3.0.3', 'docutils==0.17.1',
         ],
     },
     license='MIT',
