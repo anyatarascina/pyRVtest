@@ -1,7 +1,7 @@
 pyRVtest
 ========
 
-.. description-start
+.. docs-start
 
 Note: This package is currently in the process of being updated. The updated tutorial no longer applies to older
 versions of the package code. An updated version of the package will be available for download by end of January 2023.

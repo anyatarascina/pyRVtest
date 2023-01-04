@@ -19,7 +19,7 @@ setup(
     extras_require={
         'docs': [
             'sphinx==5.0.2', 'pandas', 'ipython', 'astunparse', 'sphinx-rtd-theme==1.1.1',
-            'nbsphinx==0.8.11', 'jinja2==3.0.3', 'docutils==0.17.1',
+            'nbsphinx==0.8.11', 'jinja2==3.0.3', 'docutils==0.17.1', 'numpydoc'
         ],
     },
     license='MIT',
