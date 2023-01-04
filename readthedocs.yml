@@ -10,7 +10,7 @@ sphinx:
 
 python:
     requirements: requirements.txt
-    version: 3.9
+    version: 3.7
     pip_install: true
     extra_requirements:
         - docs
