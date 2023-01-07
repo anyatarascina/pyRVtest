@@ -32,7 +32,6 @@ To install the pyRVtest package, use pip:
 
     pip install pyRVtest
 
-
 This should automatically install the python packages on which pyRVtest depends: numpy, pandas, statsmodels, pyblp
 
 To update to a newer version of the package use:
@@ -57,10 +56,12 @@ When using the package, please include the following citation:
 Duarte, M., L. Magnolfi, M. Sølvsten, C. Sullivan, and A. Tarascina
 (2022): “pyRVtest: A Python package for testing firm conduct,” https://github.com/anyatarascina/pyRVtest.
 
-@misc{
-    pyrvtest,
-    author={Marco Duarte and Lorenzo Magnolfi and Mikkel S{\o}lvsten and Christopher Sullivan and Anya Tarascina},
-    title={\texttt{pyRVtest}: A Python package for testing firm conduct},
-    howpublished={\url{https://github.com/anyatarascina/pyRVtest}},
-    year={2022}
-}
+.. raw:: latex
+
+    @misc{
+        pyrvtest,
+        author={Marco Duarte and Lorenzo Magnolfi and Mikkel S{\o}lvsten and Christopher Sullivan and Anya Tarascina},
+        title={\texttt{pyRVtest}: A Python package for testing firm conduct},
+        howpublished={\url{https://github.com/anyatarascina/pyRVtest}},
+        year={2022}
+    }

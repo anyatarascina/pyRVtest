@@ -41,7 +41,7 @@ Problem Class
    :toctree: _api
    :template: class_with_signature.rst
 
-   Problem
+    Problem
 
 Once initialized, the following method solves the problem.
 

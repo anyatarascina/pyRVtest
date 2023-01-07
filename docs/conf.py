@@ -1,3 +1,4 @@
+"""Sphinx configuration."""
 
 import ast
 import copy
@@ -22,7 +23,6 @@ copyright = '2023, Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, Christopher 
 author = 'Marco Duarte, Lorenzo Magnolfi, Mikkel Solvsten, Christopher Sullivan, and Anya Tarascina'
 
 # configure locations of other configuration files
-html_static_path = ['static']
 templates_path = ['templates']
 exclude_patterns = ['_build', '_downloads', 'notebooks', 'templates', '**.ipynb_checkpoints']
 
@@ -30,7 +30,6 @@ exclude_patterns = ['_build', '_downloads', 'notebooks', 'templates', '**.ipynb_
 rtd_version = os.environ.get('READTHEDOCS_VERSION', 'latest')
 rtd_url = f'https://{project.lower()}.readthedocs.io/{language}/{rtd_version}'
 pdf_url = f'https://readthedocs.org/projects/{project.lower()}/downloads/pdf/{rtd_version}'
-
 
 # configure extensions
 extensions = [
@@ -41,8 +40,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.mathjax',
     'sphinx.ext.napoleon',
-    'nbsphinx',
-    'numpydoc'
+    'nbsphinx'
 ]
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3.6/', None),
@@ -109,7 +107,7 @@ def process_notebooks() -> None:
                         elif role in {'mod', 'func', 'class', 'meth', 'attr', 'exc'}:
                             text = f'`{content}`'
                             section = f'{project}.{content}'
-                            document = f'../../_api/{project}.{content}'
+                            document = f'_api/{project}.{content}'
                             if role == 'mod':
                                 section = f'module-{section}'
                             elif role == 'attr':
@@ -120,7 +118,7 @@ def process_notebooks() -> None:
                         # replace the domain with Markdown equivalents (reStructuredText doesn't support linked code)
                         notebook_cell['source'][source_index] = notebook_cell['source'][source_index].replace(
                             domain,
-                            f'[{text.strip("`")}]({relative_location}{document}.rst)'
+                            f'[{text.strip("`")}]({relative_location}{document}.rst#{section})'
                         )
                         download_cell['source'][source_index] = download_cell['source'][source_index].replace(
                             domain,

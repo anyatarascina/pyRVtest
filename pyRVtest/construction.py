@@ -34,44 +34,44 @@ def build_markups(
     least a model of downstream conduct. If `model_upstream` is not specified, this is a model without vertical
     integration.
 
-        Parameters
-        ----------
-        products : `recarray`
-            The `product_data` containing information on markets and product characteristics. This should be the same as
-             the data used for demand estimation. To compute markups, this data must include `prices`, `market_ids`, and
-             `shares`.
-        demand_results : `structured array-like`
-            The results object obtained from using the pyBLP demand estimation procedure. We use built-in PyBLP
-            functions to return the demand Jacobians and Hessians (first and second derivatives of shares with respect
-            to prices).
-        model_downstream: `ndarray`
-            The model of conduct for downstream firms. Can be one of [`bertrand`, `cournot`, `monopoly`,
-            `perfect_competition`, `other`]. Only specify option `other` if supplying a custom markup formula.
-        ownership_downstream: `ndarray`
-            The ownership matrix for price or quantity setting (optional, default is standard ownership).
-        model_upstream: `ndarray, optional`
-            Upstream firm model of conduct. Only specify option `other` if supplying a custom markup formula. Can be one
-            of ['none' (default), `bertrand`, `cournot`, `monopoly`, `perfect_competition`, `other`].
-        ownership_upstream: `ndarray, optional`
-            Ownership matrix for price or quantity setting of upstream firms (optional, default is None).
-        vertical_integration: `ndarray, optional`
-            Vector indicating which `product_ids` are vertically integrated (ie store brands) (optional, default is
-            None).
-        custom_model_specification: `dict, optional`
-            Dictionary containing a custom markup formula and the name of the formula (optional, default is None).
-        user_supplied_markups: `ndarray, optional`
-            Vector containing user-computed markups (optional, default is None). If user supplied own markups, this
-            function simply returns them.
+    Parameters
+    ----------
+    products : `recarray`
+        The `product_data` containing information on markets and product characteristics. This should be the same as
+        the data used for demand estimation. To compute markups, this data must include `prices`, `market_ids`, and
+        `shares`.
+    demand_results : `structured array-like`
+        The results object obtained from using the pyBLP demand estimation procedure. We use built-in PyBLP
+        functions to return the demand Jacobians and Hessians (first and second derivatives of shares with respect
+        to prices).
+    model_downstream: `ndarray`
+        The model of conduct for downstream firms. Can be one of [`bertrand`, `cournot`, `monopoly`,
+        `perfect_competition`, `other`]. Only specify option `other` if supplying a custom markup formula.
+    ownership_downstream: `ndarray`
+        The ownership matrix for price or quantity setting (optional, default is standard ownership).
+    model_upstream: `ndarray, optional`
+        Upstream firm model of conduct. Only specify option `other` if supplying a custom markup formula. Can be one
+        of ['none' (default), `bertrand`, `cournot`, `monopoly`, `perfect_competition`, `other`].
+    ownership_upstream: `ndarray, optional`
+        Ownership matrix for price or quantity setting of upstream firms (optional, default is None).
+    vertical_integration: `ndarray, optional`
+        Vector indicating which `product_ids` are vertically integrated (ie store brands) (optional, default is
+        None).
+    custom_model_specification: `dict, optional`
+        Dictionary containing a custom markup formula and the name of the formula (optional, default is None).
+    user_supplied_markups: `ndarray, optional`
+        Vector containing user-computed markups (optional, default is None). If user supplied own markups, this
+        function simply returns them.
 
-        Returns
-        -------
-        `tuple[list, list, list]`
-            . Computed markups, downstream markups, and upstream markups for each model.
+    Returns
+    -------
+    `tuple[list, list, list]`
+        . Computed markups, downstream markups, and upstream markups for each model.
 
-        Notes
-        _____
-        For models without vertical integration, firm_ids must be defined in product_data for vi models, and
-        firm_ids_upstream and firm_ids (=firm_ids_downstream) must be defined.
+    Notes
+    _____
+    For models without vertical integration, firm_ids must be defined in product_data for vi models, and
+    firm_ids_upstream and firm_ids (=firm_ids_downstream) must be defined.
 
     """
 

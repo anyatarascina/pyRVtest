@@ -28,7 +28,7 @@ class ProblemEconomy(Economy):
 
     @abc.abstractmethod
     def __init__(
-            self, cost_formulation: Formulation, instrument_formulation: Sequence[Formulation], 
+            self, cost_formulation: Formulation, instrument_formulation: Sequence[Formulation],
             model_formulations: Sequence[ModelFormulation], products: RecArray, models: RecArray,
             demand_results: Mapping, markups: RecArray) -> None:
         """Initialize the underlying economy with product and agent data."""
@@ -45,7 +45,6 @@ class ProblemEconomy(Economy):
 
         The rest of the testing procedure is done for each pair of models, for each set of instruments. A GMM measure of
         fit is computed for each model-instrument pair. This measure of fit is used to construct the test statistic.
-
 
         Parameters
         ----------
@@ -106,9 +105,10 @@ class ProblemEconomy(Economy):
         if markups[0] is None:
             print('Computing Markups ... ')
             markups, markups_downstream, markups_upstream = build_markups(
-                self.products, self.demand_results, self.models["models_downstream"], self.models["ownership_downstream"],
-                self.models["models_upstream"], self.models["ownership_upstream"], self.models["vertical_integration"],
-                self.models["custom_model_specification"], self.models["user_supplied_markups"]
+                self.products, self.demand_results, self.models["models_downstream"],
+                self.models["ownership_downstream"], self.models["models_upstream"], self.models["ownership_upstream"],
+                self.models["vertical_integration"], self.models["custom_model_specification"],
+                self.models["user_supplied_markups"]
             )
 
         # for each model, use computed markups to compute the marginal costs
@@ -201,7 +201,7 @@ class ProblemEconomy(Economy):
                 """Compute markups for setting with taxes."""
                 denominator = (1 + cost_scaling[m] * advalorem_tax_adj[m])
                 computation = (
-                        advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups_m - unit_tax[m]
+                    advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups_m - unit_tax[m]
                 )
                 return self.products.prices - computation / denominator
 
@@ -265,7 +265,7 @@ class ProblemEconomy(Economy):
                     self.demand_results.pi[i, j] = pi_initial
                     theta_index = theta_index + 1
             self.demand_results.delta = delta_estimate
-                
+
             # perturb alpha in negative (positive) direction and recompute markups
             for i in range(len(self.demand_results.beta)):
                 if self.demand_results.beta_labels[i] == 'prices':
@@ -523,8 +523,8 @@ class ProblemEconomy(Economy):
                         symbols_size[i, m] = "*"
                     elif F[i, m] < F_cv_size[i, m][2]:
                         symbols_size[i, m] = "**"
-                    else:    
-                        symbols_size[i, m] = "***"    
+                    else:
+                        symbols_size[i, m] = "***"
 
                     # determine F-stat critical values for power
                     if F[i, m] < F_cv_power[i, m][0]:
@@ -533,7 +533,7 @@ class ProblemEconomy(Economy):
                         symbols_power[i, m] = "^"
                     elif F[i, m] < F_cv_power[i, m][2]:
                         symbols_power[i, m] = "^^"
-                    else:    
+                    else:
                         symbols_power[i, m] = "^^^"
 
                 if i >= m:
@@ -609,9 +609,9 @@ class ProblemEconomy(Economy):
             MCS_p_values_list[instrument] = model_confidence_set_pvalues
             rho_list[instrument] = rho
             AR_variance_list[instrument] = AR_variance
-            F_cv_size_list[instrument] = F_cv_size 
+            F_cv_size_list[instrument] = F_cv_size
             F_cv_power_list[instrument] = F_cv_power
-            symbols_size_list[instrument] = symbols_size 
+            symbols_size_list[instrument] = symbols_size
             symbols_power_list[instrument] = symbols_power
 
         # return results
@@ -681,7 +681,7 @@ class Problem(ProblemEconomy):
     This class is initialized using the relevant data and formulations, and solved with :meth:`Problem.solve`.
 
     Parameters
-    __________
+    ----------
     cost_formulation: `Formulation`
         :class:`Formulation` is a list of the variables for observed product characteristics. All observed cost shifters
         included in this formulation must be variables in the `product_data`. To use a constant, one would replace `0`
@@ -694,28 +694,29 @@ class Problem(ProblemEconomy):
         formulation, there should never be a constant. The user can specify as many instrument formulations as desired.
         All instruments must be variables in `product_data`.
 
-        **Our instrument naming conventions differ from PyBLP**.
-        With PyBLP, one specifies the excluded instruments for demand estimation via a naming convention in the product_
-        data: each excluded instrument for demand estimation begins with `"demand_instrument"` followed by a number
-        ( i.e., `demand_instrument0`).  In pyRVtest, you specify directly the names of the variables in the
-        `product_data` that you want to use as excluded instruments for testing (i.e., if you want to test with one
-        instrument using the variable in the `product_data` named, "transportation_cost" one could specify
-        `pyRVtest.Formulation('0 + transportation_cost')`.
+        .. note::
+            **Our instrument naming conventions differ from PyBLP**. With PyBLP, one specifies the excluded instruments
+            for demand estimation via a naming convention in the product_data: each excluded instrument for demand
+            estimation begins with `"demand_instrument"` followed by a number ( i.e., `demand_instrument0`). In
+            pyRVtest, you specify directly the names of the variables in the `product_data` that you want to use as
+            excluded instruments for testing (i.e., if you want to test with one instrument using the variable in the
+            `product_data` named, "transportation_cost" one could specify
+            `pyRVtest.Formulation('0 + transportation_cost')`.
 
     model_formulations: `sequence of ModelFormulation`
         :class:`ModelFormulation` defines the models that the researcher wants to test. There must be at least two
         instances of `ModelFormulation` specified to run the firm conduct testing procedure.
 
-   product_data: `structured array-like`
+    product_data: `structured array-like`
         This is the data containing product and market observable characteristics, as well as instruments.
 
     demand_results`: `structured array-like`
         The results object returned by `pyblp.solve`.
 
-    """
+   """
 
     def __init__(
-            self, cost_formulation: Formulation, instrument_formulation: Sequence[Formulation], 
+            self, cost_formulation: Formulation, instrument_formulation: Sequence[Formulation],
             product_data: Mapping, demand_results: Mapping, model_formulations: Sequence[ModelFormulation] = None,
             markup_data: Optional[RecArray] = None) -> None:
         """Initialize the underlying economy with product and agent data before absorbing fixed effects."""
@@ -784,13 +785,13 @@ class Problem(ProblemEconomy):
                 collinear, successful = precisely_identify_collinearity(cost_shifters)
                 if not successful:
                     raise ValueError(
-                        f"Failed to compute the QR decomposition of [w,z"+str(instrument)+"] while checking for "
+                        f"Failed to compute the QR decomposition of [w,z" + str(instrument) + "] while checking for "
                         f"collinearity issues. "
                         f"{common_message}"
                     )
                 if collinear.any():
                     raise ValueError(
-                        f"Detected collinearity issues with [w,z"+str(instrument)+"]. "
+                        f"Detected collinearity issues with [w,z" + str(instrument) + "]."
                         f"{common_message}"
                     )
 

@@ -4,7 +4,7 @@ from pathlib import Path
 import pickle
 from typing import List, Union, TYPE_CHECKING
 
-from pyblp.utilities.basics import (Array, format_table)
+from pyblp.utilities.basics import Array
 
 from .results import Results
 from ..utilities.basics import format_table
@@ -125,7 +125,7 @@ class ProblemResults(Results):
             ]
             data.append([str(k)] + rv_results + [str(k)] + f_stat_results + [str(k)] + pvalues_results)
             data.append([""] + ["" for i in range(number_models)] + [""] + symbols_results + [""] + [""])
-        
+
         # construct the header
         blanks = [f"  " for i in range(number_models)]
         numbers = [f" {i} " for i in range(number_models)]

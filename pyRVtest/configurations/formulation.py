@@ -19,9 +19,10 @@ import sympy.parsing.sympy_parser
 
 
 class Formulation(StringRepresentation):
-    r"""Note: This class is a copy of the Formulation class from PyBLP.
+    r"""Configuration for designing matrices and absorbing fixed effects.
 
-    Configuration for designing matrices and absorbing fixed effects.
+    .. note::
+        This class is a copy of the Formulation class from PyBLP.
 
     Internally, the `patsy <https://patsy.readthedocs.io/en/stable/>`_ package is used to convert data and R-style
     formulas into matrices. All of the standard
@@ -254,10 +255,11 @@ class ModelFormulation(object):
 
     Here, we have another difference with PyBLP.  In PyBLP, if one wants to build an ownership matrix, there must be a
     variable called `firm_id` in the `product_data`.  With pyRVtest, the researcher can pass any variable in the
-    `product_data` as `ownership_downstream` and from this, the ownership matrix in each market will be built
+    `product_data` as `ownership_downstream` and from this, the ownership matrix in each market will be built.
 
-    (Future Release Note: We are working on adding additional models to this library as well as options for the
-    researcher to specify their own markup function.)
+    .. note::
+        We are working on adding additional models to this library as well as options for the researcher to specify
+        their own markup function.)
 
     Parameters
     ----------
@@ -276,7 +278,7 @@ class ModelFormulation(object):
         consist of objects computed within the package.
     vertical_integration: `str, optional`
         The column name for the data column which indicates the vertical ownership structure.
-     unit_tax: `str, optional`
+    unit_tax: `str, optional`
         The column name for the vector containing information on unit taxes.
     advalorem_tax: `str, optional`
         The column name for the vector containing information on advalorem taxes.
@@ -327,13 +329,13 @@ class ModelFormulation(object):
         if model_upstream is not None and model_upstream not in model_set:
             raise TypeError("model_upstream must be monopoly, bertrand, cournot, perfect_competition, or other.")
         if model_upstream is not None and model_downstream in {'cournot'} and model_upstream in {'cournot'}:
-            raise TypeError("model_upstream and model_downstream cannot both be cournot.")    
+            raise TypeError("model_upstream and model_downstream cannot both be cournot.")
         if ownership_downstream is not None and not isinstance(ownership_downstream, str):
             raise TypeError("ownership_downstream must be a None or a str.")
         if ownership_upstream is not None and not isinstance(ownership_upstream, str):
             raise TypeError("ownership_upstream must be a None or a str.")
         if model_upstream is not None and not isinstance(ownership_upstream, str):
-            raise TypeError("ownership_upstream must be a str when upstream model defined.")    
+            raise TypeError("ownership_upstream must be a str when upstream model defined.")
         if vertical_integration is not None and not isinstance(vertical_integration, str):
             raise TypeError("vertical_integration must be a None or a str.")
         if unit_tax is not None and not isinstance(unit_tax, str):
@@ -484,4 +486,3 @@ def parse_expression(string: str, mark_categorical: bool = False) -> sp.Expr:
             expression = expression.replace(mapping[name], sp.Id)
 
     return expression
-
