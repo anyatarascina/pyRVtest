@@ -37,7 +37,7 @@ class ProblemEconomy(Economy):
         )
 
     def solve(
-            self, demand_adjustment: Optional[bool] = False, se_type: Optional[str] = 'unadjusted') -> ProblemResults:
+            self, demand_adjustment: Optional[bool] = False, clustering_adjustment: Optional[str] = 'unadjusted') -> ProblemResults:
         r"""Solve the problem.
 
         Given demand estimates from PyBLP, we compute implied markups for each model :math:`m` being tested. Marginal
@@ -51,9 +51,9 @@ class ProblemEconomy(Economy):
         demand_adjustment: Optional[bool]
             (optional, default is False) Configuration that allows user to specify whether to compute a two-step demand
             adjustment. Options are True or False.
-        se_type: Optional[str]
-            (optional, default is unadjusted) Configuration that specifies what kind of errors to compute. The errors
-            can be `robust`, `unadjusted` or `clustered`.
+        clustering_adjustment: Optional[str]
+            (optional, default is unadjusted) Configuration that specifies whether to compute clustered standard errors.
+            Options are True or False.
 
         Returns
         -------
@@ -76,15 +76,15 @@ class ProblemEconomy(Economy):
         # validate settings
         if not isinstance(demand_adjustment, bool):
             raise TypeError("demand_adjustment must be a boolean (one of True or False).")
-        if se_type not in {'robust', 'unadjusted', 'clustered'}:
-            raise ValueError("se_type must be 'robust', 'unadjusted', or 'clustered'.")
-        if se_type == 'clustered' and np.shape(self.products.clustering_ids)[1] != 1:
-            raise ValueError("product_data.clustering_ids must be specified with se_type 'clustered'.")
+        if not isinstance(clustering_adjustment, bool):
+            raise TypeError("demand_adjustment must be a boolean (one of True or False).")
+        if clustering_adjustment and np.shape(self.products.clustering_ids)[1] != 1:
+            raise ValueError("product_data.clustering_ids must be specified with clustering_adjustment 'clustered'.")
         for m in range(M):
             if self.model_formulations[m]._user_supplied_markups is not None:
-                if se_type != 'unadjusted' or demand_adjustment:
+                if clustering_adjustment or demand_adjustment:
                     raise ValueError(
-                        "If using own markups, demand_adjustment should be False and se_type should be unadjusted."
+                        "If using own markups, demand_adjustment and clustering_adjustment should be False."
                     )
 
         # initialize variables to be computed
@@ -415,7 +415,7 @@ class ProblemEconomy(Economy):
             for m in range(M):
                 for i in range(m):
                     if i < m:
-                        variance_covariance = self._compute_variance_covariance(m, i, N, se_type, psi)
+                        variance_covariance = self._compute_variance_covariance(m, i, N, clustering_adjustment, psi)
                         weighted_variance = W_12 @ variance_covariance @ W_12
                         operations = np.array([1, 1, -2])
                         moments = np.array([
@@ -462,7 +462,7 @@ class ProblemEconomy(Economy):
             # construct the AR variance
             for m in range(M):
                 AR_variance[m] = 1 / N * (phi[m].T @ phi[m])
-                if se_type == 'clustered':
+                if clustering_adjustment == 'clustered':
                     cluster_ids = np.unique(self.products.clustering_ids)
                     for j in cluster_ids:
                         index = np.where(self.products.clustering_ids == j)[0]
@@ -478,7 +478,7 @@ class ProblemEconomy(Economy):
             # compute the F statistic for each pair of models
             for (m, i) in itertools.product(range(M), range(M)):
                 if i < m:
-                    variance = self._compute_variance_covariance(m, i, N, se_type, phi)
+                    variance = self._compute_variance_covariance(m, i, N, clustering_adjustment, phi)
                     sigma = 1 / K * np.array([
                         np.trace(variance[0] @ W_inverse), np.trace(variance[1] @ W_inverse),
                         np.trace(variance[2] @ W_inverse)

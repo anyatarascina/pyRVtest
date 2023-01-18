@@ -7,17 +7,17 @@ pyRVtest
     This package is currently in the process of being updated. The updated tutorial no longer applies to older
     versions of the package code. An updated version of the package will be available for download by end of January 2023.
 
-This code was written to perform the procedure for testing firm conduct developed in "Testing Firm Conduct" by Marco Duarte, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan.  It largely adapts the PyBLP source code (see `Conlon and Gortmaker (2020) <https://onlinelibrary.wiley.com/doi/full/10.1111/1756-2171.12352>`_) - to do so.
+This code was written to perform the procedure for testing firm conduct developed in :ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2023)`.  It builds on the PyBLP source code (see `Conlon and Gortmaker (2020) <https://onlinelibrary.wiley.com/doi/full/10.1111/1756-2171.12352>`_) - to do so.
 
 The code implements the following features:
 
-* Computes `Rivers and Vuong (2002) <https://onlinelibrary.wiley.com/doi/full/10.1111/1368-423X.t01-1-00071>`_ (RV) test statistics to test a menu of two or more models of firm conduct allowing for the possibility that firms or consumers face per unit or ad-valorem taxes.
-* Implements the RV test using the variance estimator of `Duarte, Magnolfi, Sølvsten, and Sullivan (2021) <https://drive.google.com/file/d/1eZRsohyJ5XN-_j52NLDEyQsWFX9wSXqc/view>`_, including options to adjust for demand estimation error and clustering
-* Computes the effective F-statistic proposed in `Duarte, Magnolfi, Sølvsten, and Sullivan (2021) <https://drive.google.com/file/d/1eZRsohyJ5XN-_j52NLDEyQsWFX9wSXqc/view>`_ to diagnose instrument strength with respect to worst-case size and best-case power of the test, and reports appropriate critical values
-* Reports `Hansen, Lunde, and Nason (2011) <https://www.jstor.org/stable/41057463?seq=1#metadata_info_tab_contents>`_ MCS p-values for testing more than two models
-* Compatible with PyBLP `Conlon and Gortmaker (2020) <https://onlinelibrary.wiley.com/doi/full/10.1111/1756-2171.12352>`_, so that demand can be estimated with PyBLP, and the estimates are an input to the test for conduct
+* Computes :ref:`references:Rivers, D., & Vuong, Q. (2002)` (RV) test statistics to test a menu of two or more models of firm conduct allowing for the possibility that firms or consumers face per unit or ad-valorem taxes.
+* Implements the RV test using the variance estimator of :ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2023)`, including options to adjust for demand estimation error and clustering.
+* Computes the effective F-statistic proposed in :ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2023)` to diagnose instrument strength with respect to worst-case size and best-case power of the test, and reports appropriate critical values.
+* Reports :ref:`references: Hansen, Lunde, and Nason (2011)` MCS p-values for testing more than two models.
+* Compatible with PyBLP (:ref:`references: Conlon and Gortmaker (2020)`), so that demand can be estimated with PyBLP, and the estimates are an input to the test for conduct.
 
-For a full list of references, see the references in `Duarte, Magnolfi, Sølvsten, and Sullivan (2021) <https://drive.google.com/file/d/1eZRsohyJ5XN-_j52NLDEyQsWFX9wSXqc/view>`_.
+For a full list of references, see the references in `references: Duarte, Magnolfi, Sølvsten, and Sullivan (2023)`.
 
 
 Install
