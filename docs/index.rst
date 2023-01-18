@@ -10,6 +10,7 @@ The documentation can be navigated with the sidebar, the links below, or the ind
    introduction
    tutorial
    api
+   references
    legal
 
 

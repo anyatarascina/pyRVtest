@@ -8,3 +8,4 @@ example problems, compute post-estimation outputs, and simulate problems.
    :maxdepth: 2
 
    _notebooks/testing_firm_conduct.ipynb
+   _notebooks/model_library.ipynb

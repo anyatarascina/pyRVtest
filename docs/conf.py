@@ -66,6 +66,7 @@ numfig_secnum_depth = 0
 autosummary_generate = True
 numpydoc_show_class_members = False
 autosectionlabel_prefix_document = True
+nbsphinx_allow_errors = True
 
 # configure HTML information
 html_theme = 'sphinx_rtd_theme'
