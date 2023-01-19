@@ -6,7 +6,7 @@ also cite :ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2023)`.
 
 Duarte, Magnolfi, Sølvsten, and Sullivan (2023)
 _______________________________________________
-Duarte, Magnolfi, Sølvsten, and Sullivan (2023). `Testing firm conduct <https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4322843>`_. Working paper.
+Duarte, Magnolfi, Sølvsten, and Sullivan (2023). `Testing firm conduct <https://arxiv.org/abs/2301.06720>`_. Working paper.
 
 Other References
 ________________
@@ -46,7 +46,7 @@ Nevo, Aviv (2000). `A practitioner's guide to estimation of random‐coefficient
 
 Nevo (2000b)
 ~~~~~~~~~~~~
-Nevo, Aviv. `"Measuring market power in the ready‐to‐eat cereal industry." <<https://ideas.repec.org/a/rje/randje/v31y2000iautumnp395-421.html>`_ Econometrica 69, no. 2 (2001): 307-342.
+Nevo, Aviv. `"Measuring market power in the ready‐to‐eat cereal industry." <https://ideas.repec.org/a/rje/randje/v31y2000iautumnp395-421.html>`_ Econometrica 69, no. 2 (2001): 307-342.
 
 Rivers and Vuong (2002)
 ~~~~~~~~~~~~~~~~~~~~~~~
