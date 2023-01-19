@@ -46,7 +46,7 @@ To update to a newer version of the package use:
 Using the package
 _________________
 
-For a detailed tutorial about how to set up and run the testing procedure, see [link to tutorial notebook]
+For a detailed tutorial about how to set up and run the testing procedure, see :ref:`tutorial_reference`.
 
 
 Citing the package

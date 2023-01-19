@@ -1,3 +1,5 @@
+.. _tutorial_reference:
+
 Tutorial
 ========
 
