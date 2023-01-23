@@ -58,7 +58,7 @@ class Products(object):
             raise TypeError("cost_formulation must be a Formulation instance or None.")
         if cost_formulation is None:
             raise ValueError("The formulation for marginal cost must be specified.")
-        
+
         # build w
         w, w_formulation, w_data = cost_formulation._build_matrix(product_data)
         if 'shares' in w_data:
@@ -104,7 +104,7 @@ class Products(object):
         cost_ids = None
         if cost_formulation._absorbed_terms:
             cost_ids = cost_formulation._build_ids(product_data)
-        
+
         # load other IDs
         market_ids = extract_matrix(product_data, 'market_ids')
         nesting_ids = extract_matrix(product_data, 'nesting_ids')
@@ -408,4 +408,3 @@ def read_critical_values_tables():
     )
 
     return critical_values_power, critical_values_size
-

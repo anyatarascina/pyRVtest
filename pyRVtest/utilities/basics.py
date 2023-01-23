@@ -15,9 +15,9 @@ pool = None
 
 
 def format_table(
-        header: Sequence, subheader: Sequence, *data: Sequence, title: Optional[str] = None, include_notes: bool = False,
-        include_border: bool = True, include_header: bool = True, include_subheader: bool = True,
-        line_indices: Container[int] = ()) -> str:
+        header: Sequence, subheader: Sequence, *data: Sequence, title: Optional[str] = None,
+        include_notes: bool = False, include_border: bool = True, include_header: bool = True,
+        include_subheader: bool = True, line_indices: Container[int] = ()) -> str:
     """Format table information as a string, which has fixed widths, vertical lines after any specified indices, and
     optionally a title, border, and header.
     """
@@ -67,7 +67,7 @@ def format_table(
         lines.append(template.format(*("-" * w for w in widths)))
     if include_subheader:
         lines.extend([template.format(*r) for r in subheader_rows])
-        lines.append(template.format(*("-" * w for w in widths)))    
+        lines.append(template.format(*("-" * w for w in widths)))
     lines.extend([template.format(*r) for r in data_rows])
     if include_border:
         lines.append("=" * len(template.format(*[""] * len(widths))))

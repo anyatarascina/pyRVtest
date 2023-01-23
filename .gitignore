@@ -21,6 +21,9 @@ __pychache__/
 dist
 build
 
+# testing generated files
+.tox
+
 # documentation generated files
 docs/Makefile
 docs/make.bat

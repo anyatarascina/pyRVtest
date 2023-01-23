@@ -19,8 +19,7 @@ class Results(abc.ABC, StringRepresentation):
     problem: 'ProblemEconomy'
 
     def __init__(
-            self, problem: 'ProblemEconomy'
-            ) -> None:
+            self, problem: 'ProblemEconomy') -> None:
         """Store the underlying problem and parameter information."""
         self.problem = problem
 

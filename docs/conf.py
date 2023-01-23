@@ -10,7 +10,6 @@ import shutil
 from typing import Any, Optional, Tuple
 
 import astunparse
-import pyRVtest
 import sphinx.application
 
 # get the location of the source directory

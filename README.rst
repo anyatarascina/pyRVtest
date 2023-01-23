@@ -3,10 +3,6 @@ pyRVtest
 
 .. docs-start
 
-.. note::
-    This package is currently in the process of being updated. The updated tutorial no longer applies to older
-    versions of the package code. An updated version of the package will be available for download by end of January 2023.
-
 This code was written to perform the procedure for testing firm conduct developed in `"Testing Firm Conduct" <https://arxiv.org/abs/2301.06720>`_ by Marco Duarte, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan. It builds on the PyBLP source code (see `Conlon and Gortmaker (2020) <https://onlinelibrary.wiley.com/doi/full/10.1111/1756-2171.12352>`_) - to do so.
 
 The code implements the following features:
@@ -46,7 +42,7 @@ To update to a newer version of the package use:
 Using the package
 _________________
 
-For a detailed tutorial about how to set up and run the testing procedure, see :ref:`tutorial_reference`.
+For a detailed tutorial about how to set up and run the testing procedure, see `Tutorial <https://pyrvtest.readthedocs.io/en/latest/tutorial.html>`_.
 
 
 Citing the package
@@ -58,9 +54,13 @@ Duarte, M., L. Magnolfi, M. Sølvsten, C. Sullivan, and A. Tarascina
 (2023): “pyRVtest: A Python package for testing firm conduct,” https://github.com/anyatarascina/pyRVtest.
 
 @misc{
-    pyrvtest,
-    author={Marco Duarte and Lorenzo Magnolfi and Mikkel S{\o}lvsten and Christopher Sullivan and Anya Tarascina},
-    title={\texttt{pyRVtest}: A Python package for testing firm conduct},
-    howpublished={\url{https://github.com/anyatarascina/pyRVtest}},
-    year={2023}
-}
+pyrvtest,
+author={Marco Duarte and Lorenzo Magnolfi and Mikkel S{\o}lvsten and Christopher Sullivan and Anya Tarascina},
+title={\texttt{pyRVtest}: A Python package for testing firm conduct},
+howpublished={\url{https://github.com/anyatarascina/pyRVtest}},
+year={2023}
+
+Bugs and Requests
+-----------------
+
+Please use the `GitHub issue tracker <https://github.com/anyatarascina/pyRVtest/issues>`_ to submit bugs or to request features.

@@ -4,7 +4,7 @@ import abc
 from typing import Any, Dict, Hashable, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
-from pyblp.utilities.basics import Array,  RecArray, StringRepresentation, format_table, get_indices
+from pyblp.utilities.basics import Array, RecArray, StringRepresentation, format_table, get_indices
 
 from ..configurations.formulation import Formulation, Absorb, ModelFormulation
 from ..primitives import Container
@@ -51,7 +51,7 @@ class Economy(Container, StringRepresentation):
         self.unique_market_ids = np.unique(self.products.market_ids.flatten())
         self.unique_nesting_ids = np.unique(self.products.nesting_ids.flatten())
         self.unique_product_ids = np.unique(self.products.product_ids.flatten())
-        
+
         # count dimensions
         self.N = self.products.shape[0]
         self.T = self.unique_market_ids.size
@@ -65,10 +65,10 @@ class Economy(Container, StringRepresentation):
         # identify market indices
         self._market_indices = {t: i for i, t in enumerate(self.unique_market_ids)}
         self._product_market_indices = get_indices(self.products.market_ids)
-        
+
         # identify the largest number of products and agents in a market
         self._max_J = max(i.size for i in self._product_market_indices.values())
-        
+
         # construct fixed effect absorption functions
         self._absorb_cost_ids = None
         if self.EC > 0:
@@ -108,7 +108,7 @@ class Economy(Container, StringRepresentation):
         for formulations, name in named_formulations:
             if any(formulations):
                 data.append([name] + [str(f) for f in formulations])
-        
+
         # construct the header
         max_formulations = max(len(r[1:]) for r in data)
         header = ["Column Indices:"] + [f" {i} " for i in range(max_formulations)]

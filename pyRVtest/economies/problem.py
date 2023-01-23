@@ -37,7 +37,8 @@ class ProblemEconomy(Economy):
         )
 
     def solve(
-            self, demand_adjustment: Optional[bool] = False, clustering_adjustment: Optional[str] = 'unadjusted') -> ProblemResults:
+            self, demand_adjustment: Optional[bool] = False, clustering_adjustment: Optional[bool] = False
+    ) -> ProblemResults:
         r"""Solve the problem.
 
         Given demand estimates from PyBLP, we compute implied markups for each model :math:`m` being tested. Marginal
@@ -450,7 +451,6 @@ class ProblemEconomy(Economy):
             F_cv_power = np.empty((M, M), dtype=object)
             symbols_size = np.empty((M, M), dtype=object)
             symbols_power = np.empty((M, M), dtype=object)
-            AR_variance = np.zeros([M, K, K])
             for m in range(M):
                 ols_results = sm.OLS(np.squeeze(prices_orthogonal) - markups_orthogonal[m], Z_orthogonal).fit()
                 pi[:, m] = ols_results.params
@@ -458,22 +458,6 @@ class ProblemEconomy(Economy):
                 phi[m] = (e * Z_orthogonal) @ weight_matrix
                 if demand_adjustment:
                     phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ adjustment_value[m])
-
-            # construct the AR variance
-            for m in range(M):
-                AR_variance[m] = 1 / N * (phi[m].T @ phi[m])
-                if clustering_adjustment == 'clustered':
-                    cluster_ids = np.unique(self.products.clustering_ids)
-                    for j in cluster_ids:
-                        index = np.where(self.products.clustering_ids == j)[0]
-                        var_l = phi[m][index, :]
-                        var_c = var_l
-
-                        # update the matrix
-                        for k in range(len(index) - 1):
-                            var_c = np.roll(var_c, 1, axis=0)
-                            update = 1 / N * (var_l.T @ var_c)
-                            AR_variance[m] = AR_variance[m] + update
 
             # compute the F statistic for each pair of models
             for (m, i) in itertools.product(range(M), range(M)):
@@ -608,7 +592,6 @@ class ProblemEconomy(Economy):
             unscaled_F_statistic_list[instrument] = unscaled_F
             MCS_p_values_list[instrument] = model_confidence_set_pvalues
             rho_list[instrument] = rho
-            AR_variance_list[instrument] = AR_variance
             F_cv_size_list[instrument] = F_cv_size
             F_cv_power_list[instrument] = F_cv_power
             symbols_size_list[instrument] = symbols_size
@@ -819,7 +802,6 @@ class Progress(object):
     MCS_pvalues: Array
     rho: Array
     unscaled_F: Array
-    AR_variance: Array
     F_cv_size_list: Array
     F_cv_power_list: Array
     symbols_size_list: Array
@@ -828,7 +810,7 @@ class Progress(object):
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
             mc: Array, taus: Array, g: Array, Q: Array, RV_numerator: Array, RV_denom: Array, test_statistic_RV: Array,
-            F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, AR_variance: Array, F_cv_size_list: Array,
+            F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, F_cv_size_list: Array,
             F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
 
@@ -847,7 +829,6 @@ class Progress(object):
         self.MCS_pvalues = MCS_pvalues
         self.rho = rho
         self.unscaled_F = unscaled_F
-        self.AR_variance = AR_variance
         self.F_cv_size_list = F_cv_size_list
         self.F_cv_power_list = F_cv_power_list
         self.symbols_size_list = symbols_size_list
