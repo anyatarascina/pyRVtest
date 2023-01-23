@@ -295,7 +295,7 @@ class ModelFormulation(object):
 
     """
 
-    _model_downstream: str
+    _model_downstream: Optional[str]
     _model_upstream: Optional[str]
     _ownership_downstream: Optional[str]
     _ownership_upstream: Optional[str]
@@ -310,7 +310,7 @@ class ModelFormulation(object):
     _user_supplied_markups: Optional[str]
 
     def __init__(
-            self, model_downstream: str, model_upstream: Optional[str] = None,
+            self, model_downstream: Optional[str], model_upstream: Optional[str] = None,
             ownership_downstream: Optional[str] = None, ownership_upstream: Optional[str] = None,
             custom_model_specification: Optional[dict] = None, vertical_integration: Optional[str] = None,
             unit_tax: Optional[str] = None, advalorem_tax: Optional[str] = None, advalorem_payer: Optional[str] = None,
@@ -324,7 +324,9 @@ class ModelFormulation(object):
 
         # validate the parameters
         model_set = {'monopoly', 'cournot', 'bertrand', 'perfect_competition', 'other'}
-        if model_downstream not in model_set:
+        if model_downstream is None and user_supplied_markups is None:
+            raise TypeError("Either model_downstream or user_supplied_markups must be provided.")
+        if model_downstream is not None and model_downstream not in model_set:
             raise TypeError("model_downstream must be monopoly, bertrand, cournot, perfect_competition, or other.")
         if model_upstream is not None and model_upstream not in model_set:
             raise TypeError("model_upstream must be monopoly, bertrand, cournot, perfect_competition, or other.")
