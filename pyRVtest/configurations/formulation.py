@@ -263,7 +263,7 @@ class ModelFormulation(object):
 
     Parameters
     ----------
-    model_downstream : `str`
+    model_downstream : `str, optional`
         The model of conduct for downstream firms (or if no vertical structure, the model of conduct). One of
         "bertrand", "cournot", "monopoly", "perfect_competition", or "other".
     model_upstream : `str, optional`
@@ -310,7 +310,7 @@ class ModelFormulation(object):
     _user_supplied_markups: Optional[str]
 
     def __init__(
-            self, model_downstream: Optional[str], model_upstream: Optional[str] = None,
+            self, model_downstream: Optional[str] = None, model_upstream: Optional[str] = None,
             ownership_downstream: Optional[str] = None, ownership_upstream: Optional[str] = None,
             custom_model_specification: Optional[dict] = None, vertical_integration: Optional[str] = None,
             unit_tax: Optional[str] = None, advalorem_tax: Optional[str] = None, advalorem_payer: Optional[str] = None,
@@ -406,7 +406,8 @@ class ModelFormulation(object):
 def build_matrix(design: patsy.design_info.DesignInfo, data: Mapping) -> Array:
     """Build a matrix according to its design and data mapping variable names to arrays.
 
-    (Note: This function is a copy from PyBLP. We copied it rather than importing due to computational speed.)
+    .. note::
+        This function is a copy from PyBLP for computational speed.
     """
 
     # identify the number of rows in the data
@@ -427,7 +428,8 @@ def parse_expression(string: str, mark_categorical: bool = False) -> sp.Expr:
     """Parse a SymPy expression from a string. Optionally, preserve the categorical marker function instead of treating
     it like the identify function.
 
-    (Note: This function is a copy from PyBLP. We copied it rather than importing due to computational speed.)
+     .. note::
+        This function is a copy from PyBLP for computational speed.
     """
 
     # list reserved patsy and SymPy names that represent special functions and classes

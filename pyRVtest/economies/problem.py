@@ -80,7 +80,7 @@ class ProblemEconomy(Economy):
         if not isinstance(clustering_adjustment, bool):
             raise TypeError("demand_adjustment must be a boolean (one of True or False).")
         if clustering_adjustment and np.shape(self.products.clustering_ids)[1] != 1:
-            raise ValueError("product_data.clustering_ids must be specified with clustering_adjustment 'clustered'.")
+            raise ValueError("product_data.clustering_ids must be specified with clustering_adjustment True.")
         for m in range(M):
             if self.model_formulations[m]._user_supplied_markups is not None:
                 if clustering_adjustment or demand_adjustment:

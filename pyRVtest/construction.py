@@ -14,10 +14,10 @@ from . import options
 
 
 def build_markups(
-        products: RecArray, demand_results: Mapping, model_downstream: Array, ownership_downstream: Array,
-        model_upstream: Optional[Array] = None, ownership_upstream: Optional[Array] = None,
-        vertical_integration: Optional[Array] = None, custom_model_specification: Optional[dict] = None,
-        user_supplied_markups: Optional[Array] = None) -> Array:
+        products: RecArray, demand_results: Mapping, model_downstream: Optional[Array],
+        ownership_downstream: Optional[Array], model_upstream: Optional[Array] = None,
+        ownership_upstream: Optional[Array] = None, vertical_integration: Optional[Array] = None,
+        custom_model_specification: Optional[dict] = None, user_supplied_markups: Optional[Array] = None) -> Array:
     r"""This function computes markups for a large set of standard models.
 
     The models that this package is able to compute markups for include:
