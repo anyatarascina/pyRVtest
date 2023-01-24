@@ -154,11 +154,11 @@ class Products(object):
         # structure product fields as a mapping
         product_mapping: Dict[Union[str, tuple], Tuple[Optional[Array], Any]] = {}
         product_mapping.update({
-            'market_ids': (market_ids, np.object),
-            'cost_ids': (cost_ids, np.object),
-            'nesting_ids': (nesting_ids, np.object),
-            'product_ids': (product_ids, np.object),
-            'clustering_ids': (clustering_ids, np.object),
+            'market_ids': (market_ids, np.object_),
+            'cost_ids': (cost_ids, np.object_),
+            'nesting_ids': (nesting_ids, np.object_),
+            'product_ids': (product_ids, np.object_),
+            'clustering_ids': (clustering_ids, np.object_),
             'shares': (shares, options.dtype),
             'prices': (prices, options.dtype)
         })
