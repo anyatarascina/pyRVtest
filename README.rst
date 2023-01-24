@@ -61,6 +61,6 @@ howpublished={\url{https://github.com/anyatarascina/pyRVtest}},
 year={2023}
 
 Bugs and Requests
------------------
+_________________
 
 Please use the `GitHub issue tracker <https://github.com/anyatarascina/pyRVtest/issues>`_ to submit bugs or to request features.
