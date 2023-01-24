@@ -74,7 +74,6 @@ class ProblemResults(Results):
     MCS_pvalues: Array
     rho: Array
     unscaled_F: Array
-    AR_variance: Array
     F_cv_size_list: Array
     F_cv_power_list: Array
     _symbols_size_list: Array
@@ -96,7 +95,6 @@ class ProblemResults(Results):
         self.MCS_pvalues = progress.MCS_pvalues
         self.rho = progress.rho
         self.unscaled_F = progress.unscaled_F
-        self.AR_variance = progress.AR_variance
         self.F_cv_size_list = progress.F_cv_size_list
         self.F_cv_power_list = progress.F_cv_power_list
         self._symbols_size_list = progress.symbols_size_list

@@ -340,7 +340,6 @@ class ProblemEconomy(Economy):
         unscaled_F_statistic_list = [None] * L
         MCS_p_values_list = [None] * L
         rho_list = [None] * L
-        AR_variance_list = [None] * L
         F_cv_size_list = [None] * L
         F_cv_power_list = [None] * L
         symbols_size_list = [None] * L
@@ -601,7 +600,7 @@ class ProblemEconomy(Economy):
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
             RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list,
-            rho_list, unscaled_F_statistic_list, AR_variance_list, F_cv_size_list, F_cv_power_list, symbols_size_list,
+            rho_list, unscaled_F_statistic_list, F_cv_size_list, F_cv_power_list, symbols_size_list,
             symbols_power_list
         ))
         step_end_time = time.time()
