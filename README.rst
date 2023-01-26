@@ -42,7 +42,7 @@ To update to a newer version of the package use:
 Using the package
 _________________
 
-For a detailed tutorial about how to set up and run the testing procedure, see `Tutorial <https://pyrvtest.readthedocs.io/en/latest/tutorial.html>`_.
+For a detailed tutorial about how to set up and run the testing procedure, see `Tutorial <https://pyrvtest.readthedocs.io/en/stable/tutorial.html>`_.
 
 
 Citing the package
