@@ -19,6 +19,10 @@ Backus, Conlon, and Sinkinson (2022)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Backus, Matthew, Christopher Conlon, and Michael Sinkinson (2021): `"Common Ownership and Competition in the Ready-to-Eat Cereal Industry," <https://www.nber.org/papers/w28350>`_ NBER Working Paper No. 28350.
 
+Ciliberto and Williams (2014)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Ciliberto, Federico, and Jonathan W. Williams (2014). `"Does multimarket contact facilitate tacit collusion? Inference on conduct parameters in the airline industry." <https://onlinelibrary.wiley.com/doi/full/10.1111/1756-2171.12070>`_ *RAND Journal of Economics,* 45.4: 764-791.
+
 Conlon and Gortmaker (2020)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Conlon, Christopher, and Jeff Gortmaker (2020): `"Best Practices for Differentiated Products Demand Estimation with PyBLP," <https://onlinelibrary.wiley.com/doi/10.1111/1756-2171.12352>`_ *RAND Journal of Economics,* 51(4), 1108-1161.
