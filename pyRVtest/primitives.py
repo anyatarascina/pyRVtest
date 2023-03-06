@@ -5,10 +5,10 @@ from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from pyblp.utilities.basics import Array, Data, Groups, RecArray, extract_matrix, structure_matrices
-from pyblp.construction import build_ownership
 from pyblp.configurations.formulation import ColumnFormulation
 
 from . import options
+from . construction import build_ownership
 from .configurations.formulation import Formulation, ModelFormulation
 from .data import F_CRITICAL_VALUES_POWER_RHO, F_CRITICAL_VALUES_SIZE_RHO
 
@@ -19,13 +19,13 @@ class Products(object):
     Attributes
     ----------
      market_ids : `ndarray`
-        IDs that associate products with markets.
+        IDs that associate product_data with markets.
     cost_ids : `ndarray`
-        IDs that associate products with cost-side fixed effects.
+        IDs that associate product_data with cost-side fixed effects.
     nesting_ids : `ndarray`
-        IDs that associate products with nesting groups.
+        IDs that associate product_data with nesting groups.
     product_ids : `ndarray`
-        IDs that identify products within markets.
+        IDs that identify product_data within markets.
     clustering_ids : `ndarray`
         IDs used to compute clustered standard errors.
     shares : `ndarray`
@@ -288,21 +288,25 @@ class Models(object):
             # define ownership matrices for downstream model
             model['firm_ids'] = model['ownership_downstream']
             if model['model_downstream'] == 'monopoly':
-                ownership_matrices_downstream[m] = build_ownership(product_data, 'monopoly')
+                ownership_matrices_downstream[m] = build_ownership(
+                    product_data, model['ownership_downstream'], 'monopoly'
+                )
                 firm_ids_downstream[m] = 'monopoly'
             else:
                 ownership_matrices_downstream[m] = build_ownership(
-                    product_data, model['kappa_specification_downstream']
+                    product_data, model['ownership_downstream'], model['kappa_specification_downstream']
                 )
                 firm_ids_downstream[m] = model['ownership_downstream']
 
             # define ownership matrices for upstream model
             model['firm_ids'] = model['ownership_upstream']
             if model['model_upstream'] == 'monopoly':
-                ownership_matrices_upstream[m] = build_ownership(product_data, 'monopoly')
+                ownership_matrices_upstream[m] = build_ownership(product_data, model['ownership_upstream'], 'monopoly')
                 firm_ids_upstream[m] = 'monopoly'
             elif model['ownership_upstream'] is not None:
-                ownership_matrices_upstream[m] = build_ownership(product_data, model['kappa_specification_upstream'])
+                ownership_matrices_upstream[m] = build_ownership(
+                    product_data, model['ownership_upstream'], model['kappa_specification_upstream']
+                )
                 firm_ids_upstream[m] = model['ownership_upstream']
 
             # define vertical integration related variables
