@@ -30,7 +30,10 @@ objects.
 .. autosummary::
    :toctree: _api
 
+   build_ownership
    build_markups
+   construct_passthrough_matrix
+   evaluate_first_order_conditions
    read_pickle
 
 
