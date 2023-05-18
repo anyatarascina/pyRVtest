@@ -78,7 +78,7 @@ class ProblemEconomy(Economy):
         if not isinstance(demand_adjustment, bool):
             raise TypeError("demand_adjustment must be a boolean (one of True or False).")
         if not isinstance(clustering_adjustment, bool):
-            raise TypeError("demand_adjustment must be a boolean (one of True or False).")
+            raise TypeError("clustering_adjustment must be a boolean (one of True or False).")
         if clustering_adjustment and np.shape(self.products.clustering_ids)[1] != 1:
             raise ValueError("product_data.clustering_ids must be specified with clustering_adjustment True.")
         for m in range(M):
@@ -159,28 +159,33 @@ class ProblemEconomy(Economy):
         #   finite difference approximation to the derivative of markups with respect to theta
         if demand_adjustment:
             ZD = self.demand_results.problem.products.ZD
-            price_column = self.demand_results.problem.products.dtype.fields['X1'][2].index('prices')
-            XD = np.delete(self.demand_results.problem.products.X1, price_column, 1)
             WD = self.demand_results.updated_W
             h = self.demand_results.moments
             h_i = ZD * self.demand_results.xi
-            K2 = self.demand_results.problem.K2  # size of demand side nonlinear characteristics
-            D = self.demand_results.problem.D    # size of agent demographics
+            K2 = self.demand_results.problem.K2
+            D = self.demand_results.problem.D
 
-            # compute the gradient of the GMM moment function
-            partial_y_theta = np.append(
-                self.demand_results.xi_by_theta_jacobian, -self.demand_results.problem.products.prices, 1
-            )
-            try:
+            # check whether price is in linear parameters, and if it is remove it
+            XD = self.demand_results.problem.products.X1
+            XD_column_names = self.demand_results.problem.products.dtype.fields['X1'][2]
+            price_in_linear_parameters = 'prices' in XD_column_names
+            if price_in_linear_parameters:
+                XD = np.delete(XD, XD_column_names.index('prices'), 1)
+
+            # add price to the gradient
+            partial_y_theta = (np.append(
+                    self.demand_results.xi_by_theta_jacobian, -self.demand_results.problem.products.prices, axis=1
+                ) if price_in_linear_parameters else self.demand_results.xi_by_theta_jacobian)
+
+            # absorb fixed effects if they are specified
+            if self.demand_results.problem.ED > 0:
                 partial_y_theta = self.demand_results.problem._absorb_demand_ids(partial_y_theta)
-            except Exception:
-                print(
-                    "The demand adjustment failed because the required PyBLP object was empty. This can happen if you "
-                    "run demand estimation with the 'return' option for optimization and specify demand_adjustment=True"
-                    ". Try setting demand_adjustment=False "
+                partial_y_theta = np.reshape(
+                    partial_y_theta[0], [N, len(self.demand_results.theta) + int(price_in_linear_parameters)]
                 )
-            partial_y_theta = np.reshape(partial_y_theta[0], [N, len(self.demand_results.theta) + 1])
-            if np.shape(XD)[1] == 0:
+
+            # if there are linear parameters, adjust them
+            if not XD.shape[1]:
                 partial_xi_theta = partial_y_theta
             else:
                 product = XD @ inv(XD.T @ ZD @ WD @ ZD.T @ XD) @ (XD.T @ ZD @ WD @ ZD.T @ partial_y_theta)
@@ -192,7 +197,9 @@ class ProblemEconomy(Economy):
             # build adjustment to psi for each model
             epsilon = options.finite_differences_epsilon
             G_m = [None] * M
-            gradient_markups = np.zeros((M, N, len(self.demand_results.theta) + 1), dtype=options.dtype)
+            gradient_markups = np.zeros(
+                (M, N, len(self.demand_results.theta) + int(price_in_linear_parameters)), dtype=options.dtype
+            )
 
             # compute sigma
             theta_index = 0
@@ -213,10 +220,10 @@ class ProblemEconomy(Economy):
                     sigma_initial = self.demand_results.sigma[i, j]
 
                     # reduce sigma by small increment, update delta, and recompute markups
-                    self.demand_results.sigma[i, j] = sigma_initial - epsilon / 2
+                    self.demand_results._sigma[i, j] = sigma_initial - epsilon / 2
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
                         delta_new = self.demand_results.compute_delta()
-                    self.demand_results.delta = delta_new
+                    self.demand_results._delta = delta_new
                     markups_l, md, ml = build_markups(
                         self.products, self.demand_results, self.models["models_downstream"],
                         self.models["ownership_downstream"], self.models["models_upstream"],
@@ -225,10 +232,10 @@ class ProblemEconomy(Economy):
                     )
 
                     # increase sigma by small increment, update delta, and recompute markups
-                    self.demand_results.sigma[i, j] = sigma_initial + epsilon / 2
+                    self.demand_results._sigma[i, j] = sigma_initial + epsilon / 2
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
                         delta_new = self.demand_results.compute_delta()
-                    self.demand_results.delta = delta_new
+                    self.demand_results._delta = delta_new
                     markups_u, mu, mu = build_markups(
                         self.products, self.demand_results, self.models["models_downstream"],
                         self.models["ownership_downstream"], self.models["models_upstream"],
@@ -245,7 +252,7 @@ class ProblemEconomy(Economy):
                     gradient_markups = self._compute_first_difference_markups(
                         markups_u, markups_l, epsilon, theta_index, gradient_markups
                     )
-                    self.demand_results.sigma[i, j] = sigma_initial
+                    self.demand_results._sigma[i, j] = sigma_initial
                     theta_index = theta_index + 1
 
             # loop over nonlinear demand characteristics and demographics, and recompute markups with perturbations if
@@ -263,56 +270,22 @@ class ProblemEconomy(Economy):
                     gradient_markups = self._compute_first_difference_markups(
                         markups_u, markups_l, epsilon, theta_index, gradient_markups
                     )
-                    self.demand_results.pi[i, j] = pi_initial
+                    self.demand_results._pi[i, j] = pi_initial
                     theta_index = theta_index + 1
-            self.demand_results.delta = delta_estimate
+            self.demand_results._delta = delta_estimate
 
             # perturb alpha in negative (positive) direction and recompute markups
-            for i in range(len(self.demand_results.beta)):
-                if self.demand_results.beta_labels[i] == 'prices':
-                    alpha_initial = self.demand_results.beta[i].copy()
-                    self.demand_results.beta[i] = alpha_initial - epsilon / 2
-                    markups_l, md, ml = build_markups(
-                        self.products, self.demand_results, self.models["models_downstream"],
-                        self.models["ownership_downstream"], self.models["models_upstream"],
-                        self.models["ownership_upstream"], self.models["vertical_integration"],
-                        self.models["custom_model_specification"], self.models["user_supplied_markups"]
-                    )
-                    self.demand_results.beta[i] = alpha_initial + epsilon / 2
-                    markups_u, mu, mu = build_markups(
-                        self.products, self.demand_results, self.models["models_downstream"],
-                        self.models["ownership_downstream"], self.models["models_upstream"],
-                        self.models["ownership_upstream"], self.models["vertical_integration"],
-                        self.models["custom_model_specification"], self.models["user_supplied_markups"]
-                    )
-
-                    # compute markup perturbations for taxes
-                    for m in range(M):
-                        markups_u[m] = markups_computation(markups_u[m])
-                        markups_l[m] = markups_computation(markups_l[m])
-
-                    gradient_markups = self._compute_first_difference_markups(
-                        markups_u, markups_l, epsilon, theta_index, gradient_markups
-                    )
-
-                    self.demand_results.beta[i] = alpha_initial
-                    theta_index = theta_index + 1
-
-            # first differencing for the nesting parameter rho
-            if len(self.demand_results.rho) != 0:
-                rho_initial = self.demand_results.rho.copy()
-
-                # perturb rho in the negative direction and recompute markups
-                self.demand_results.rho = rho_initial - epsilon / 2
+            price_index = [index for index, value in enumerate(self.demand_results.beta_labels) if value == 'prices']
+            if price_index:
+                alpha_initial = self.demand_results.beta[price_index].copy()
+                self.demand_results._beta[price_index] = alpha_initial - epsilon / 2
                 markups_l, md, ml = build_markups(
                     self.products, self.demand_results, self.models["models_downstream"],
                     self.models["ownership_downstream"], self.models["models_upstream"],
                     self.models["ownership_upstream"], self.models["vertical_integration"],
                     self.models["custom_model_specification"], self.models["user_supplied_markups"]
                 )
-
-                # perturb rho in the positive direction and recompute markups
-                self.demand_results.rho = rho_initial + epsilon / 2
+                self.demand_results._beta[price_index] = alpha_initial + epsilon / 2
                 markups_u, mu, mu = build_markups(
                     self.products, self.demand_results, self.models["models_downstream"],
                     self.models["ownership_downstream"], self.models["models_upstream"],
@@ -328,7 +301,47 @@ class ProblemEconomy(Economy):
                 gradient_markups = self._compute_first_difference_markups(
                     markups_u, markups_l, epsilon, theta_index, gradient_markups
                 )
-                self.demand_results.rho = rho_initial
+
+                self.demand_results._beta[price_index] = alpha_initial
+                theta_index = theta_index + 1
+
+            # first differencing for the nesting parameter rho
+            if len(self.demand_results.rho) != 0:
+                rho_initial = self.demand_results.rho.copy()
+
+                # perturb rho in the negative direction and recompute markups
+                self.demand_results._rho = rho_initial - epsilon / 2
+                with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                    delta_new = self.demand_results.compute_delta()
+                self.demand_results._delta = delta_new
+                markups_l, md, ml = build_markups(
+                    self.products, self.demand_results, self.models["models_downstream"],
+                    self.models["ownership_downstream"], self.models["models_upstream"],
+                    self.models["ownership_upstream"], self.models["vertical_integration"],
+                    self.models["custom_model_specification"], self.models["user_supplied_markups"]
+                )
+
+                # perturb rho in the positive direction and recompute markups
+                self.demand_results._rho = rho_initial + epsilon / 2
+                with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                    delta_new = self.demand_results.compute_delta()
+                self.demand_results._delta = delta_new
+                markups_u, mu, mu = build_markups(
+                    self.products, self.demand_results, self.models["models_downstream"],
+                    self.models["ownership_downstream"], self.models["models_upstream"],
+                    self.models["ownership_upstream"], self.models["vertical_integration"],
+                    self.models["custom_model_specification"], self.models["user_supplied_markups"]
+                )
+
+                # compute markup perturbations for taxes
+                for m in range(M):
+                    markups_u[m] = markups_computation(markups_u[m])
+                    markups_l[m] = markups_computation(markups_l[m])
+
+                gradient_markups = self._compute_first_difference_markups(
+                    markups_u, markups_l, epsilon, theta_index, gradient_markups
+                )
+                self.demand_results_.rho = rho_initial
 
         # initialize empty lists to store statistic-related values for each model
         g_list = [None] * L
@@ -622,10 +635,10 @@ class ProblemEconomy(Economy):
 
     def _compute_perturbation(self, i, j, perturbation):
         """Perturb pi and recompute markups."""
-        self.demand_results.pi[i, j] = perturbation
+        self.demand_results._pi[i, j] = perturbation
         with contextlib.redirect_stdout(open(os.devnull, 'w')):
             delta_new = self.demand_results.compute_delta()
-        self.demand_results.delta = delta_new
+        self.demand_results._delta = delta_new
         return build_markups(
             self.products, self.demand_results, self.models["models_downstream"], self.models["ownership_downstream"],
             self.models["models_upstream"], self.models["ownership_upstream"], self.models["vertical_integration"],
@@ -692,7 +705,7 @@ class Problem(ProblemEconomy):
     product_data: `structured array-like`
         This is the data containing product and market observable characteristics, as well as instruments.
 
-    demand_results`: `structured array-like`
+    pyblp_results`: `structured array-like`
         The results object returned by `pyblp.solve`.
 
    """
