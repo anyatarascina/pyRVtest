@@ -78,7 +78,7 @@ def format_table(
             ['*, **, or *** indicate that F > cv for a worst-case size of 0.125, 0.10, and 0.075 given d_z and rho']
         )
         notes.append(
-            ['^, ^^, or ^^ indicate that F > cv for a best-case power of 0.50, 0.75, and 0.95 given d_z and rho']
+            ['^, ^^, or ^^^ indicate that F > cv for a best-case power of 0.50, 0.75, and 0.95 given d_z and rho']
         )
         notes.append([
             'appropriate critical values for size are stored in the variable F_cv_size_list of the pyRVtest results '
