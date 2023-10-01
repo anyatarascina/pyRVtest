@@ -188,8 +188,14 @@ class ProblemEconomy(Economy):
             if not XD.shape[1]:
                 partial_xi_theta = partial_y_theta
             else:
-                product = XD @ inv(XD.T @ ZD @ WD @ ZD.T @ XD) @ (XD.T @ ZD @ WD @ ZD.T @ partial_y_theta)
-                partial_xi_theta = partial_y_theta - product
+                try:
+                    product = XD @ inv(XD.T @ ZD @ WD @ ZD.T @ XD) @ (XD.T @ ZD @ WD @ ZD.T @ partial_y_theta)
+                    partial_xi_theta = partial_y_theta - product
+                except Exception:
+                    output(
+                        "Dimension mismatch occurred. This can happen if you specify a supply side in the demand "
+                        "estimation."
+                    )
             H = 1 / N * (np.transpose(ZD) @ partial_xi_theta)
             H_prime = np.transpose(H)
             H_prime_wd = H_prime @ WD
@@ -279,6 +285,9 @@ class ProblemEconomy(Economy):
             if price_index:
                 alpha_initial = self.demand_results.beta[price_index].copy()
                 self.demand_results._beta[price_index] = alpha_initial - epsilon / 2
+                with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                    delta_new = self.demand_results.compute_delta()
+                self.demand_results._delta = delta_new
                 markups_l, md, ml = build_markups(
                     self.products, self.demand_results, self.models["models_downstream"],
                     self.models["ownership_downstream"], self.models["models_upstream"],
@@ -286,6 +295,9 @@ class ProblemEconomy(Economy):
                     self.models["custom_model_specification"], self.models["user_supplied_markups"]
                 )
                 self.demand_results._beta[price_index] = alpha_initial + epsilon / 2
+                with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                    delta_new = self.demand_results.compute_delta()
+                self.demand_results._delta = delta_new
                 markups_u, mu, mu = build_markups(
                     self.products, self.demand_results, self.models["models_downstream"],
                     self.models["ownership_downstream"], self.models["models_upstream"],
