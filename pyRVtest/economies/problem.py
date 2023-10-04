@@ -99,12 +99,11 @@ class ProblemEconomy(Economy):
 
         # initialize tax-related variables
         markups_effective = [None] * M
-        markups_out = [None] * M
         advalorem_tax_adj = [None] * M
 
         # if there are no markups, compute them
         if markups[0] is None:
-            print('Computing Markups ... ')
+            print('Computing Markups ... ')  # TODO: replace with output
             markups, markups_downstream, markups_upstream = build_markups(
                 self.products, self.demand_results, self.models["models_downstream"],
                 self.models["ownership_downstream"], self.models["models_upstream"], self.models["ownership_upstream"],
@@ -119,13 +118,13 @@ class ProblemEconomy(Economy):
         unit_tax = self.models["unit_tax"]
         advalorem_tax = self.models["advalorem_tax"]
         cost_scaling = self.models["cost_scaling"]
+        # TODO: only do this for models with taxes?
         for m in range(M):
             condition = self.models["advalorem_payer"][m] == "consumer"
             advalorem_tax_adj[m] = 1 / (1 + advalorem_tax[m]) if condition else (1 - advalorem_tax[m])
-            numerator = (advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups[m] - unit_tax[m])
-            denominator = (1 + cost_scaling[m] * advalorem_tax_adj[m])
+            numerator = (advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups[m] - (1 + cost_scaling[m]) * unit_tax[m])
+            denominator = (1 + cost_scaling[m])
             marginal_cost[m] = numerator / denominator
-            markups_out[m] = (markups[m] + cost_scaling[m] * marginal_cost[m]) * advalorem_tax_adj[m]
             markups_effective[m] = self.products.prices - marginal_cost[m]
 
         # absorb any cost fixed effects from prices, markups, and instruments
@@ -147,13 +146,18 @@ class ProblemEconomy(Economy):
 
         # residualize prices, markups, and instruments w.r.t cost shifters w and recover the tau parameters in cost
         #   regression on w
-        results = sm.OLS(prices_orthogonal, self.products.w).fit()
-        prices_orthogonal = np.reshape(results.resid, [N, 1])
-        for m in range(M):
-            results = sm.OLS(markups_orthogonal[m], self.products.w).fit()
-            markups_orthogonal[m] = results.resid
-            results = sm.OLS(marginal_cost_orthogonal[m], self.products.w).fit()
-            tau_list[m] = results.params
+        # TODO: only do this if w is not 0
+        if self.products.w.any():
+            results = sm.OLS(prices_orthogonal, self.products.w).fit()
+            prices_orthogonal = np.reshape(results.resid, [N, 1])
+            for m in range(M):
+                results = sm.OLS(markups_orthogonal[m], self.products.w).fit()
+                markups_orthogonal[m] = results.resid
+                results = sm.OLS(marginal_cost_orthogonal[m], self.products.w).fit()
+                tau_list[m] = results.params
+        else:
+            markups_orthogonal = np.reshape(markups_orthogonal, [M, N])
+            prices_orthogonal = np.reshape(prices_orthogonal, [N, 1])
 
         # if user specifies demand adjustment, account for two-step estimation in the standard errors by computing the
         #   finite difference approximation to the derivative of markups with respect to theta
@@ -380,8 +384,9 @@ class ProblemEconomy(Economy):
                 Z_orthogonal, Z_errors = self._absorb_cost_ids(instruments)
             else:
                 Z_orthogonal = instruments
-            Z_residual = sm.OLS(Z_orthogonal, self.products.w).fit().resid
-            Z_orthogonal = np.reshape(Z_residual, [N, K])
+            if self.products.w.any():
+                Z_residual = sm.OLS(Z_orthogonal, self.products.w).fit().resid
+                Z_orthogonal = np.reshape(Z_residual, [N, K])
 
             # initialize variables to store GMM measure of fit Q_m for each model
             g = np.zeros((M, K), dtype=options.dtype)
@@ -622,6 +627,7 @@ class ProblemEconomy(Economy):
             symbols_power_list[instrument] = symbols_power
 
         # return results
+        # TODO: return markups_effective
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
             RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list,
@@ -630,7 +636,7 @@ class ProblemEconomy(Economy):
         ))
         step_end_time = time.time()
         total_time = step_end_time - step_start_time
-        print('Total Time is ... ' + str(total_time))
+        print('Total Time is ... ' + str(total_time))  # TODO: replace with output
         output("")
         output(results)
         return results

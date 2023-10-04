@@ -112,8 +112,9 @@ class Formulation(StringRepresentation):
         # ignore intercepts if there are any absorbed terms and check that there is at least one term
         if self._absorbed_terms:
             self._terms = [t for t in self._terms if t != patsy.desc.INTERCEPT]
-        if not self._terms:
-            raise patsy.PatsyError("formula has no terms.", patsy.origin.Origin(formula, 0, len(formula)))
+        print("NOT CHECKING!!")
+        # if not self._terms:
+        #     raise patsy.PatsyError("formula has no terms.", patsy.origin.Origin(formula, 0, len(formula)))
 
         # parse the terms into SymPy expressions and extract variable names
         self._expressions = [parse_term_expression(t) for t in self._terms]
