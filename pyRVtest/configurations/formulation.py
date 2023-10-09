@@ -112,7 +112,7 @@ class Formulation(StringRepresentation):
         # ignore intercepts if there are any absorbed terms and check that there is at least one term
         if self._absorbed_terms:
             self._terms = [t for t in self._terms if t != patsy.desc.INTERCEPT]
-        print("NOT CHECKING!!")
+        # TODO: is it okay to not check this? -maybe have a warning for the user?
         # if not self._terms:
         #     raise patsy.PatsyError("formula has no terms.", patsy.origin.Origin(formula, 0, len(formula)))
 

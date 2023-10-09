@@ -629,8 +629,8 @@ class ProblemEconomy(Economy):
         # return results
         # TODO: return markups_effective
         results = ProblemResults(Progress(
-            self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
-            RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list,
+            self, markups, markups_downstream, markups_upstream, markups_orthogonal, marginal_cost, tau_list, g_list,
+            Q_list, RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list,
             rho_list, unscaled_F_statistic_list, F_cv_size_list, F_cv_power_list, symbols_size_list,
             symbols_power_list
         ))
@@ -839,6 +839,7 @@ class Progress(object):
 
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
+            markups_orthogonal: Array,
             mc: Array, taus: Array, g: Array, Q: Array, RV_numerator: Array, RV_denom: Array, test_statistic_RV: Array,
             F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, F_cv_size_list: Array,
             F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
@@ -848,6 +849,7 @@ class Progress(object):
         self.markups = markups
         self.markups_downstream = markups_downstream
         self.markups_upstream = markups_upstream
+        self.markups_orthogonal = markups_orthogonal
         self.tau_list = taus
         self.mc = mc
         self.g = g

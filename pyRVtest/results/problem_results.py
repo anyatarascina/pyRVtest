@@ -63,6 +63,7 @@ class ProblemResults(Results):
     markups: Array
     markups_downstream: Array
     markups_upstream: Array
+    markups_orthogonal: Array
     taus: Array
     mc: Array
     g: Array
@@ -84,6 +85,7 @@ class ProblemResults(Results):
         self.markups = progress.markups
         self.markups_downstream = progress.markups_downstream
         self.markups_upstream = progress.markups_upstream
+        self.markups_orthogonal = progress.markups_orthogonal
         self.taus = progress.tau_list
         self.mc = progress.mc
         self.g = progress.g
