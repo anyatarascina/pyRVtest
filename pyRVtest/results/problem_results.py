@@ -28,10 +28,10 @@ class ProblemResults(Results):
             Array of the retail markups implied by each model.
         markups_upstream: `ndarray`
             Array of the manufacturer markups implied by each model of double marginalization.
+        marginal_cost: `ndarray`
+            Array of implied marginal costs for each model.
         taus: `ndarray`
             Array of coefficients from regressing implied marginal costs for each model on observed cost shifters.
-        mc: `ndarray`
-            Array of implied marginal costs for each model.
         g: `ndarray`
             Array of moments for each model and each instrument set of conduct between implied residualized cost
             unobservable and the instruments.
@@ -63,8 +63,8 @@ class ProblemResults(Results):
     markups: Array
     markups_downstream: Array
     markups_upstream: Array
+    marginal_cost: Array
     taus: Array
-    mc: Array
     g: Array
     Q: Array
     RV_numerator: Array
@@ -84,8 +84,12 @@ class ProblemResults(Results):
         self.markups = progress.markups
         self.markups_downstream = progress.markups_downstream
         self.markups_upstream = progress.markups_upstream
+        self.markups_effective = progress.markups_effective
+        self.markups_orthogonal = progress.markups_orthogonal
+        self.marginal_cost = progress.marginal_cost
+        self.mc_tau = progress.mc_tau
+        self.price_cost_margins = progress.price_cost_margins
         self.taus = progress.tau_list
-        self.mc = progress.mc
         self.g = progress.g
         self.Q = progress.Q
         self.RV_numerator = progress.RV_numerator

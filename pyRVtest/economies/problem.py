@@ -92,14 +92,16 @@ class ProblemEconomy(Economy):
         markups_upstream = np.zeros(M, dtype=options.dtype)
         markups_downstream = np.zeros(M, dtype=options.dtype)
         markups_orthogonal = np.zeros((M, N), dtype=options.dtype)
+        prices_orthogonal = np.zeros((M, N), dtype=options.dtype)
         marginal_cost_orthogonal = np.zeros((M, N), dtype=options.dtype)
         tau_list = np.zeros((M, self.products.w.shape[1]), dtype=options.dtype)
+        prices_errors = np.zeros(M, dtype=options.dtype)
         markups_errors = np.zeros(M, dtype=options.dtype)
         marginal_cost_errors = np.zeros(M, dtype=options.dtype)
 
         # initialize tax-related variables
+        prices_effective = [None] * M
         markups_effective = [None] * M
-        markups_out = [None] * M
         advalorem_tax_adj = [None] * M
 
         # if there are no markups, compute them
@@ -119,41 +121,52 @@ class ProblemEconomy(Economy):
         unit_tax = self.models["unit_tax"]
         advalorem_tax = self.models["advalorem_tax"]
         cost_scaling = self.models["cost_scaling"]
+
+        # for each model, compute tax adjustment
         for m in range(M):
             condition = self.models["advalorem_payer"][m] == "consumer"
             advalorem_tax_adj[m] = 1 / (1 + advalorem_tax[m]) if condition else (1 - advalorem_tax[m])
-            numerator = (advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups[m] - unit_tax[m])
-            denominator = (1 + cost_scaling[m] * advalorem_tax_adj[m])
-            marginal_cost[m] = numerator / denominator
-            markups_out[m] = (markups[m] + cost_scaling[m] * marginal_cost[m]) * advalorem_tax_adj[m]
-            markups_effective[m] = self.products.prices - marginal_cost[m]
+            prices_effective[m] = (advalorem_tax_adj[m] * self.products.prices / (1 + cost_scaling[m]) - unit_tax[m])
+            markups_effective[m] = (advalorem_tax_adj[m]/(1 + cost_scaling[m])) * markups[m]
+            marginal_cost[m] = prices_effective[m] - markups_effective[m]
 
         # absorb any cost fixed effects from prices, markups, and instruments
         if self._absorb_cost_ids is not None:
             output("Absorbing cost-side fixed effects ...")
             self.products.w, w_errors = self._absorb_cost_ids(self.products.w)
-            prices_orthogonal, prices_errors = self._absorb_cost_ids(self.products.prices)
+
+            # TODO: put this into a loop
             for m in range(M):
+                value, error = self._absorb_cost_ids(prices_effective[m])
+                prices_orthogonal[m] = np.squeeze(value)
+                prices_errors[m] = np.nan if not error else error
+
                 value, error = self._absorb_cost_ids(markups_effective[m])
                 markups_orthogonal[m] = np.squeeze(value)
                 markups_errors[m] = np.nan if not error else error
+
                 value, error = self._absorb_cost_ids(marginal_cost[m])
                 marginal_cost_orthogonal[m] = np.squeeze(value)
                 marginal_cost_errors[m] = np.nan if not error else error
         else:
-            prices_orthogonal = self.products.prices
-            markups_orthogonal = markups_effective
+            prices_orthogonal = prices_effective.copy()
+            markups_orthogonal = markups_effective.copy()
             marginal_cost_orthogonal = marginal_cost
 
         # residualize prices, markups, and instruments w.r.t cost shifters w and recover the tau parameters in cost
         #   regression on w
-        results = sm.OLS(prices_orthogonal, self.products.w).fit()
-        prices_orthogonal = np.reshape(results.resid, [N, 1])
-        for m in range(M):
-            results = sm.OLS(markups_orthogonal[m], self.products.w).fit()
-            markups_orthogonal[m] = results.resid
-            results = sm.OLS(marginal_cost_orthogonal[m], self.products.w).fit()
-            tau_list[m] = results.params
+        # TODO: only do this if w is not 0
+        if self.products.w.any():
+            for m in range(M):
+                results = sm.OLS(prices_orthogonal[m], self.products.w).fit()
+                prices_orthogonal[m] = results.resid
+                results = sm.OLS(markups_orthogonal[m], self.products.w).fit()
+                markups_orthogonal[m] = results.resid
+                results = sm.OLS(marginal_cost_orthogonal[m], self.products.w).fit()
+                tau_list[m] = results.params
+        else:
+            markups_orthogonal = np.reshape(markups_orthogonal, [M, N])
+            prices_orthogonal = np.reshape(prices_orthogonal, [M, N])
 
         # if user specifies demand adjustment, account for two-step estimation in the standard errors by computing the
         #   finite difference approximation to the derivative of markups with respect to theta
@@ -213,11 +226,9 @@ class ProblemEconomy(Economy):
 
             def markups_computation(markups_m):
                 """Compute markups for setting with taxes."""
-                denominator = (1 + cost_scaling[m] * advalorem_tax_adj[m])
-                computation = (
-                    advalorem_tax_adj[m] * self.products.prices - advalorem_tax_adj[m] * markups_m - unit_tax[m]
-                )
-                return self.products.prices - computation / denominator
+                denominator = (1 + cost_scaling[m])
+                computation = (advalorem_tax_adj[m] * markups_m)
+                return computation / denominator
 
             # loop over pairs of nonlinear demand characteristics, and recompute markups with perturbations if
             #   the demand coefficient estimates for sigma are not zero
@@ -353,7 +364,7 @@ class ProblemEconomy(Economy):
                 gradient_markups = self._compute_first_difference_markups(
                     markups_u, markups_l, epsilon, theta_index, gradient_markups
                 )
-                self.demand_results_.rho = rho_initial
+                self.demand_results._rho = rho_initial
 
         # initialize empty lists to store statistic-related values for each model
         g_list = [None] * L
@@ -380,8 +391,9 @@ class ProblemEconomy(Economy):
                 Z_orthogonal, Z_errors = self._absorb_cost_ids(instruments)
             else:
                 Z_orthogonal = instruments
-            Z_residual = sm.OLS(Z_orthogonal, self.products.w).fit().resid
-            Z_orthogonal = np.reshape(Z_residual, [N, K])
+            if self.products.w.any():
+                Z_residual = sm.OLS(Z_orthogonal, self.products.w).fit().resid
+                Z_orthogonal = np.reshape(Z_residual, [N, K])
 
             # initialize variables to store GMM measure of fit Q_m for each model
             g = np.zeros((M, K), dtype=options.dtype)
@@ -394,7 +406,7 @@ class ProblemEconomy(Economy):
 
             # for each model compute GMM measure of fit
             for m in range(M):
-                g[m] = 1 / N * (Z_orthogonal.T @ (np.squeeze(prices_orthogonal) - markups_orthogonal[m]))
+                g[m] = 1 / N * (Z_orthogonal.T @ (np.squeeze(prices_orthogonal[m]) - markups_orthogonal[m]))
                 Q[m] = g[m].T @ weight_matrix @ g[m]
 
             # compute the pairwise RV numerator
@@ -418,7 +430,7 @@ class ProblemEconomy(Economy):
                 psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
                 W_34_Zg = Z_orthogonal @ W_34 @ g[m]
                 W_34_Zg = W_34_Zg[:, np.newaxis]
-                marginal_cost_orthogonal = (np.squeeze(prices_orthogonal) - markups_orthogonal[m])
+                marginal_cost_orthogonal = (np.squeeze(prices_orthogonal[m]) - markups_orthogonal[m])
                 marginal_cost_orthogonal = marginal_cost_orthogonal[:, np.newaxis]
                 psi_i = (marginal_cost_orthogonal * Z_orthogonal) @ W_12 - 0.5 * W_34_Zg * (Z_orthogonal @ W_34.T)
                 psi[m] = psi_i - np.transpose(psi_bar)
@@ -476,7 +488,7 @@ class ProblemEconomy(Economy):
             symbols_size = np.empty((M, M), dtype=object)
             symbols_power = np.empty((M, M), dtype=object)
             for m in range(M):
-                ols_results = sm.OLS(np.squeeze(prices_orthogonal) - markups_orthogonal[m], Z_orthogonal).fit()
+                ols_results = sm.OLS(np.squeeze(prices_orthogonal[m]) - markups_orthogonal[m], Z_orthogonal).fit()
                 pi[:, m] = ols_results.params
                 e = np.reshape(ols_results.resid, [N, 1])
                 phi[m] = (e * Z_orthogonal) @ weight_matrix
@@ -625,8 +637,7 @@ class ProblemEconomy(Economy):
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
             RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list,
-            rho_list, unscaled_F_statistic_list, F_cv_size_list, F_cv_power_list, symbols_size_list,
-            symbols_power_list
+            rho_list, unscaled_F_statistic_list, F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list
         ))
         step_end_time = time.time()
         total_time = step_end_time - step_start_time
@@ -641,8 +652,11 @@ class ProblemEconomy(Economy):
             diff_markups = (markups_u[m] - markups_l[m]) / epsilon
             if self._absorb_cost_ids is not None:
                 diff_markups, me = self._absorb_cost_ids(diff_markups)
-            ols_result = sm.OLS(diff_markups, self.products.w).fit()
-            gradient_markups[m][:, theta_index] = ols_result.resid
+                if self.products.w.any():
+                    ols_result = sm.OLS(diff_markups, self.products.w).fit()
+                    gradient_markups[m][:, theta_index] = ols_result.resid
+                else:
+                    gradient_markups[m][:, theta_index] = np.squeeze(diff_markups)
         return gradient_markups
 
     def _compute_perturbation(self, i, j, perturbation):
@@ -657,12 +671,12 @@ class ProblemEconomy(Economy):
             self.models["custom_model_specification"], self.models["user_supplied_markups"]
         )
 
-    def _compute_variance_covariance(self, m, i, N, se_type, var):
+    def _compute_variance_covariance(self, m, i, N, clustering_adjustment, var):
         """Compute the variance covariance matrix."""
         variance_covariance = 1 / N * np.array([
             var[i].T @ var[i], var[m].T @ var[m], var[i].T @ var[m]
         ])
-        if se_type == 'clustered':
+        if clustering_adjustment:
             cluster_ids = np.unique(self.products.clustering_ids)
             for j in cluster_ids:
                 index = np.where(self.products.clustering_ids == j)[0]
@@ -815,8 +829,8 @@ class Progress(object):
     markups: Array
     markups_downstream: Array
     markups_upstream: Array
+    marginal_cost: Array
     tau_list: Array
-    mc: Array
     g: Array
     Q: Array
     RV_numerator: Array
@@ -833,17 +847,17 @@ class Progress(object):
 
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
-            mc: Array, taus: Array, g: Array, Q: Array, RV_numerator: Array, RV_denom: Array, test_statistic_RV: Array,
-            F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, F_cv_size_list: Array,
-            F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
+            marginal_cost: Array, taus: Array, g: Array, Q: Array, RV_numerator: Array, RV_denom: Array,
+            test_statistic_RV: Array, F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array,
+            F_cv_size_list: Array, F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
 
         self.problem = problem
         self.markups = markups
         self.markups_downstream = markups_downstream
         self.markups_upstream = markups_upstream
+        self.marginal_cost = marginal_cost
         self.tau_list = taus
-        self.mc = mc
         self.g = g
         self.Q = Q
         self.RV_numerator = RV_numerator
