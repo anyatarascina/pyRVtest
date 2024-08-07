@@ -84,11 +84,7 @@ class ProblemResults(Results):
         self.markups = progress.markups
         self.markups_downstream = progress.markups_downstream
         self.markups_upstream = progress.markups_upstream
-        self.markups_effective = progress.markups_effective
-        self.markups_orthogonal = progress.markups_orthogonal
         self.marginal_cost = progress.marginal_cost
-        self.mc_tau = progress.mc_tau
-        self.price_cost_margins = progress.price_cost_margins
         self.taus = progress.tau_list
         self.g = progress.g
         self.Q = progress.Q
