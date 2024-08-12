@@ -118,7 +118,8 @@ def build_markups(
         product_data: RecArray, pyblp_results: Mapping, model_downstream: Optional[Array],
         ownership_downstream: Optional[Array], model_upstream: Optional[Array] = None,
         ownership_upstream: Optional[Array] = None, vertical_integration: Optional[Array] = None,
-        custom_model_specification: Optional[dict] = None, user_supplied_markups: Optional[Array] = None) -> Array:
+        custom_model_specification: Optional[dict] = None, user_supplied_markups: Optional[Array] = None,
+        mix_flag: Optional[Array] = None) -> Array:
     r"""This function computes markups for a large set of standard models.
 
     The models that this package is able to compute markups for include:
@@ -188,10 +189,23 @@ def build_markups(
     for i in range(number_models):
         markups_downstream[i] = np.zeros((N, 1), dtype=options.dtype)
         markups_upstream[i] = np.zeros((N, 1), dtype=options.dtype)
-
+        
+    # Transform absent input into list
+    if user_supplied_markups is None:
+        user_supplied_markups = [None] * number_models
+    if custom_model_specification is None:
+        custom_model_specification = [None] * number_models
+    if model_upstream is None:
+        model_upstream=[None]*number_models
+    if vertical_integration is None:
+        vertical_integration = [None] * number_models
+    if mix_flag is None:
+        mix_flag = [None] * number_models
+    
     # precompute demand jacobians
-    with contextlib.redirect_stdout(open(os.devnull, 'w')):
-        ds_dp = pyblp_results.compute_demand_jacobians()
+    if pyblp_results is not None:
+        with contextlib.redirect_stdout(open(os.devnull, 'w')):
+            ds_dp = pyblp_results.compute_demand_jacobians()
 
     # compute markups market-by-market
     for i in range(number_models):
@@ -208,8 +222,7 @@ def build_markups(
                 # compute downstream markups for model i market t
                 markups_downstream[i], retailer_ownership_matrix = evaluate_first_order_conditions(
                     index_t, model_downstream[i], ownership_downstream[i], retailer_response_matrix, shares_t,
-                    markups_downstream[i], custom_model_specification[i], markup_type='downstream'
-                )
+                    markups_downstream[i], custom_model_specification[i], markup_type='downstream', type_mix_flag=mix_flag[i])
 
                 # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
                 if not (model_upstream[i] is None):
@@ -265,25 +278,29 @@ def construct_passthrough_matrix(
 
 def evaluate_first_order_conditions(
         index, model_type, type_ownership_matrix, response_matrix, shares, markups, custom_model_specification,
-        markup_type):
+        markup_type, type_mix_flag=None):
     """Compute markups for some standard models including Bertrand, Cournot, monopoly, and perfect competition using
     the first order conditions corresponding to each model. Allow user to pass in their own markup function as well.
     """
     if (markup_type == 'downstream') or (markup_type == 'upstream' and model_type is not None):
 
-        # construct ownership matrix
+        # construct ownership matrix and mix_flag vector
         ownership_matrix = type_ownership_matrix[index]
         ownership_matrix = ownership_matrix[:, ~np.isnan(ownership_matrix).all(axis=0)]
-
+        if type_mix_flag is not None:
+          mix_flag=type_mix_flag[index]
+          
         # compute markups based on specified model first order condition
         if model_type == 'bertrand':
-            markups[index] = -inv(ownership_matrix * response_matrix) @ shares
+            markups[index,0] = -inv(ownership_matrix * response_matrix) @ shares
         elif model_type == 'cournot':
-            markups[index] = -(ownership_matrix * inv(response_matrix)) @ shares
+            markups[index,0] = -(ownership_matrix * inv(response_matrix)) @ shares
         elif model_type == 'monopoly':
-            markups[index] = -inv(response_matrix) @ shares
+            markups[index,0] = -inv(response_matrix) @ shares
         elif model_type == 'perfect_competition':
-            markups[index] = np.zeros((len(shares), 1))
+            markups[index,0] = np.zeros((len(shares), 1))
+        elif model_type == 'mix_cournot_bertrand':
+            markups[index,0]=MixMkup(ownership_matrix,response_matrix,mix_flag,shares)
         else:
             if custom_model_specification is not None:
                 custom_model, custom_model_formula = next(iter(custom_model_specification.items()))
@@ -291,7 +308,20 @@ def evaluate_first_order_conditions(
 
     return markups, ownership_matrix
 
-
+def MixMkup(ownership_matrix,response_matrix,mix_flag,shares):
+        sharesB=shares[mix_flag]
+        sharesC=shares[~mix_flag]
+        ownB = ownership_matrix[mix_flag,:][:,mix_flag]
+        ownC = ownership_matrix[~mix_flag,:][:,~mix_flag]
+        D_BB = response_matrix[:,mix_flag][mix_flag,:]
+        D_CB = response_matrix[:,mix_flag][~mix_flag,:]
+        D_CC = response_matrix[:,~mix_flag][~mix_flag,:]
+        D_BC = response_matrix[:,~mix_flag][mix_flag,:]
+        mkups_C = -(ownC * inv(D_CC)) @ sharesC
+        mkups_B = -inv(ownB * (D_BC @ inv(D_CC) @ D_CB +D_BB)) @ sharesB
+        mkups=np.empty((len(mix_flag))); mkups[mix_flag]=mkups_B; mkups[~mix_flag]=mkups_C
+        return(mkups)
+      
 def read_pickle(path: Union[str, Path]) -> object:
     """Load a pickled object into memory.
     This is a simple wrapper around `pickle.load`.

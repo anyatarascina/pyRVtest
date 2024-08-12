@@ -524,7 +524,10 @@ class ProblemEconomy(Economy):
                     rho_lookup = np.round(np.abs(rho[i, m]), 2)
                     if rho_lookup > .99:
                         rho_lookup = .99
-                    ind = np.where((critical_values_size['K'] == K) & (critical_values_size['rho'] == rho_lookup))[0][0]
+                    if K<=30:
+                    	ind = np.where((critical_values_size['K'] == K) & (critical_values_size['rho'] == rho_lookup))[0][0]
+                    else:
+                    	ind = np.where((critical_values_size['K'] == 30) & (critical_values_size['rho'] == rho_lookup))[0][0]
                     F_cv_size[i, m] = np.array([
                         critical_values_size['r_125'][ind],
                         critical_values_size['r_10'][ind],
