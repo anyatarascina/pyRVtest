@@ -37,7 +37,10 @@ class ProblemEconomy(Economy):
         )
 
     def solve(
-            self, demand_adjustment: Optional[bool] = False, clustering_adjustment: Optional[bool] = False
+            self, demand_adjustment: Optional[bool] = False, 
+            clustering_adjustment: Optional[bool] = False,
+            costs_type: Optional[str] = 'linear',
+            mc_correction:Optional[Array] = None
     ) -> ProblemResults:
         r"""Solve the problem.
 
@@ -94,6 +97,7 @@ class ProblemEconomy(Economy):
         markups_orthogonal = np.zeros((M, N), dtype=options.dtype)
         prices_orthogonal = np.zeros((M, N), dtype=options.dtype)
         marginal_cost_orthogonal = np.zeros((M, N), dtype=options.dtype)
+        omega = np.zeros((M, N), dtype=options.dtype)
         tau_list = np.zeros((M, self.products.w.shape[1]), dtype=options.dtype)
         prices_errors = np.zeros(M, dtype=options.dtype)
         markups_errors = np.zeros(M, dtype=options.dtype)
@@ -130,6 +134,21 @@ class ProblemEconomy(Economy):
             markups_effective[m] = (advalorem_tax_adj[m]/(1 + cost_scaling[m])) * markups[m]
             marginal_cost[m] = prices_effective[m] - markups_effective[m]
 
+	# transform marginal cost based on specificiation assumption
+        if costs_type=="log" and not demand_adjustment:
+            if np.any(marginal_cost<0):
+                raise ValueError(
+                    "Can't generate log costs with negative marginal cost!"
+                    )
+            else:                
+                marginal_cost=np.log(marginal_cost)
+        
+        # include any marginal cost correction
+        if mc_correction is not None:
+            if not marginal_cost.shape==mc_correction.shape:
+                raise ValueError("The dimensions of marginal cost correction don't match the dimensions of the marginal cost.")
+            marginal_cost=marginal_cost + mc_correction
+
         # absorb any cost fixed effects from prices, markups, and instruments
         if self._absorb_cost_ids is not None:
             output("Absorbing cost-side fixed effects ...")
@@ -138,7 +157,6 @@ class ProblemEconomy(Economy):
             # TODO: put this into a loop
             for m in range(M):
                 value, error = self._absorb_cost_ids(prices_effective[m])
-                prices_orthogonal[m] = np.squeeze(value)
                 prices_errors[m] = np.nan if not error else error
 
                 value, error = self._absorb_cost_ids(markups_effective[m])
@@ -149,7 +167,6 @@ class ProblemEconomy(Economy):
                 marginal_cost_orthogonal[m] = np.squeeze(value)
                 marginal_cost_errors[m] = np.nan if not error else error
         else:
-            prices_orthogonal = prices_effective.copy()
             markups_orthogonal = markups_effective.copy()
             marginal_cost_orthogonal = marginal_cost
 
@@ -158,15 +175,14 @@ class ProblemEconomy(Economy):
         # TODO: only do this if w is not 0
         if self.products.w.any():
             for m in range(M):
-                results = sm.OLS(prices_orthogonal[m], self.products.w).fit()
-                prices_orthogonal[m] = results.resid
                 results = sm.OLS(markups_orthogonal[m], self.products.w).fit()
                 markups_orthogonal[m] = results.resid
                 results = sm.OLS(marginal_cost_orthogonal[m], self.products.w).fit()
+                omega[m] = results.resid
                 tau_list[m] = results.params
         else:
             markups_orthogonal = np.reshape(markups_orthogonal, [M, N])
-            prices_orthogonal = np.reshape(prices_orthogonal, [M, N])
+            omega = np.reshape(marginal_cost_orthogonal, [M, N])
 
         # if user specifies demand adjustment, account for two-step estimation in the standard errors by computing the
         #   finite difference approximation to the derivative of markups with respect to theta
@@ -406,7 +422,7 @@ class ProblemEconomy(Economy):
 
             # for each model compute GMM measure of fit
             for m in range(M):
-                g[m] = 1 / N * (Z_orthogonal.T @ (np.squeeze(prices_orthogonal[m]) - markups_orthogonal[m]))
+                g[m] = 1 / N * (Z_orthogonal.T @ (omega[m]))
                 Q[m] = g[m].T @ weight_matrix @ g[m]
 
             # compute the pairwise RV numerator
@@ -430,7 +446,7 @@ class ProblemEconomy(Economy):
                 psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
                 W_34_Zg = Z_orthogonal @ W_34 @ g[m]
                 W_34_Zg = W_34_Zg[:, np.newaxis]
-                marginal_cost_orthogonal = (np.squeeze(prices_orthogonal[m]) - markups_orthogonal[m])
+                marginal_cost_orthogonal = (omega[m])
                 marginal_cost_orthogonal = marginal_cost_orthogonal[:, np.newaxis]
                 psi_i = (marginal_cost_orthogonal * Z_orthogonal) @ W_12 - 0.5 * W_34_Zg * (Z_orthogonal @ W_34.T)
                 psi[m] = psi_i - np.transpose(psi_bar)
@@ -488,7 +504,7 @@ class ProblemEconomy(Economy):
             symbols_size = np.empty((M, M), dtype=object)
             symbols_power = np.empty((M, M), dtype=object)
             for m in range(M):
-                ols_results = sm.OLS(np.squeeze(prices_orthogonal[m]) - markups_orthogonal[m], Z_orthogonal).fit()
+                ols_results = sm.OLS(omega[m], Z_orthogonal).fit()
                 pi[:, m] = ols_results.params
                 e = np.reshape(ols_results.resid, [N, 1])
                 phi[m] = (e * Z_orthogonal) @ weight_matrix
@@ -525,9 +541,9 @@ class ProblemEconomy(Economy):
                     if rho_lookup > .99:
                         rho_lookup = .99
                     if K<=30:
-                    	ind = np.where((critical_values_size['K'] == K) & (critical_values_size['rho'] == rho_lookup))[0][0]
+                        ind = np.where((critical_values_size['K'] == K) & (critical_values_size['rho'] == rho_lookup))[0][0]
                     else:
-                    	ind = np.where((critical_values_size['K'] == 30) & (critical_values_size['rho'] == rho_lookup))[0][0]
+                        ind = np.where((critical_values_size['K'] == 30) & (critical_values_size['rho'] == rho_lookup))[0][0]
                     F_cv_size[i, m] = np.array([
                         critical_values_size['r_125'][ind],
                         critical_values_size['r_10'][ind],
@@ -638,9 +654,10 @@ class ProblemEconomy(Economy):
 
         # return results
         results = ProblemResults(Progress(
-            self, markups, markups_downstream, markups_upstream, marginal_cost, tau_list, g_list, Q_list,
-            RV_numerator_list, RV_denominator_list, test_statistic_RV_list, F_statistic_list, MCS_p_values_list,
-            rho_list, unscaled_F_statistic_list, F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list
+            self, markups, markups_downstream, markups_upstream, markups_orthogonal, marginal_cost,
+            tau_list, g_list, Q_list, RV_numerator_list, RV_denominator_list,
+            test_statistic_RV_list, F_statistic_list, MCS_p_values_list, rho_list, unscaled_F_statistic_list,
+            F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list
         ))
         step_end_time = time.time()
         total_time = step_end_time - step_start_time
@@ -832,8 +849,10 @@ class Progress(object):
     markups: Array
     markups_downstream: Array
     markups_upstream: Array
+    markups_orthogonal: Array
     marginal_cost: Array
     tau_list: Array
+    mc: Array
     g: Array
     Q: Array
     RV_numerator: Array
@@ -850,15 +869,17 @@ class Progress(object):
 
     def __init__(
             self, problem: ProblemEconomy, markups: Array, markups_downstream: Array, markups_upstream: Array,
-            marginal_cost: Array, taus: Array, g: Array, Q: Array, RV_numerator: Array, RV_denom: Array,
-            test_statistic_RV: Array, F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array,
-            F_cv_size_list: Array, F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
+            markups_orthogonal: Array, marginal_cost: Array, taus: Array,
+            g: Array, Q: Array, RV_numerator: Array, RV_denom: Array, test_statistic_RV: Array,
+            F: Array, MCS_pvalues: Array, rho: Array, unscaled_F: Array, F_cv_size_list: Array,
+            F_cv_power_list: Array, symbols_size_list: Array, symbols_power_list: Array) -> None:
         """Store progress information, compute the projected gradient and its norm, and compute the reduced Hessian."""
 
         self.problem = problem
         self.markups = markups
         self.markups_downstream = markups_downstream
         self.markups_upstream = markups_upstream
+        self.markups_orthogonal = markups_orthogonal
         self.marginal_cost = marginal_cost
         self.tau_list = taus
         self.g = g
