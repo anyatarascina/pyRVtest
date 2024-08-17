@@ -292,7 +292,7 @@ class Models(object):
                     product_data, model['ownership_downstream'], 'monopoly'
                 )
                 firm_ids_downstream[m] = 'monopoly'
-            else:
+            elif model['ownership_downstream'] is not None:
                 ownership_matrices_downstream[m] = build_ownership(
                     product_data, model['ownership_downstream'], model['kappa_specification_downstream']
                 )

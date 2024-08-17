@@ -214,7 +214,7 @@ def build_markups(
             markups_downstream[i] = user_supplied_markups[i]
         else:
             for t in markets:
-                index_t = np.where(pyblp_results.problem.products['market_ids'] == t)[0]
+                index_t = np.where(product_data.market_ids == t)[0]
                 shares_t = product_data.shares[index_t]
                 retailer_response_matrix = ds_dp[index_t]
                 retailer_response_matrix = retailer_response_matrix[:, ~np.isnan(retailer_response_matrix).all(axis=0)]
@@ -282,6 +282,8 @@ def evaluate_first_order_conditions(
     """Compute markups for some standard models including Bertrand, Cournot, monopoly, and perfect competition using
     the first order conditions corresponding to each model. Allow user to pass in their own markup function as well.
     """
+    if len(shares.shape)==1:
+        shares=np.expand_dims(shares, axis=1)
     if (markup_type == 'downstream') or (markup_type == 'upstream' and model_type is not None):
 
         # construct ownership matrix and mix_flag vector
@@ -292,15 +294,15 @@ def evaluate_first_order_conditions(
           
         # compute markups based on specified model first order condition
         if model_type == 'bertrand':
-            markups[index,0] = -inv(ownership_matrix * response_matrix) @ shares
+            markups[index,:] = -inv(ownership_matrix * response_matrix) @ shares
         elif model_type == 'cournot':
-            markups[index,0] = -(ownership_matrix * inv(response_matrix)) @ shares
+            markups[index,:] = -(ownership_matrix * inv(response_matrix)) @ shares
         elif model_type == 'monopoly':
-            markups[index,0] = -inv(response_matrix) @ shares
+            markups[index,:] = -inv(response_matrix) @ shares
         elif model_type == 'perfect_competition':
-            markups[index,0] = np.zeros((len(shares), 1))
+            markups[index,:] = np.zeros((len(shares), 1))
         elif model_type == 'mix_cournot_bertrand':
-            markups[index,0]=MixMkup(ownership_matrix,response_matrix,mix_flag,shares)
+            markups[index,:]=MixMkup(ownership_matrix,response_matrix,mix_flag,shares)
         else:
             if custom_model_specification is not None:
                 custom_model, custom_model_formula = next(iter(custom_model_specification.items()))
