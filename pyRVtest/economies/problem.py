@@ -520,7 +520,7 @@ class ProblemEconomy(Economy):
                         np.trace(variance[2] @ W_inverse)
                     ])
                     numerator_sqrt = (sigma[0] - sigma[1])
-                    denominator_sqrt = np.sqrt((sigma[0] + sigma[1]) * (sigma[0] + sigma[1]) - 4 * sigma[2] ** 2)
+                    denominator_sqrt = np.sqrt((sigma[0] + sigma[1]) * (sigma[0] + sigma[1]) - 4 * sigma[2] ** 2) #TODO: handle negative values
                     rho[i, m] = numerator_sqrt / denominator_sqrt
                     rho_squared = np.square(rho[i, m])
 

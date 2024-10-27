@@ -321,7 +321,9 @@ def MixMkup(ownership_matrix,response_matrix,mix_flag,shares):
         D_BC = response_matrix[:,~mix_flag][mix_flag,:]
         mkups_C = -(ownC * inv(D_CC)) @ sharesC
         mkups_B = -inv(ownB * (D_BC @ inv(D_CC) @ D_CB +D_BB)) @ sharesB
-        mkups=np.empty((len(mix_flag))); mkups[mix_flag]=mkups_B; mkups[~mix_flag]=mkups_C
+        mkups=np.zeros((len(mix_flag),1))
+        mkups[mix_flag]=mkups_B
+        mkups[~mix_flag]=mkups_C
         return(mkups)
       
 def read_pickle(path: Union[str, Path]) -> object:
