@@ -418,7 +418,7 @@ class ProblemEconomy(Economy):
             # compute the weight matrix
             W_inverse = 1 / N * (Z_orthogonal.T @ Z_orthogonal)
             W_inverse = np.reshape(W_inverse, [K, K])
-            weight_matrix = inv(W_inverse)
+            weight_matrix = np.linalg.pinv(W_inverse) #Moore-Penrose pseudo-inverse
 
             # for each model compute GMM measure of fit
             for m in range(M):
