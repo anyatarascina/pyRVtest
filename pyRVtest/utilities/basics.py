@@ -3,23 +3,12 @@
 from typing import Any, Container, Dict, List, Optional, Sequence, Tuple
 
 
-# define common types
-Array = Any
-RecArray = Any
-Data = Dict[str, Array]
-Options = Dict[str, Any]
-Bounds = Tuple[Array, Array]
-
-# define a pool managed by parallel and used by generate_items
-pool = None
-
-
 def format_table(
         header: Sequence, subheader: Sequence, *data: Sequence, title: Optional[str] = None,
         include_notes: bool = False, include_border: bool = True, include_header: bool = True,
         include_subheader: bool = True, line_indices: Container[int] = ()) -> str:
     """Format table information as a string, which has fixed widths, vertical lines after any specified indices, and
-    optionally a title, border, and header.
+    optionally a title, border, header, subheader, and F-stat significance notes.
     """
 
     # construct the header rows

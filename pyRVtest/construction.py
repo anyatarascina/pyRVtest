@@ -8,7 +8,8 @@ from typing import Any, Callable, Mapping, Optional, Union
 
 import numpy as np
 from numpy.linalg import inv
-from pyblp.utilities.basics import Array, RecArray, extract_matrix, get_indices
+import pyblp
+from pyblp.utilities.basics import Array, RecArray
 
 from . import options
 
@@ -17,101 +18,29 @@ def build_ownership(
         product_data: Mapping, firm_ids_column_name: str,
         kappa_specification: Optional[Union[str, Callable[[Any, Any], float]]] = None) -> Array:
     r"""Build ownership matrices, :math:`O`.
-    Ownership or product holding matrices are defined by their cooperation matrix counterparts, :math:`\kappa`. For each
-    market :math:`t`, :math:`\mathscr{H}_{jk} = \kappa_{fg}` where :math:`j \in J_{ft}`, the set of products
-    produced by firm :math:`f` in the market, and similarly, :math:`g \in J_{gt}`.
 
-    .. note::
-        This function is a copy of the function from PyBLP, with a slight change. In order to allow upstream and
-        downstream firms to have different ownership structures, the user can pass in the names of the columns
-        corresponding to firm ids for downstream and upstream firms.
-
+    Thin wrapper around :func:`pyblp.build_ownership` that allows specifying which column contains firm IDs, rather
+    than requiring a column named ``firm_ids``. This supports separate downstream and upstream ownership structures.
 
     Parameters
     ----------
     product_data : `structured array-like`
-        Each row corresponds to a product. Markets can have differing numbers of products. The following fields are
-        required (except for ``firm_ids`` when ``kappa_specification`` is one of the special cases):
-
-            - **market_ids** : (`object`) - IDs that associate products with markets.
-
-    firm_ids_column_name: column in product_data with firm ids that associate products with firms. This field is ignored
-        if ``kappa_specification`` is one of the special cases and not a function.
-
+        Each row corresponds to a product. Must have a ``market_ids`` field.
+    firm_ids_column_name : `str`
+        Column in ``product_data`` with firm IDs. Ignored for special-case ``kappa_specification`` values.
     kappa_specification : `str or callable, optional`
-        Specification for each market's cooperation matrix, :math:`\kappa`, which can either be a general function or a
-        string that implements a special case. The general function is is of the following form::
-
-            kappa(f, g) -> value
-
-        where ``value`` is :math:`\mathscr{H}_{jk}` and both ``f`` and ``g`` are firm IDs from the ``firm_ids`` field of
-        ``product_data``.
-
-        The default specification, ``lambda: f, g: int(f == g)``, constructs traditional ownership matrices. That is,
-        :math:`\kappa = I`, the identity matrix, implies that :math:`\mathscr{H}_{jk}` is :math:`1` if the same firm
-        produces products :math:`j` and :math:`k`, and is :math:`0` otherwise.
-
-        If ``firm_ids`` happen to be indices for an actual :math:`\kappa` matrix, ``lambda f, g: kappa[f, g]`` will
-        build ownership matrices according to the matrix ``kappa``.
-
-        When one of the special cases is specified, ``firm_ids`` in ``product_data`` are not required and if specified
-        will be ignored:
-            - ``'monopoly'`` - Monopoly ownership matrices are all ones: :math:`\mathscr{H}_{jk} = 1` for all :math:`j`
-              and :math:`k`.
-            - ``'single'`` - Single product firm ownership matrices are identity matrices: :math:`\mathscr{H}_{jk} = 1`
-              if :math:`j = k` and :math:`0` otherwise.
+        Passed directly to :func:`pyblp.build_ownership`. See that function for full documentation.
 
     Returns
     -------
     `ndarray`
-        Stacked :math:`J_t \times J_t` ownership matrices, :math:`\mathscr{H}`, for each market :math:`t`. If a market
-        has fewer products than others, extra columns will contain ``numpy.nan``.
+        Stacked :math:`J_t \times J_t` ownership matrices for each market :math:`t`.
 
     """
-
-    # validate or use the default kappa specification
-    if kappa_specification is None:
-        kappa_specification = lambda f, g: np.where(f == g, 1, 0).astype(options.dtype)
-    elif callable(kappa_specification):
-        kappa_specification = np.vectorize(kappa_specification, [options.dtype])
-    elif kappa_specification not in {'monopoly', 'single'}:
-        raise ValueError("kappa_specification must be None, callable, 'monopoly', or 'single'.")
-
-    # extract and validate IDs
-    market_ids = extract_matrix(product_data, 'market_ids')
-    firm_ids = extract_matrix(product_data, firm_ids_column_name)
-    if market_ids is None:
-        raise KeyError("product_data must have a market_ids field.")
-    if market_ids.shape[1] > 1:
-        raise ValueError("The market_ids field of product_data must be one-dimensional.")
-    if callable(kappa_specification):
-        if firm_ids is None:
-            raise KeyError(
-                "product_data must have a firm_ids field or firm_ids_column_name must be specified when "
-                "kappa_specification is not a special case."
-            )
-        if firm_ids.shape[1] > 1:
-            raise ValueError("The firm_ids field of product_data must be one-dimensional.")
-
-    # determine the overall number of products and the maximum number in a market
-    market_indices = get_indices(market_ids)
-    N = market_ids.size
-    max_J = max(i.size for i in market_indices.values())
-
-    # construct the ownership matrices
-    ownership = np.full((N, max_J), np.nan, options.dtype)
-    for indices_t in market_indices.values():
-        if kappa_specification == 'monopoly':
-            ownership[indices_t, :indices_t.size] = 1
-        elif kappa_specification == 'single':
-            ownership[indices_t, :indices_t.size] = np.eye(indices_t.size)
-        else:
-            assert callable(kappa_specification) and firm_ids is not None
-            ids_t = firm_ids[indices_t]
-            tiled_ids_t = np.tile(np.c_[ids_t], ids_t.size)
-            ownership[indices_t, :indices_t.size] = kappa_specification(tiled_ids_t, tiled_ids_t.T)
-
-    return ownership
+    names = product_data.dtype.names if hasattr(product_data, 'dtype') and product_data.dtype.names else product_data.columns
+    modified_data = {name: product_data[name] for name in names}
+    modified_data['firm_ids'] = product_data[firm_ids_column_name]
+    return pyblp.build_ownership(modified_data, kappa_specification)
 
 
 def build_markups(
@@ -284,11 +213,13 @@ def evaluate_first_order_conditions(
     """
     if len(shares.shape)==1:
         shares=np.expand_dims(shares, axis=1)
+    ownership_matrix = None
     if (markup_type == 'downstream') or (markup_type == 'upstream' and model_type is not None):
 
         # construct ownership matrix and mix_flag vector
-        ownership_matrix = type_ownership_matrix[index]
-        ownership_matrix = ownership_matrix[:, ~np.isnan(ownership_matrix).all(axis=0)]
+        if type_ownership_matrix is not None:
+            ownership_matrix = type_ownership_matrix[index]
+            ownership_matrix = ownership_matrix[:, ~np.isnan(ownership_matrix).all(axis=0)]
         if type_mix_flag is not None:
           mix_flag=type_mix_flag[index]
           

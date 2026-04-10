@@ -277,6 +277,7 @@ class Models(object):
         cost_scaling_column = [None] * M
         user_supplied_markups = [None] * M
         user_supplied_markups_name = [None] * M
+        mix_flag = [None] * M
 
         # extract data for each model
         for m in range(M):
@@ -343,6 +344,10 @@ class Models(object):
                 user_supplied_markups[m] = extract_matrix(product_data, model["user_supplied_markups"])
                 user_supplied_markups_name[m] = model["user_supplied_markups"]
 
+            # define mix_flag for mix_cournot_bertrand model
+            if model.get("mix_flag") is not None:
+                mix_flag[m] = extract_matrix(product_data, model["mix_flag"]).flatten().astype(bool)
+
         # structure product fields as a mapping
         models_mapping: Dict[Union[str, tuple], Optional[Array]] = {}
         models_mapping.update({
@@ -363,7 +368,8 @@ class Models(object):
             'cost_scaling': cost_scaling,
             'custom_model_specification': custom_model,
             'user_supplied_markups': user_supplied_markups,
-            'user_supplied_markups_name': user_supplied_markups_name
+            'user_supplied_markups_name': user_supplied_markups_name,
+            'mix_flag': mix_flag
         })
         return models_mapping
 

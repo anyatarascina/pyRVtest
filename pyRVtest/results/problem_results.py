@@ -4,9 +4,8 @@ from pathlib import Path
 import pickle
 from typing import List, Union, TYPE_CHECKING
 
-from pyblp.utilities.basics import Array
+from pyblp.utilities.basics import Array, StringRepresentation
 
-from .results import Results
 from ..utilities.basics import format_table
 
 
@@ -15,7 +14,7 @@ if TYPE_CHECKING:
     from ..economies.problem import Progress
 
 
-class ProblemResults(Results):
+class ProblemResults(StringRepresentation):
     r"""Results of running the firm conduct testing procedures.
 
     Attributes
@@ -125,7 +124,7 @@ class ProblemResults(Results):
             data.append([""] + ["" for i in range(number_models)] + [""] + symbols_results + [""] + [""])
 
         # construct the header
-        blanks = [f"  " for i in range(number_models)]
+        blanks = ["  " for i in range(number_models)]
         numbers = [f" {i} " for i in range(number_models)]
         header = [" TRV: "] + blanks + [" F-stats: "] + blanks + [" MCS: "] + [" "]
         subheader = [" models "] + numbers + [" models "] + numbers + [" models "] + ["MCS p-values"]
