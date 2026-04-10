@@ -61,8 +61,6 @@ class Products(object):
 
         # build w
         w, w_formulation, w_data = cost_formulation._build_matrix(product_data)
-        if 'shares' in w_data:
-            raise NameError("shares cannot be included in the formulation for marginal cost.")
 
         # check that prices are not in X1
         if 'prices' in w_data:
@@ -254,8 +252,8 @@ class Models(object):
         if not all(isinstance(f, ModelFormulation) or f is None for f in model_formulations):
             raise TypeError("Each formulation in model_formulations must be a ModelFormulation instance or None.")
         M = len(model_formulations)
-        if M < 2:
-            raise ValueError("At least two model formulations must be specified.")
+        if M < 1:
+            raise ValueError("At least one model formulation must be specified.")
         N = product_data.shape[0]
 
         # initialize model components

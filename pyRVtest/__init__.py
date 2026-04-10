@@ -3,7 +3,8 @@
 from . import data, options
 from .configurations.formulation import Formulation, ModelFormulation
 from .construction import (
-    build_ownership, build_markups, construct_passthrough_matrix, evaluate_first_order_conditions, read_pickle
+    build_ownership, build_markups, _compute_markups, construct_passthrough_matrix,
+    evaluate_first_order_conditions, read_pickle
 )
 from .economies.problem import Problem
 from .primitives import Models, Products

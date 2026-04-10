@@ -77,6 +77,7 @@ class ProblemResults(StringRepresentation):
     F_cv_power_list: Array
     _symbols_size_list: Array
     _symbols_power_list: Array
+    cost_param: Array
 
     def __init__(self, progress: 'Progress') -> None:
         self.problem = progress.problem
@@ -98,6 +99,7 @@ class ProblemResults(StringRepresentation):
         self.F_cv_power_list = progress.F_cv_power_list
         self._symbols_size_list = progress.symbols_size_list
         self._symbols_power_list = progress.symbols_power_list
+        self.cost_param = progress.cost_param
 
     def __str__(self) -> str:
         """Format results information as a string."""

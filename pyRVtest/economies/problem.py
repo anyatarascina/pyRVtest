@@ -11,13 +11,13 @@ from typing import Dict, Hashable, Mapping, Optional, Sequence, Tuple, Union
 import numpy as np
 from pyblp.utilities.algebra import precisely_identify_collinearity
 from pyblp.utilities.basics import Array, RecArray, StringRepresentation, format_seconds, format_table, get_indices, output
-from scipy.linalg import inv, fractional_matrix_power
+from scipy.linalg import inv
 from scipy.stats import norm
 import statsmodels.api as sm
 
 from .. import options
 from ..configurations.formulation import Absorb, Formulation, ModelFormulation
-from ..construction import build_markups
+from ..construction import _compute_markups
 from ..primitives import Container, Models, Products, read_critical_values_tables
 from ..results.problem_results import ProblemResults
 
@@ -84,7 +84,8 @@ class Problem(Container, StringRepresentation):
     def __init__(
             self, cost_formulation: Formulation, instrument_formulation: Sequence[Formulation],
             product_data: Mapping, demand_results: Mapping, model_formulations: Sequence[ModelFormulation] = None,
-            markup_data: Optional[RecArray] = None) -> None:
+            markup_data: Optional[RecArray] = None,
+            endogenous_cost_component: Optional[str] = None) -> None:
         """Initialize the underlying economy with product and agent data before absorbing fixed effects."""
 
         output("Initializing the problem ...")
@@ -110,6 +111,22 @@ class Problem(Container, StringRepresentation):
             if not all(isinstance(f, Formulation) for f in instrument_formulation):
                 raise TypeError("Each formulation in instrument_formulation must be a Formulation.")
 
+        if endogenous_cost_component is not None:
+            if not isinstance(endogenous_cost_component, str):
+                raise TypeError("endogenous_cost_component must be a string column name.")
+            _, w_formulation_check, _ = cost_formulation._build_matrix(product_data)
+            endog_terms = [f for f in w_formulation_check if endogenous_cost_component in f.names]
+            if not endog_terms:
+                raise ValueError(
+                    f"endogenous_cost_component '{endogenous_cost_component}' must appear in cost_formulation."
+                )
+            for f in endog_terms:
+                if str(f) != endogenous_cost_component:
+                    raise ValueError(
+                        f"endogenous_cost_component '{endogenous_cost_component}' must enter cost_formulation "
+                        f"linearly (no interactions or transformations). Found term: '{f}'."
+                    )
+
         products = Products(
             cost_formulation=cost_formulation, instrument_formulation=instrument_formulation, product_data=product_data
         )
@@ -127,6 +144,7 @@ class Problem(Container, StringRepresentation):
         self.model_formulations = model_formulations
         self.demand_results = demand_results
         self.markups = markups
+        self.endogenous_cost_component = endogenous_cost_component
 
         self.unique_market_ids = np.unique(self.products.market_ids.flatten())
         self.unique_nesting_ids = np.unique(self.products.nesting_ids.flatten())
@@ -315,6 +333,14 @@ class Problem(Container, StringRepresentation):
                 )
             marginal_cost = marginal_cost + mc_correction
 
+        cost_param = None
+        endog_hat = None
+        if self.endogenous_cost_component is not None:
+            output('Computing IV correction for endogenous cost component ...')
+            cost_param, iv_mc_correction, endog_hat = self._compute_iv_correction(M, N, marginal_cost)
+            for m in range(M):
+                marginal_cost[m] = marginal_cost[m] + iv_mc_correction[m]
+
         markups_orthogonal, omega, tau_list = self._prepare_orthogonal_variables(
             M, N, markups_effective, marginal_cost
         )
@@ -343,7 +369,7 @@ class Problem(Container, StringRepresentation):
             r = self._compute_instrument_results(
                 instrument, M, N, omega, demand_adjustment, gradient_markups,
                 H_prime_wd, H, h_i, h, clustering_adjustment,
-                critical_values_size, critical_values_power
+                critical_values_size, critical_values_power, endog_hat
             )
             g_list[instrument] = r['g']
             Q_list[instrument] = r['Q']
@@ -363,7 +389,7 @@ class Problem(Container, StringRepresentation):
             self, markups, markups_downstream, markups_upstream, markups_orthogonal, marginal_cost,
             tau_list, g_list, Q_list, RV_numerator_list, RV_denominator_list,
             test_statistic_RV_list, F_statistic_list, MCS_p_values_list, rho_list, unscaled_F_statistic_list,
-            F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list
+            F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list, cost_param
         ))
         output(f"Solved the problem after {format_seconds(time.time() - step_start_time)}.")
         output("")
@@ -386,8 +412,8 @@ class Problem(Container, StringRepresentation):
                     )
 
     def _perturb_and_build_markups(self):
-        """Call build_markups with current demand_results and model specifications."""
-        return build_markups(
+        """Call _compute_markups with current demand_results and model specifications."""
+        return _compute_markups(
             self.products, self.demand_results, self.models["models_downstream"],
             self.models["ownership_downstream"], self.models["models_upstream"],
             self.models["ownership_upstream"], self.models["vertical_integration"],
@@ -399,12 +425,26 @@ class Problem(Container, StringRepresentation):
         """Absorb fixed effects and residualize markups and marginal costs w.r.t. cost shifters."""
         markups_orthogonal = np.zeros((M, N), dtype=options.dtype)
         marginal_cost_orthogonal = np.zeros((M, N), dtype=options.dtype)
-        tau_list = np.zeros((M, self.products.w.shape[1]), dtype=options.dtype)
+
+        # When an endogenous cost component is present, its coefficient was estimated via IV and the correction
+        # has already been applied to marginal_cost. The OLS projection therefore uses only the exogenous columns
+        # of w so that tau_list corresponds to the exogenous cost-shifter coefficients.
+        if self.endogenous_cost_component is not None:
+            endog_col_idx = next(
+                i for i, f in enumerate(self._w_formulation)
+                if str(f) == self.endogenous_cost_component
+            )
+            exog_col_indices = [i for i in range(self.products.w.shape[1]) if i != endog_col_idx]
+            w_for_ols = self.products.w[:, exog_col_indices]
+        else:
+            w_for_ols = self.products.w
+
+        tau_list = np.zeros((M, w_for_ols.shape[1]), dtype=options.dtype)
         omega = np.zeros((M, N), dtype=options.dtype)
 
         if self._absorb_cost_ids is not None:
             output("Absorbing cost-side fixed effects ...")
-            self.products.w, _ = self._absorb_cost_ids(self.products.w)
+            w_for_ols, _ = self._absorb_cost_ids(w_for_ols)
             for m in range(M):
                 value, _ = self._absorb_cost_ids(markups_effective[m])
                 markups_orthogonal[m] = np.squeeze(value)
@@ -415,11 +455,11 @@ class Problem(Container, StringRepresentation):
                 markups_orthogonal[m] = np.squeeze(markups_effective[m])
                 marginal_cost_orthogonal[m] = np.squeeze(marginal_cost[m])
 
-        if self.products.w.any():
+        if w_for_ols.any():
             for m in range(M):
-                res = sm.OLS(markups_orthogonal[m], self.products.w).fit()
+                res = sm.OLS(markups_orthogonal[m], w_for_ols).fit()
                 markups_orthogonal[m] = res.resid
-                res = sm.OLS(marginal_cost_orthogonal[m], self.products.w).fit()
+                res = sm.OLS(marginal_cost_orthogonal[m], w_for_ols).fit()
                 omega[m] = res.resid
                 tau_list[m] = res.params
         else:
@@ -557,18 +597,37 @@ class Problem(Container, StringRepresentation):
             H_prime_wd: Optional[Array], H: Optional[Array],
             h_i: Optional[Array], h: Optional[Array],
             clustering_adjustment: bool,
-            critical_values_size: Array, critical_values_power: Array
+            critical_values_size: Array, critical_values_power: Array,
+            endog_hat: Optional[Array] = None
     ) -> dict:
         """Compute all test statistics for a single instrument set."""
         instruments = self.products["Z{0}".format(instrument)]
         K = np.shape(instruments)[1]
 
+        # Use only exogenous cost-shifter columns when an endogenous component has been IV-corrected
+        if self.endogenous_cost_component is not None:
+            endog_col_idx = next(
+                i for i, f in enumerate(self._w_formulation)
+                if str(f) == self.endogenous_cost_component
+            )
+            exog_col_indices = [i for i in range(self.products.w.shape[1]) if i != endog_col_idx]
+            w_for_ols = self.products.w[:, exog_col_indices]
+        else:
+            w_for_ols = self.products.w
+
         if self._absorb_cost_ids is not None:
             Z_orthogonal, _ = self._absorb_cost_ids(instruments)
         else:
             Z_orthogonal = instruments
-        if self.products.w.any():
-            Z_orthogonal = np.reshape(sm.OLS(Z_orthogonal, self.products.w).fit().resid, [N, K])
+
+        # Residualize instruments on exogenous cost-shifters and (when applicable) first-stage
+        # fitted values of the endogenous cost component jointly, so that Z_orthogonal is orthogonal
+        # to both simultaneously. The rank reduction from adding endog_hat is handled by pinv.
+        if endog_hat is not None:
+            controls = np.hstack([w_for_ols, endog_hat]) if w_for_ols.shape[1] > 0 else endog_hat
+            Z_orthogonal = np.reshape(sm.OLS(Z_orthogonal, controls).fit().resid, [N, K])
+        elif w_for_ols.any():
+            Z_orthogonal = np.reshape(sm.OLS(Z_orthogonal, w_for_ols).fit().resid, [N, K])
 
         W_inverse = np.reshape(1 / N * (Z_orthogonal.T @ Z_orthogonal), [K, K])
         weight_matrix = np.linalg.pinv(W_inverse)
@@ -587,8 +646,13 @@ class Problem(Container, StringRepresentation):
                 test_statistic_numerator[i, m] = math.sqrt(N) * (Q[i] - Q[m])
 
         # psi for each model and RV denominator
-        W_12 = fractional_matrix_power(weight_matrix, 0.5)
-        W_34 = fractional_matrix_power(weight_matrix, 0.75)
+        # Use eigendecomposition with non-negative clipping to avoid complex values that arise when
+        # floating-point errors push a zero eigenvalue (from a rank-deficient Z_orthogonal) slightly
+        # negative, which would cause fractional_matrix_power to return complex results.
+        _eigvals, _eigvecs = np.linalg.eigh((weight_matrix + weight_matrix.T) / 2)
+        _eigvals = np.maximum(_eigvals, 0)
+        W_12 = (_eigvecs * (_eigvals ** 0.50)) @ _eigvecs.T
+        W_34 = (_eigvecs * (_eigvals ** 0.75)) @ _eigvecs.T
         psi = np.zeros((M, N, K), dtype=options.dtype)
         if demand_adjustment:
             adjustment_value = np.zeros((M, K, H_prime_wd.shape[1]), dtype=options.dtype)
@@ -776,15 +840,70 @@ class Problem(Container, StringRepresentation):
             self, markups_u: list, markups_l: list, epsilon: float, theta_index: int, gradient_markups: Array
     ) -> Array:
         """Compute finite-difference approximation of markup gradient w.r.t. a single demand parameter."""
+        if self.endogenous_cost_component is not None:
+            endog_col_idx = next(
+                i for i, f in enumerate(self._w_formulation)
+                if str(f) == self.endogenous_cost_component
+            )
+            exog_col_indices = [i for i in range(self.products.w.shape[1]) if i != endog_col_idx]
+            w_for_ols = self.products.w[:, exog_col_indices]
+        else:
+            w_for_ols = self.products.w
         for m in range(self.M):
             diff_markups = (markups_u[m] - markups_l[m]) / epsilon
             if self._absorb_cost_ids is not None:
                 diff_markups, _ = self._absorb_cost_ids(diff_markups)
-                if self.products.w.any():
-                    gradient_markups[m][:, theta_index] = sm.OLS(diff_markups, self.products.w).fit().resid
+                if w_for_ols.any():
+                    gradient_markups[m][:, theta_index] = sm.OLS(diff_markups, w_for_ols).fit().resid
                 else:
                     gradient_markups[m][:, theta_index] = np.squeeze(diff_markups)
         return gradient_markups
+
+    def _compute_iv_correction(self, M: int, N: int, marginal_cost: list):
+        """Run per-model 2SLS to estimate the coefficient on the endogenous cost component.
+
+        For each model m the dependent variable is the implied marginal cost (price minus markup). The endogenous
+        cost component (e.g. shares) is instrumented using the test instruments Z and the exogenous cost-shifters.
+        The estimated coefficient gamma_m is used to form a marginal-cost correction:
+        ``mc_correction[m] = -gamma_m * endogenous_variable``.
+
+        Returns
+        -------
+        cost_param : list of ndarray
+            Per-model 2SLS parameter vectors. Each vector contains coefficients for the exogenous cost-shifters
+            followed by the coefficient on the endogenous component (gamma).
+        mc_correction : list of ndarray
+            Per-model (N, 1) correction arrays to be added to marginal cost.
+        """
+        # Identify the endogenous column in w
+        endog_col_idx = next(
+            i for i, f in enumerate(self._w_formulation)
+            if str(f) == self.endogenous_cost_component
+        )
+        exog_col_indices = [i for i in range(self.products.w.shape[1]) if i != endog_col_idx]
+        endog_col = self.products.w[:, [endog_col_idx]]   # (N, 1)
+        exog_w = self.products.w[:, exog_col_indices]     # (N, K_w - 1)
+
+        # Stack all test-instrument sets as first-stage instruments
+        Z_inst = np.hstack([self.products["Z{0}".format(l)] for l in range(self.L)])  # (N, sum_K)
+
+        # First stage: project endogenous variable on [exog_w, Z_inst]
+        first_stage_X = np.hstack([exog_w, Z_inst])
+        endog_hat = sm.OLS(endog_col, first_stage_X).fit().fittedvalues.reshape(-1, 1)
+
+        # Second stage design matrix: replace endogenous column with its first-stage fitted values
+        X_2sls = np.hstack([exog_w, endog_hat])  # (N, K_w)
+
+        cost_param = [None] * M
+        mc_correction = [None] * M
+        for m in range(M):
+            y_m = marginal_cost[m]  # (N, 1)
+            ss_result = sm.OLS(y_m, X_2sls).fit()
+            gamma_m = ss_result.params[-1]          # coefficient on the endogenous component
+            cost_param[m] = ss_result.params        # [tau_exog..., gamma]
+            mc_correction[m] = -gamma_m * endog_col  # (N, 1)
+
+        return cost_param, mc_correction, endog_hat
 
     def _compute_perturbation(self, i: int, j: int, perturbation: float):
         """Perturb pi[i, j] to the given value, recompute delta, and return new markups."""
@@ -840,3 +959,4 @@ class Progress:
     F_cv_power_list: Array
     symbols_size_list: Array
     symbols_power_list: Array
+    cost_param: Optional[list] = None

@@ -39,31 +39,67 @@ def build_ownership(
     """
     names = product_data.dtype.names if hasattr(product_data, 'dtype') and product_data.dtype.names else product_data.columns
     modified_data = {name: product_data[name] for name in names}
-    modified_data['firm_ids'] = product_data[firm_ids_column_name]
+    if firm_ids_column_name is not None:
+        modified_data['firm_ids'] = product_data[firm_ids_column_name]
     return pyblp.build_ownership(modified_data, kappa_specification)
 
 
 def build_markups(
+        model_formulations: Any, product_data: RecArray, pyblp_results: Mapping) -> Array:
+    r"""Compute markups for one or more candidate conduct models.
+
+    This is the main user-facing markup function. It accepts :class:`ModelFormulation` objects together with product
+    data and a PyBLP demand results object, and returns implied markups for each model.
+
+    Supported models include standard Bertrand, Cournot, monopoly, perfect competition, mixed Cournot/Bertrand,
+    bilateral oligopoly (with optional vertical integration), and custom user-specified markup formulas.
+
+    Parameters
+    ----------
+    model_formulations : `sequence of ModelFormulation`
+        One or more :class:`ModelFormulation` instances that specify the conduct model(s) for which markups should be
+        computed. At least one formulation must be provided.
+    product_data : `structured array-like`
+        Product-level data used for demand estimation. Must contain ``market_ids``, ``shares``, and ``prices``
+        fields.
+    pyblp_results : `structured array-like`
+        Results object returned by ``pyblp.Problem.solve``. Used to compute demand Jacobians and Hessians.
+
+    Returns
+    -------
+    `tuple[list, list, list]`
+        Computed total markups, downstream markups, and upstream markups for each model. Each element of the
+        returned lists is an ``(N, 1)`` array of markups stacked across markets.
+
+    Examples
+    --------
+    Compute markups for a single Bertrand model::
+
+        model = pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids')
+        markups, markups_down, markups_up = pyRVtest.build_markups([model], product_data, pyblp_results)
+
+    """
+    from .primitives import Models  # local import avoids circular dependency
+    if not hasattr(model_formulations, '__len__'):
+        model_formulations = [model_formulations]
+    models = Models(model_formulations, product_data)
+    return _compute_markups(
+        product_data, pyblp_results, models["models_downstream"], models["ownership_downstream"],
+        models["models_upstream"], models["ownership_upstream"], models["vertical_integration"],
+        models["custom_model_specification"], models["user_supplied_markups"], models["mix_flag"]
+    )
+
+
+def _compute_markups(
         product_data: RecArray, pyblp_results: Mapping, model_downstream: Optional[Array],
         ownership_downstream: Optional[Array], model_upstream: Optional[Array] = None,
         ownership_upstream: Optional[Array] = None, vertical_integration: Optional[Array] = None,
         custom_model_specification: Optional[dict] = None, user_supplied_markups: Optional[Array] = None,
         mix_flag: Optional[Array] = None) -> Array:
-    r"""This function computes markups for a large set of standard models.
+    r"""Compute markups given pre-processed model arrays.
 
-    The models that this package is able to compute markups for include:
-            - standard bertrand with ownership matrix based on firm id
-            - price setting with arbitrary ownership matrix (e.g. profit weight model)
-            - standard cournot with ownership matrix based on firm id
-            - quantity setting with arbitrary ownership matrix (e.g. profit weight model)
-            - monopoly
-            - bilateral oligopoly with any combination of the above models upstream and downstream
-            - bilateral oligopoly as above but with subset of products vertically integrated
-            - any of the above with consumer surplus weights
-
-    In order to compute markups, the products data and PyBLP demand estimation results must be specified, as well as at
-    least a model of downstream conduct. If `model_upstream` is not specified, this is a model without vertical
-    integration.
+    Internal function called by :func:`build_markups` and :meth:`Problem.solve`. Accepts the raw arrays produced by
+    :class:`Models` rather than :class:`ModelFormulation` objects.
 
     Parameters
     ----------
