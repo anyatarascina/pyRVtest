@@ -1,14 +1,13 @@
 """Public-facing objects."""
 
 from . import data, options
-from .configurations.formulation import Formulation, ModelFormulation
-from .construction import (
+from .formulation import Formulation, ModelFormulation
+from .markups import (
     build_ownership, build_markups, _compute_markups, construct_passthrough_matrix,
     evaluate_first_order_conditions, read_pickle
 )
-from .economies.problem import Problem
-from .primitives import Models, Products
-from .results.problem_results import ProblemResults
+from .problem import Problem, Models, Products
+from .results import ProblemResults
 from .version import __version__
 
 __all__ = [

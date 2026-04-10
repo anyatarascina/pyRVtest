@@ -1,4 +1,4 @@
-"""Data construction."""
+"""Markup computation."""
 
 import contextlib
 import os
@@ -79,7 +79,7 @@ def build_markups(
         markups, markups_down, markups_up = pyRVtest.build_markups([model], product_data, pyblp_results)
 
     """
-    from .primitives import Models  # local import avoids circular dependency
+    from .problem import Models  # local import avoids circular dependency
     if not hasattr(model_formulations, '__len__'):
         model_formulations = [model_formulations]
     models = Models(model_formulations, product_data)
@@ -154,7 +154,7 @@ def _compute_markups(
     for i in range(number_models):
         markups_downstream[i] = np.zeros((N, 1), dtype=options.dtype)
         markups_upstream[i] = np.zeros((N, 1), dtype=options.dtype)
-        
+
     # Transform absent input into list
     if user_supplied_markups is None:
         user_supplied_markups = [None] * number_models
@@ -166,7 +166,7 @@ def _compute_markups(
         vertical_integration = [None] * number_models
     if mix_flag is None:
         mix_flag = [None] * number_models
-    
+
     # precompute demand jacobians
     if pyblp_results is not None:
         with contextlib.redirect_stdout(open(os.devnull, 'w')):
@@ -258,7 +258,7 @@ def evaluate_first_order_conditions(
             ownership_matrix = ownership_matrix[:, ~np.isnan(ownership_matrix).all(axis=0)]
         if type_mix_flag is not None:
           mix_flag=type_mix_flag[index]
-          
+
         # compute markups based on specified model first order condition
         if model_type == 'bertrand':
             markups[index,:] = -inv(ownership_matrix * response_matrix) @ shares
@@ -292,7 +292,7 @@ def MixMkup(ownership_matrix,response_matrix,mix_flag,shares):
         mkups[mix_flag]=mkups_B
         mkups[~mix_flag]=mkups_C
         return(mkups)
-      
+
 def read_pickle(path: Union[str, Path]) -> object:
     """Load a pickled object into memory.
     This is a simple wrapper around `pickle.load`.

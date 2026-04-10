@@ -1,4 +1,4 @@
-"""Basic functionality."""
+"""Output formatting."""
 
 from typing import Any, Container, Dict, List, Optional, Sequence, Tuple
 
