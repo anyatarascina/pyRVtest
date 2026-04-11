@@ -6,7 +6,6 @@ import itertools
 import math
 import os
 import time
-from dataclasses import dataclass
 from typing import Any, Dict, Hashable, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -21,8 +20,8 @@ from scipy.stats import norm
 from . import options
 from .formulation import Absorb, Formulation, ModelFormulation
 from .markups import build_ownership, _compute_markups
-from .data import F_CRITICAL_VALUES_POWER_RHO, F_CRITICAL_VALUES_SIZE_RHO
-from .results import ProblemResults
+from .data import read_critical_values_tables
+from .results import ProblemResults, Progress
 
 
 def _qr_residualize(Y: Array, X: Array) -> Array:
@@ -34,14 +33,6 @@ def _qr_residualize(Y: Array, X: Array) -> Array:
         return Y
     Q, _ = np.linalg.qr(X, mode='reduced')
     return Y - Q @ (Q.T @ Y)
-
-
-def _qr_params_resid(y: Array, X: Array):
-    """Return (params, resid) for OLS of y on X using QR, without statsmodels overhead."""
-    Q, R = np.linalg.qr(X, mode='reduced')
-    params = np.linalg.solve(R, Q.T @ y)
-    resid = y - X @ params
-    return params, resid
 
 
 class Products(object):
@@ -425,35 +416,6 @@ class Container(abc.ABC):
             self.Dict_Z_formulation.update({"_Z{0}_formulation".format(i): self._Z_formulation})
             i += 1
 
-
-_critical_values_cache: Optional[tuple] = None
-
-
-def read_critical_values_tables():
-    """Read in the critical values for size and power from the corresponding csv file. These will be used to evaluate
-    the strength of the instruments. Results are cached after the first read."""
-    global _critical_values_cache
-    if _critical_values_cache is not None:
-        return _critical_values_cache
-
-    # read in data for critical values for size as a structured array
-    critical_values_size = np.genfromtxt(
-        F_CRITICAL_VALUES_SIZE_RHO,
-        delimiter=',',
-        skip_header=1,
-        dtype=[('K', 'i4'), ('rho', 'f8'), ('r_075', 'f8'), ('r_10', 'f8'), ('r_125', 'f8')]
-    )
-
-    # read in data for critical values for power as a structured array
-    critical_values_power = np.genfromtxt(
-        F_CRITICAL_VALUES_POWER_RHO,
-        delimiter=',',
-        skip_header=1,
-        dtype=[('K', 'i4'), ('rho', 'f8'), ('r_50', 'f8'), ('r_75', 'f8'), ('r_95', 'f8')]
-    )
-
-    _critical_values_cache = (critical_values_power, critical_values_size)
-    return _critical_values_cache
 
 
 class Problem(Container, StringRepresentation):
@@ -1406,27 +1368,3 @@ class Problem(Container, StringRepresentation):
         return variance_covariance
 
 
-@dataclass
-class Progress:
-    """Structured information passed from Problem.solve to ProblemResults."""
-    problem: 'Problem'
-    markups: Array
-    markups_downstream: Array
-    markups_upstream: Array
-    markups_orthogonal: Array
-    marginal_cost: Array
-    tau_list: Array
-    g: Array
-    Q: Array
-    RV_numerator: Array
-    RV_denominator: Array
-    test_statistic_RV: Array
-    F: Array
-    MCS_pvalues: Array
-    rho: Array
-    unscaled_F: Array
-    F_cv_size_list: Array
-    F_cv_power_list: Array
-    symbols_size_list: Array
-    symbols_power_list: Array
-    cost_param: Optional[list] = None

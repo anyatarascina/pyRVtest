@@ -1,17 +1,42 @@
 """Conduct testing results."""
 
+from dataclasses import dataclass
 from pathlib import Path
 import pickle
-from typing import List, Union, TYPE_CHECKING
+from typing import List, Optional, Union, TYPE_CHECKING
 
 from pyblp.utilities.basics import Array, StringRepresentation
 
 from .output import format_table
 
-
-# only import objects that create import cycles when checking types
 if TYPE_CHECKING:
-    from .problem import Progress
+    from .problem import Problem
+
+
+@dataclass
+class Progress:
+    """Structured information passed from Problem.solve to ProblemResults."""
+    problem: 'Problem'
+    markups: Array
+    markups_downstream: Array
+    markups_upstream: Array
+    markups_orthogonal: Array
+    marginal_cost: Array
+    tau_list: Array
+    g: Array
+    Q: Array
+    RV_numerator: Array
+    RV_denominator: Array
+    test_statistic_RV: Array
+    F: Array
+    MCS_pvalues: Array
+    rho: Array
+    unscaled_F: Array
+    F_cv_size_list: Array
+    F_cv_power_list: Array
+    symbols_size_list: Array
+    symbols_power_list: Array
+    cost_param: Optional[list] = None
 
 
 class ProblemResults(StringRepresentation):
