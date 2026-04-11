@@ -1,6 +1,6 @@
 """Output formatting."""
 
-from typing import Any, Container, Dict, List, Optional, Sequence, Tuple
+from typing import Container, List, Optional, Sequence
 
 
 def format_table(
@@ -62,21 +62,12 @@ def format_table(
         lines.append("=" * len(template.format(*[""] * len(widths))))
     if include_notes:
         notes: List[List[str]] = []
-        notes.append(['Significance of size and power diagnostic reported below each F-stat'])
         notes.append(
             ['*, **, or *** indicate that F > cv for a worst-case size of 0.125, 0.10, and 0.075 given d_z and rho']
         )
         notes.append(
             ['^, ^^, or ^^^ indicate that F > cv for a best-case power of 0.50, 0.75, and 0.95 given d_z and rho']
         )
-        notes.append([
-            'appropriate critical values for size are stored in the variable F_cv_size_list of the pyRVtest results '
-            'class'
-        ])
-        notes.append([
-            'appropriate critical values for power are stored in the variable F_cv_power_list of the pyRVtest '
-            'results class'
-        ])
         notes_rows = [[str(c) for c in r] + [""] * (len(header) - len(r)) for r in notes]
         lines.extend([template_notes.format(*r) for r in notes_rows])
         lines.append("=" * len(template_notes.format(*[""] * len(widths))))

@@ -37,7 +37,10 @@ def build_ownership(
         Stacked :math:`J_t \times J_t` ownership matrices for each market :math:`t`.
 
     """
-    names = product_data.dtype.names if hasattr(product_data, 'dtype') and product_data.dtype.names else product_data.columns
+    names = (
+        product_data.dtype.names if hasattr(product_data, 'dtype') and product_data.dtype.names
+        else product_data.columns
+    )
     modified_data = {name: product_data[name] for name in names}
     if firm_ids_column_name is not None:
         modified_data['firm_ids'] = product_data[firm_ids_column_name]
@@ -161,7 +164,7 @@ def _compute_markups(
     if custom_model_specification is None:
         custom_model_specification = [None] * number_models
     if model_upstream is None:
-        model_upstream=[None]*number_models
+        model_upstream = [None] * number_models
     if vertical_integration is None:
         vertical_integration = [None] * number_models
     if mix_flag is None:
@@ -187,7 +190,8 @@ def _compute_markups(
                 # compute downstream markups for model i market t
                 markups_downstream[i], retailer_ownership_matrix = evaluate_first_order_conditions(
                     index_t, model_downstream[i], ownership_downstream[i], retailer_response_matrix, shares_t,
-                    markups_downstream[i], custom_model_specification[i], markup_type='downstream', type_mix_flag=mix_flag[i])
+                    markups_downstream[i], custom_model_specification[i], markup_type='downstream',
+                    type_mix_flag=mix_flag[i])
 
                 # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
                 if not (model_upstream[i] is None):
@@ -247,51 +251,72 @@ def evaluate_first_order_conditions(
     """Compute markups for some standard models including Bertrand, Cournot, monopoly, and perfect competition using
     the first order conditions corresponding to each model. Allow user to pass in their own markup function as well.
     """
-    if len(shares.shape)==1:
-        shares=np.expand_dims(shares, axis=1)
+    if len(shares.shape) == 1:
+        shares = np.expand_dims(shares, axis=1)
     ownership_matrix = None
     if (markup_type == 'downstream') or (markup_type == 'upstream' and model_type is not None):
 
-        # construct ownership matrix and mix_flag vector
+        # subset ownership matrix and mix_flag to the current market
         if type_ownership_matrix is not None:
             ownership_matrix = type_ownership_matrix[index]
             ownership_matrix = ownership_matrix[:, ~np.isnan(ownership_matrix).all(axis=0)]
         if type_mix_flag is not None:
-          mix_flag=type_mix_flag[index]
+            mix_flag = type_mix_flag[index]
 
         # compute markups based on specified model first order condition
         if model_type == 'bertrand':
-            markups[index,:] = -inv(ownership_matrix * response_matrix) @ shares
+            markups[index, :] = -inv(ownership_matrix * response_matrix) @ shares
         elif model_type == 'cournot':
-            markups[index,:] = -(ownership_matrix * inv(response_matrix)) @ shares
+            markups[index, :] = -(ownership_matrix * inv(response_matrix)) @ shares
         elif model_type == 'monopoly':
-            markups[index,:] = -inv(response_matrix) @ shares
+            markups[index, :] = -inv(response_matrix) @ shares
         elif model_type == 'perfect_competition':
-            markups[index,:] = np.zeros((len(shares), 1))
+            markups[index, :] = np.zeros((len(shares), 1))
         elif model_type == 'mix_cournot_bertrand':
-            markups[index,:]=MixMkup(ownership_matrix,response_matrix,mix_flag,shares)
+            markups[index, :] = _compute_mix_cournot_bertrand_markups(
+                ownership_matrix, response_matrix, mix_flag, shares
+            )
         else:
             if custom_model_specification is not None:
                 custom_model, custom_model_formula = next(iter(custom_model_specification.items()))
-                markups[index] = eval(custom_model_formula)
+                if callable(custom_model_formula):
+                    markups[index] = custom_model_formula(ownership_matrix, response_matrix, shares)
+                else:
+                    raise TypeError(
+                        f"custom_model_specification value for '{custom_model}' must be a callable "
+                        f"f(ownership_matrix, response_matrix, shares) -> ndarray, not a string. "
+                        f"String formulas are no longer supported."
+                    )
 
     return markups, ownership_matrix
 
-def MixMkup(ownership_matrix,response_matrix,mix_flag,shares):
-        sharesB=shares[mix_flag]
-        sharesC=shares[~mix_flag]
-        ownB = ownership_matrix[mix_flag,:][:,mix_flag]
-        ownC = ownership_matrix[~mix_flag,:][:,~mix_flag]
-        D_BB = response_matrix[:,mix_flag][mix_flag,:]
-        D_CB = response_matrix[:,mix_flag][~mix_flag,:]
-        D_CC = response_matrix[:,~mix_flag][~mix_flag,:]
-        D_BC = response_matrix[:,~mix_flag][mix_flag,:]
-        mkups_C = -(ownC * inv(D_CC)) @ sharesC
-        mkups_B = -inv(ownB * (D_BC @ inv(D_CC) @ D_CB +D_BB)) @ sharesB
-        mkups=np.zeros((len(mix_flag),1))
-        mkups[mix_flag]=mkups_B
-        mkups[~mix_flag]=mkups_C
-        return(mkups)
+
+def _compute_mix_cournot_bertrand_markups(ownership_matrix, response_matrix, mix_flag, shares):
+    """Compute markups for a mixed Cournot/Bertrand market.
+
+    Cournot products use the standard quantity-setting FOC. Bertrand products use the price-setting FOC
+    adjusted by the Schur complement (D_BC @ D_CC^{-1} @ D_CB) to account for the feedback from Cournot
+    quantity responses, following the derivation in Morrow and Skerlos (2011).
+    """
+    b, c = mix_flag, ~mix_flag
+
+    shares_B, shares_C = shares[b], shares[c]
+    O_BB = ownership_matrix[np.ix_(b, b)]
+    O_CC = ownership_matrix[np.ix_(c, c)]
+    D_BB = response_matrix[np.ix_(b, b)]
+    D_BC = response_matrix[np.ix_(b, c)]
+    D_CB = response_matrix[np.ix_(c, b)]
+    D_CC = response_matrix[np.ix_(c, c)]
+
+    D_CC_inv = inv(D_CC)
+    mkups_C = -(O_CC * D_CC_inv) @ shares_C
+    mkups_B = np.linalg.solve(O_BB * (D_BC @ D_CC_inv @ D_CB + D_BB), -shares_B)
+
+    mkups = np.zeros((len(mix_flag), 1))
+    mkups[b] = mkups_B
+    mkups[c] = mkups_C
+    return mkups
+
 
 def read_pickle(path: Union[str, Path]) -> object:
     """Load a pickled object into memory.

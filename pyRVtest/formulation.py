@@ -3,7 +3,7 @@
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Type, Union
 
 from pyblp.utilities.basics import Array
-from pyblp.configurations.formulation import Absorb, Formulation
+from pyblp.configurations.formulation import Absorb, Formulation  # noqa: F401
 
 
 class ModelFormulation(object):
@@ -119,6 +119,10 @@ class ModelFormulation(object):
             raise TypeError("cost_scaling must be a None or a str.")
         if mix_flag is not None and not isinstance(mix_flag, str):
             raise TypeError("mix_flag must be None or a str.")
+        if model_downstream == 'mix_cournot_bertrand' and mix_flag is None:
+            raise TypeError("mix_flag must be provided when model_downstream='mix_cournot_bertrand'.")
+        if mix_flag is not None and model_downstream != 'mix_cournot_bertrand':
+            raise TypeError("mix_flag is only valid when model_downstream='mix_cournot_bertrand'.")
 
         # parse the formulas into patsy terms
         self._model_downstream = model_downstream

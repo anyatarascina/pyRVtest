@@ -18,13 +18,30 @@ from pyblp.utilities.basics import (
 from pyblp.configurations.formulation import ColumnFormulation
 from scipy.linalg import inv
 from scipy.stats import norm
-import statsmodels.api as sm
-
 from . import options
 from .formulation import Absorb, Formulation, ModelFormulation
 from .markups import build_ownership, _compute_markups
 from .data import F_CRITICAL_VALUES_POWER_RHO, F_CRITICAL_VALUES_SIZE_RHO
 from .results import ProblemResults
+
+
+def _qr_residualize(Y: Array, X: Array) -> Array:
+    """Project out X from Y via QR decomposition (equivalent to OLS residuals, without statsmodels overhead).
+
+    Works for 1D or 2D Y. If X has no columns, Y is returned unchanged.
+    """
+    if X.shape[1] == 0:
+        return Y
+    Q, _ = np.linalg.qr(X, mode='reduced')
+    return Y - Q @ (Q.T @ Y)
+
+
+def _qr_params_resid(y: Array, X: Array):
+    """Return (params, resid) for OLS of y on X using QR, without statsmodels overhead."""
+    Q, R = np.linalg.qr(X, mode='reduced')
+    params = np.linalg.solve(R, Q.T @ y)
+    resid = y - X @ params
+    return params, resid
 
 
 class Products(object):
@@ -409,9 +426,15 @@ class Container(abc.ABC):
             i += 1
 
 
+_critical_values_cache: Optional[tuple] = None
+
+
 def read_critical_values_tables():
     """Read in the critical values for size and power from the corresponding csv file. These will be used to evaluate
-    the strength of the instruments."""
+    the strength of the instruments. Results are cached after the first read."""
+    global _critical_values_cache
+    if _critical_values_cache is not None:
+        return _critical_values_cache
 
     # read in data for critical values for size as a structured array
     critical_values_size = np.genfromtxt(
@@ -429,7 +452,8 @@ def read_critical_values_tables():
         dtype=[('K', 'i4'), ('rho', 'f8'), ('r_50', 'f8'), ('r_75', 'f8'), ('r_95', 'f8')]
     )
 
-    return critical_values_power, critical_values_size
+    _critical_values_cache = (critical_values_power, critical_values_size)
+    return _critical_values_cache
 
 
 class Problem(Container, StringRepresentation):
@@ -744,16 +768,36 @@ class Problem(Container, StringRepresentation):
             marginal_cost = marginal_cost + mc_correction
 
         cost_param = None
-        endog_hat = None
+
         if self.endogenous_cost_component is not None:
             output('Computing IV correction for endogenous cost component ...')
-            cost_param, iv_mc_correction, endog_hat = self._compute_iv_correction(M, N, marginal_cost)
-            for m in range(M):
-                marginal_cost[m] = marginal_cost[m] + iv_mc_correction[m]
+            marginal_cost_base = marginal_cost.copy()
+            cost_param = [None] * L
+            omega_per_instrument = [None] * L
+            tau_list_per_instrument = [None] * L
+            endog_hat_per_instrument = [None] * L
 
-        markups_orthogonal, omega, tau_list = self._prepare_orthogonal_variables(
-            M, N, markups_effective, marginal_cost
-        )
+            for l in range(L):
+                cp_l, mc_corr_l, endog_hat_l = self._compute_iv_correction(l, M, N, marginal_cost_base)
+                mc_l = marginal_cost_base.copy()
+                for m in range(M):
+                    mc_l[m] = mc_l[m] + mc_corr_l[m]
+                mo_l, omega_l, tau_l = self._prepare_orthogonal_variables(M, N, markups_effective, mc_l)
+                if l == 0:
+                    markups_orthogonal = mo_l  # identical across instrument sets; keep first
+                    marginal_cost = mc_l        # store first instrument's corrected MC for results
+                    tau_list = tau_l
+                cost_param[l] = cp_l
+                omega_per_instrument[l] = omega_l
+                tau_list_per_instrument[l] = tau_l
+                endog_hat_per_instrument[l] = endog_hat_l
+
+        else:
+            markups_orthogonal, omega, tau_list = self._prepare_orthogonal_variables(
+                M, N, markups_effective, marginal_cost
+            )
+            omega_per_instrument = [omega] * L
+            endog_hat_per_instrument = [None] * L
 
         gradient_markups = H_prime_wd = H = h_i = h = None
         if demand_adjustment:
@@ -777,9 +821,9 @@ class Problem(Container, StringRepresentation):
 
         for instrument in range(L):
             r = self._compute_instrument_results(
-                instrument, M, N, omega, demand_adjustment, gradient_markups,
+                instrument, M, N, omega_per_instrument[instrument], demand_adjustment, gradient_markups,
                 H_prime_wd, H, h_i, h, clustering_adjustment,
-                critical_values_size, critical_values_power, endog_hat
+                critical_values_size, critical_values_power, endog_hat_per_instrument[instrument]
             )
             g_list[instrument] = r['g']
             Q_list[instrument] = r['Q']
@@ -866,12 +910,12 @@ class Problem(Container, StringRepresentation):
                 marginal_cost_orthogonal[m] = np.squeeze(marginal_cost[m])
 
         if w_for_ols.any():
+            Q_w, R_w = np.linalg.qr(w_for_ols, mode='reduced')
             for m in range(M):
-                res = sm.OLS(markups_orthogonal[m], w_for_ols).fit()
-                markups_orthogonal[m] = res.resid
-                res = sm.OLS(marginal_cost_orthogonal[m], w_for_ols).fit()
-                omega[m] = res.resid
-                tau_list[m] = res.params
+                markups_orthogonal[m] = markups_orthogonal[m] - Q_w @ (Q_w.T @ markups_orthogonal[m])
+                mc_vec = marginal_cost_orthogonal[m]
+                tau_list[m] = np.linalg.solve(R_w, Q_w.T @ mc_vec)
+                omega[m] = mc_vec - Q_w @ (Q_w.T @ mc_vec)
         else:
             omega = marginal_cost_orthogonal
 
@@ -1035,12 +1079,18 @@ class Problem(Container, StringRepresentation):
         # to both simultaneously. The rank reduction from adding endog_hat is handled by pinv.
         if endog_hat is not None:
             controls = np.hstack([w_for_ols, endog_hat]) if w_for_ols.shape[1] > 0 else endog_hat
-            Z_orthogonal = np.reshape(sm.OLS(Z_orthogonal, controls).fit().resid, [N, K])
+            Z_orthogonal = np.reshape(_qr_residualize(Z_orthogonal, controls), [N, K])
         elif w_for_ols.any():
-            Z_orthogonal = np.reshape(sm.OLS(Z_orthogonal, w_for_ols).fit().resid, [N, K])
+            Z_orthogonal = np.reshape(_qr_residualize(Z_orthogonal, w_for_ols), [N, K])
 
         W_inverse = np.reshape(1 / N * (Z_orthogonal.T @ Z_orthogonal), [K, K])
-        weight_matrix = np.linalg.pinv(W_inverse)
+        if options.pseudo_inverses:
+            weight_matrix = np.linalg.pinv(W_inverse)
+        else:
+            try:
+                weight_matrix = np.linalg.inv(W_inverse)
+            except np.linalg.LinAlgError:
+                weight_matrix = np.linalg.pinv(W_inverse)
 
         # GMM moments and fit for each model
         g = np.zeros((M, K), dtype=options.dtype)
@@ -1101,11 +1151,11 @@ class Problem(Container, StringRepresentation):
             for i in range(m):
                 rv_test_statistic[i, m] = test_statistic_numerator[i, m] / test_statistic_denominator[i, m]
 
-        # F statistics
+        # F statistics — residualize omega on Z_orthogonal; precompute QR once for all models
         phi = np.zeros([M, N, K])
+        Q_Z, _ = np.linalg.qr(Z_orthogonal, mode='reduced')
         for m in range(M):
-            ols_results = sm.OLS(omega[m], Z_orthogonal).fit()
-            e = np.reshape(ols_results.resid, [N, 1])
+            e = np.reshape(omega[m] - Q_Z @ (Q_Z.T @ omega[m]), [N, 1])
             phi[m] = (e * Z_orthogonal) @ weight_matrix
             if demand_adjustment:
                 phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ adjustment_value[m])
@@ -1208,6 +1258,7 @@ class Problem(Container, StringRepresentation):
             model_confidence_set_variance: Array, M: int, all_model_combinations: list
     ) -> Array:
         """Compute model confidence set p-values by iteratively eliminating the worst-fitting model."""
+        rng = np.random.default_rng(options.random_seed)
         model_confidence_set = np.array(range(M))
         mcs_pvalues = np.ones([M, 1])
         converged = False
@@ -1239,7 +1290,7 @@ class Problem(Container, StringRepresentation):
                     max_test_statistic = -max_test_statistic
 
                 cov = sigma_mcs[sigma_index[:, None], sigma_index]
-                simulated = np.random.multivariate_normal(np.zeros(len(current_combinations)), cov, options.ndraws)
+                simulated = rng.multivariate_normal(np.zeros(len(current_combinations)), cov, options.ndraws)
                 mcs_pvalues[worst_fit] = np.mean(np.amax(abs(simulated), 1) > max_test_statistic)
                 model_confidence_set = np.delete(
                     model_confidence_set, np.where(model_confidence_set == worst_fit)
@@ -1259,23 +1310,30 @@ class Problem(Container, StringRepresentation):
             w_for_ols = self.products.w[:, exog_col_indices]
         else:
             w_for_ols = self.products.w
+        Q_w = np.linalg.qr(w_for_ols, mode='reduced')[0] if w_for_ols.any() else None
         for m in range(self.M):
             diff_markups = (markups_u[m] - markups_l[m]) / epsilon
             if self._absorb_cost_ids is not None:
                 diff_markups, _ = self._absorb_cost_ids(diff_markups)
-                if w_for_ols.any():
-                    gradient_markups[m][:, theta_index] = sm.OLS(diff_markups, w_for_ols).fit().resid
+                if Q_w is not None:
+                    resid = diff_markups - Q_w @ (Q_w.T @ diff_markups)
+                    gradient_markups[m][:, theta_index] = np.squeeze(resid)
                 else:
                     gradient_markups[m][:, theta_index] = np.squeeze(diff_markups)
         return gradient_markups
 
-    def _compute_iv_correction(self, M: int, N: int, marginal_cost: list):
+    def _compute_iv_correction(self, instrument: int, M: int, N: int, marginal_cost: list):
         """Run per-model 2SLS to estimate the coefficient on the endogenous cost component.
 
         For each model m the dependent variable is the implied marginal cost (price minus markup). The endogenous
-        cost component (e.g. shares) is instrumented using the test instruments Z and the exogenous cost-shifters.
-        The estimated coefficient gamma_m is used to form a marginal-cost correction:
+        cost component (e.g. shares) is instrumented using the specified instrument set and the exogenous
+        cost-shifters. The estimated coefficient gamma_m is used to form a marginal-cost correction:
         ``mc_correction[m] = -gamma_m * endogenous_variable``.
+
+        Parameters
+        ----------
+        instrument : int
+            Index of the instrument set (Z_l) to use for the first stage.
 
         Returns
         -------
@@ -1294,23 +1352,25 @@ class Problem(Container, StringRepresentation):
         endog_col = self.products.w[:, [endog_col_idx]]   # (N, 1)
         exog_w = self.products.w[:, exog_col_indices]     # (N, K_w - 1)
 
-        # Stack all test-instrument sets as first-stage instruments
-        Z_inst = np.hstack([self.products["Z{0}".format(l)] for l in range(self.L)])  # (N, sum_K)
+        # Use only the instrument set for this test (keeps each instrument set's correction independent)
+        Z_inst = self.products["Z{0}".format(instrument)]  # (N, K_l)
 
         # First stage: project endogenous variable on [exog_w, Z_inst]
         first_stage_X = np.hstack([exog_w, Z_inst])
-        endog_hat = sm.OLS(endog_col, first_stage_X).fit().fittedvalues.reshape(-1, 1)
+        Q_fs, _ = np.linalg.qr(first_stage_X, mode='reduced')
+        endog_hat = (Q_fs @ (Q_fs.T @ endog_col)).reshape(-1, 1)
 
         # Second stage design matrix: replace endogenous column with its first-stage fitted values
         X_2sls = np.hstack([exog_w, endog_hat])  # (N, K_w)
 
+        Q_2sls, R_2sls = np.linalg.qr(X_2sls, mode='reduced')
         cost_param = [None] * M
         mc_correction = [None] * M
         for m in range(M):
             y_m = marginal_cost[m]  # (N, 1)
-            ss_result = sm.OLS(y_m, X_2sls).fit()
-            gamma_m = ss_result.params[-1]          # coefficient on the endogenous component
-            cost_param[m] = ss_result.params        # [tau_exog..., gamma]
+            params = np.linalg.solve(R_2sls, Q_2sls.T @ y_m)
+            gamma_m = params[-1]                    # coefficient on the endogenous component
+            cost_param[m] = params                  # [tau_exog..., gamma]
             mc_correction[m] = -gamma_m * endog_col  # (N, 1)
 
         return cost_param, mc_correction, endog_hat
