@@ -763,9 +763,11 @@ class Problem(Container, StringRepresentation):
             tau_list_per_instrument = None
 
         gradient_markups = H_prime_wd = H = h_i = h = None
+        gradient_gamma_per_instrument = None
         if demand_adjustment:
-            gradient_markups, H_prime_wd, H, h_i, h = self._compute_demand_adjustment_gradient(
-                N, advalorem_tax_adj, cost_scaling
+            mc_base_for_grad = marginal_cost_base if self.endogenous_cost_component is not None else None
+            gradient_markups, H_prime_wd, H, h_i, h, gradient_gamma_per_instrument = (
+                self._compute_demand_adjustment_gradient(N, advalorem_tax_adj, cost_scaling, mc_base_for_grad)
             )
 
         g_list = [None] * L
@@ -783,10 +785,13 @@ class Problem(Container, StringRepresentation):
         symbols_power_list = [None] * L
 
         for instrument in range(L):
+            grad_gamma_l = (gradient_gamma_per_instrument[instrument]
+                            if gradient_gamma_per_instrument is not None else None)
             r = self._compute_instrument_results(
                 instrument, M, N, omega_per_instrument[instrument], demand_adjustment, gradient_markups,
                 H_prime_wd, H, h_i, h, clustering_adjustment,
-                critical_values_size, critical_values_power, endog_hat_per_instrument[instrument]
+                critical_values_size, critical_values_power, endog_hat_per_instrument[instrument],
+                grad_gamma_l
             )
             g_list[instrument] = r['g']
             Q_list[instrument] = r['Q']
@@ -822,12 +827,8 @@ class Problem(Container, StringRepresentation):
             raise TypeError("clustering_adjustment must be a boolean (one of True or False).")
         if clustering_adjustment and np.shape(self.products.clustering_ids)[1] != 1:
             raise ValueError("product_data.clustering_ids must be specified with clustering_adjustment True.")
-        if demand_adjustment and self.endogenous_cost_component is not None:
-            raise ValueError(
-                "demand_adjustment=True is not yet supported with endogenous_cost_component. "
-                "Use costs_type='log' and mc_correction to handle non-constant marginal cost "
-                "with demand adjustment."
-            )
+        # demand_adjustment + endogenous_cost_component is now supported; the gradient
+        # accounts for the dependence of gamma_m on theta via per-instrument finite differences.
         for m in range(self.M):
             if self.model_formulations[m]._user_supplied_markups is not None:
                 if clustering_adjustment or demand_adjustment:
@@ -891,8 +892,16 @@ class Problem(Container, StringRepresentation):
 
         return markups_orthogonal, omega, tau_list
 
-    def _compute_demand_adjustment_gradient(self, N: int, advalorem_tax_adj: list, cost_scaling: list):
-        """Compute the finite-difference gradient of markups w.r.t. demand parameters."""
+    def _compute_demand_adjustment_gradient(self, N: int, advalorem_tax_adj: list, cost_scaling: list,
+                                               marginal_cost_base: Optional[list] = None):
+        """Compute the finite-difference gradient of markups w.r.t. demand parameters.
+
+        When endogenous_cost_component is set and marginal_cost_base is provided, also computes the
+        per-instrument gradient of gamma (the scale-economies coefficient) w.r.t. demand parameters.
+        This accounts for the dependence of gamma on theta through the markup-implied marginal costs.
+
+        Returns gradient_markups, H_prime_wd, H, h_i, h, and optionally gradient_gamma_per_instrument.
+        """
         M = self.M
         ZD = self.demand_results.problem.products.ZD
         WD = self.demand_results.updated_W
@@ -935,9 +944,16 @@ class Problem(Container, StringRepresentation):
         H_prime_wd = np.transpose(H) @ WD
 
         epsilon = options.finite_differences_epsilon
-        gradient_markups = np.zeros(
-            (M, N, len(self.demand_results.theta) + int(price_in_linear_parameters)), dtype=options.dtype
-        )
+        n_theta = len(self.demand_results.theta) + int(price_in_linear_parameters)
+        gradient_markups = np.zeros((M, N, n_theta), dtype=options.dtype)
+
+        # When endogenous_cost_component is set, also track how gamma changes with theta
+        L = self.L
+        compute_gamma_gradient = (self.endogenous_cost_component is not None and marginal_cost_base is not None)
+        gradient_gamma_per_instrument = None
+        if compute_gamma_gradient:
+            gradient_gamma_per_instrument = [np.zeros((M, n_theta), dtype=options.dtype) for _ in range(L)]
+
         theta_index = 0
         delta_estimate = self.demand_results.delta
 
@@ -945,6 +961,20 @@ class Problem(Container, StringRepresentation):
             for m in range(M):
                 markups_list[m] = (advalorem_tax_adj[m] * markups_list[m]) / (1 + cost_scaling[m])
             return markups_list
+
+        def _record_gamma_gradient(markups_u, markups_l, theta_idx):
+            """Finite-difference gamma w.r.t. the current demand parameter perturbation."""
+            if not compute_gamma_gradient:
+                return
+            mc_u = [self.products.prices - markups_u[m] for m in range(M)]
+            mc_l = [self.products.prices - markups_l[m] for m in range(M)]
+            for l in range(L):
+                cp_u, _, _ = self._compute_iv_correction(l, M, N, mc_u)
+                cp_l, _, _ = self._compute_iv_correction(l, M, N, mc_l)
+                for m in range(M):
+                    gamma_u = float(cp_u[m][-1])
+                    gamma_l = float(cp_l[m][-1])
+                    gradient_gamma_per_instrument[l][m, theta_idx] = (gamma_u - gamma_l) / epsilon
 
         # Save all demand parameter state before perturbation so it can be restored on any exit path
         sigma_saved = self.demand_results.sigma.copy()
@@ -965,10 +995,12 @@ class Problem(Container, StringRepresentation):
                     with contextlib.redirect_stdout(open(os.devnull, 'w')):
                         self.demand_results._delta = self.demand_results.compute_delta()
                     markups_u, _, _ = self._perturb_and_build_markups()
+                    markups_u_adj = apply_tax_adjustment(markups_u)
+                    markups_l_adj = apply_tax_adjustment(markups_l)
                     gradient_markups = self._compute_first_difference_markups(
-                        apply_tax_adjustment(markups_u), apply_tax_adjustment(markups_l), epsilon, theta_index,
-                        gradient_markups
+                        markups_u_adj, markups_l_adj, epsilon, theta_index, gradient_markups
                     )
+                    _record_gamma_gradient(markups_u_adj, markups_l_adj, theta_index)
                     self.demand_results._sigma[i, j] = sigma_initial
                     theta_index += 1
 
@@ -978,10 +1010,12 @@ class Problem(Container, StringRepresentation):
                     pi_initial = self.demand_results.pi[i, j]
                     markups_l, _, _ = self._compute_perturbation(i, j, pi_initial - epsilon / 2)
                     markups_u, _, _ = self._compute_perturbation(i, j, pi_initial + epsilon / 2)
+                    markups_u_adj = apply_tax_adjustment(markups_u)
+                    markups_l_adj = apply_tax_adjustment(markups_l)
                     gradient_markups = self._compute_first_difference_markups(
-                        apply_tax_adjustment(markups_u), apply_tax_adjustment(markups_l), epsilon, theta_index,
-                        gradient_markups
+                        markups_u_adj, markups_l_adj, epsilon, theta_index, gradient_markups
                     )
+                    _record_gamma_gradient(markups_u_adj, markups_l_adj, theta_index)
                     self.demand_results._pi[i, j] = pi_initial
                     theta_index += 1
 
@@ -997,10 +1031,12 @@ class Problem(Container, StringRepresentation):
                 with contextlib.redirect_stdout(open(os.devnull, 'w')):
                     self.demand_results._delta = self.demand_results.compute_delta()
                 markups_u, _, _ = self._perturb_and_build_markups()
+                markups_u_adj = apply_tax_adjustment(markups_u)
+                markups_l_adj = apply_tax_adjustment(markups_l)
                 gradient_markups = self._compute_first_difference_markups(
-                    apply_tax_adjustment(markups_u), apply_tax_adjustment(markups_l), epsilon, theta_index,
-                    gradient_markups
+                    markups_u_adj, markups_l_adj, epsilon, theta_index, gradient_markups
                 )
+                _record_gamma_gradient(markups_u_adj, markups_l_adj, theta_index)
                 self.demand_results._beta[price_index] = alpha_initial
                 theta_index += 1
 
@@ -1015,10 +1051,12 @@ class Problem(Container, StringRepresentation):
                 with contextlib.redirect_stdout(open(os.devnull, 'w')):
                     self.demand_results._delta = self.demand_results.compute_delta()
                 markups_u, _, _ = self._perturb_and_build_markups()
+                markups_u_adj = apply_tax_adjustment(markups_u)
+                markups_l_adj = apply_tax_adjustment(markups_l)
                 gradient_markups = self._compute_first_difference_markups(
-                    apply_tax_adjustment(markups_u), apply_tax_adjustment(markups_l), epsilon, theta_index,
-                    gradient_markups
+                    markups_u_adj, markups_l_adj, epsilon, theta_index, gradient_markups
                 )
+                _record_gamma_gradient(markups_u_adj, markups_l_adj, theta_index)
 
         finally:
             # Restore all demand parameter state regardless of success or failure
@@ -1029,7 +1067,7 @@ class Problem(Container, StringRepresentation):
                 self.demand_results._rho[:] = rho_saved
             self.demand_results._delta = delta_estimate
 
-        return gradient_markups, H_prime_wd, H, h_i, h
+        return gradient_markups, H_prime_wd, H, h_i, h, gradient_gamma_per_instrument
 
     def _compute_instrument_results(
             self, instrument: int, M: int, N: int, omega: Array,
@@ -1038,7 +1076,8 @@ class Problem(Container, StringRepresentation):
             h_i: Optional[Array], h: Optional[Array],
             clustering_adjustment: bool,
             critical_values_size: Array, critical_values_power: Array,
-            endog_hat: Optional[Array] = None
+            endog_hat: Optional[Array] = None,
+            gradient_gamma: Optional[Array] = None
     ) -> dict:
         """Compute all test statistics for a single instrument set."""
         instruments = self.products["Z{0}".format(instrument)]
@@ -1170,6 +1209,26 @@ class Problem(Container, StringRepresentation):
 
             if demand_adjustment:
                 G_k = -1 / N * np.transpose(Z_orthogonal) @ gradient_markups[m]
+                # When endogenous_cost_component is set, account for d(gamma_m)/d(theta) in G_k.
+                # The full gradient of omega w.r.t. theta includes a term from gamma changing,
+                # which contributes -(1/N) Z' @ (d_gamma/d_theta * endog_resid) to G_k.
+                if gradient_gamma is not None and endog_correction_data is not None:
+                    endog_col_resid = endog_correction_data[1] + endog_correction_data[0]  # q^e + z^r... no
+                    # Actually: the endogenous column residualized on w is needed. Reconstruct it.
+                    endog_col_idx_local2 = next(
+                        i for i, f in enumerate(self._w_formulation)
+                        if str(f) == self.endogenous_cost_component
+                    )
+                    endog_col_raw = self.products.w[:, [endog_col_idx_local2]]
+                    if self._absorb_cost_ids is not None:
+                        endog_col_for_grad, _ = self._absorb_cost_ids(endog_col_raw)
+                    else:
+                        endog_col_for_grad = endog_col_raw
+                    if w_absorbed.shape[1] > 0:
+                        endog_col_for_grad = _qr_residualize(endog_col_for_grad, w_absorbed)
+                    # gradient_gamma[m] is (n_theta,) — d gamma_m / d theta_k for each k
+                    # G_k[:, k] -= (1/N) * Z' @ (d_gamma_m/d_theta_k * endog_resid)
+                    G_k = G_k - 1 / N * np.transpose(Z_orthogonal) @ (endog_col_for_grad @ gradient_gamma[[m], :])
                 adjustment_value[m] = W_12 @ G_k @ inv(H_prime_wd @ H) @ H_prime_wd
                 psi[m] = psi[m] - (h_i - np.transpose(h)) @ np.transpose(adjustment_value[m])
 
