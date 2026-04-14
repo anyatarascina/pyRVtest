@@ -123,6 +123,8 @@ class ModelFormulation(object):
             raise TypeError("mix_flag must be provided when model_downstream='mix_cournot_bertrand'.")
         if mix_flag is not None and model_downstream != 'mix_cournot_bertrand':
             raise TypeError("mix_flag is only valid when model_downstream='mix_cournot_bertrand'.")
+        if model_downstream == 'other' and custom_model_specification is None and user_supplied_markups is None:
+            raise TypeError("custom_model_specification must be provided when model_downstream='other'.")
 
         # parse the formulas into patsy terms
         self._model_downstream = model_downstream
@@ -143,9 +145,13 @@ class ModelFormulation(object):
     def __reduce__(self) -> Tuple[Type['ModelFormulation'], Tuple]:
         """Handle pickling."""
         return (self.__class__, (
-            self._model_downstream, self._model_upstream, self._ownership_downstream, self._ownership_upstream,
-            self._custom_model_specification, self._vertical_integration, self._custom_model_specification,
-            self._kappa_specification_downstream, self._kappa_specification_upstream, self._user_supplied_markups
+            self._model_downstream, self._model_upstream,
+            self._ownership_downstream, self._ownership_upstream,
+            self._custom_model_specification, self._vertical_integration,
+            self._unit_tax, self._advalorem_tax, self._advalorem_payer,
+            self._cost_scaling,
+            self._kappa_specification_downstream, self._kappa_specification_upstream,
+            self._user_supplied_markups, self._mix_flag,
         ))
 
     def __str__(self) -> str:

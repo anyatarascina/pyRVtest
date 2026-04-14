@@ -265,11 +265,11 @@ def evaluate_first_order_conditions(
 
         # compute markups based on specified model first order condition
         if model_type == 'bertrand':
-            markups[index, :] = -inv(ownership_matrix * response_matrix) @ shares
+            markups[index, :] = -np.linalg.solve(ownership_matrix * response_matrix, shares)
         elif model_type == 'cournot':
             markups[index, :] = -(ownership_matrix * inv(response_matrix)) @ shares
         elif model_type == 'monopoly':
-            markups[index, :] = -inv(response_matrix) @ shares
+            markups[index, :] = -np.linalg.solve(response_matrix, shares)
         elif model_type == 'perfect_competition':
             markups[index, :] = np.zeros((len(shares), 1))
         elif model_type == 'mix_cournot_bertrand':

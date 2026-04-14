@@ -594,9 +594,9 @@ class Problem(Container, StringRepresentation):
                         f"{common_message}"
                     )
 
-            output(f"Initialized the problem after {format_seconds(time.time() - start_time)}.")
-            output("")
-            output(self)
+        output(f"Initialized the problem after {format_seconds(time.time() - start_time)}.")
+        output("")
+        output(self)
 
     def __str__(self) -> str:
         """Format economy information as a string."""
@@ -820,6 +820,12 @@ class Problem(Container, StringRepresentation):
             raise TypeError("clustering_adjustment must be a boolean (one of True or False).")
         if clustering_adjustment and np.shape(self.products.clustering_ids)[1] != 1:
             raise ValueError("product_data.clustering_ids must be specified with clustering_adjustment True.")
+        if demand_adjustment and self.endogenous_cost_component is not None:
+            raise ValueError(
+                "demand_adjustment=True is not yet supported with endogenous_cost_component. "
+                "Use costs_type='log' and mc_correction to handle non-constant marginal cost "
+                "with demand adjustment."
+            )
         for m in range(self.M):
             if self.model_formulations[m]._user_supplied_markups is not None:
                 if clustering_adjustment or demand_adjustment:
@@ -916,11 +922,12 @@ class Problem(Container, StringRepresentation):
             try:
                 product = XD @ inv(XD.T @ ZD @ WD @ ZD.T @ XD) @ (XD.T @ ZD @ WD @ ZD.T @ partial_y_theta)
                 partial_xi_theta = partial_y_theta - product
-            except Exception:
+            except np.linalg.LinAlgError:
                 output(
                     "Dimension mismatch occurred. This can happen if you specify a supply side in the demand "
                     "estimation."
                 )
+                raise
 
         H = 1 / N * (np.transpose(ZD) @ partial_xi_theta)
         H_prime_wd = np.transpose(H) @ WD
@@ -937,15 +944,54 @@ class Problem(Container, StringRepresentation):
                 markups_list[m] = (advalorem_tax_adj[m] * markups_list[m]) / (1 + cost_scaling[m])
             return markups_list
 
-        # perturb sigma parameters
-        for (i, j) in itertools.product(range(K2), range(K2)):
-            if not self.demand_results.sigma[i, j] == 0:
-                sigma_initial = self.demand_results.sigma[i, j]
-                self.demand_results._sigma[i, j] = sigma_initial - epsilon / 2
+        # Save all demand parameter state before perturbation so it can be restored on any exit path
+        sigma_saved = self.demand_results.sigma.copy()
+        pi_saved = self.demand_results.pi.copy()
+        beta_saved = self.demand_results.beta.copy()
+        rho_saved = self.demand_results.rho.copy() if len(self.demand_results.rho) != 0 else None
+
+        try:
+            # perturb sigma parameters
+            for (i, j) in itertools.product(range(K2), range(K2)):
+                if not self.demand_results.sigma[i, j] == 0:
+                    sigma_initial = self.demand_results.sigma[i, j]
+                    self.demand_results._sigma[i, j] = sigma_initial - epsilon / 2
+                    with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                        self.demand_results._delta = self.demand_results.compute_delta()
+                    markups_l, _, _ = self._perturb_and_build_markups()
+                    self.demand_results._sigma[i, j] = sigma_initial + epsilon / 2
+                    with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                        self.demand_results._delta = self.demand_results.compute_delta()
+                    markups_u, _, _ = self._perturb_and_build_markups()
+                    gradient_markups = self._compute_first_difference_markups(
+                        apply_tax_adjustment(markups_u), apply_tax_adjustment(markups_l), epsilon, theta_index,
+                        gradient_markups
+                    )
+                    self.demand_results._sigma[i, j] = sigma_initial
+                    theta_index += 1
+
+            # perturb pi parameters
+            for (i, j) in itertools.product(range(K2), range(D)):
+                if not self.demand_results.pi[i, j] == 0:
+                    pi_initial = self.demand_results.pi[i, j]
+                    markups_l, _, _ = self._compute_perturbation(i, j, pi_initial - epsilon / 2)
+                    markups_u, _, _ = self._compute_perturbation(i, j, pi_initial + epsilon / 2)
+                    gradient_markups = self._compute_first_difference_markups(
+                        apply_tax_adjustment(markups_u), apply_tax_adjustment(markups_l), epsilon, theta_index,
+                        gradient_markups
+                    )
+                    self.demand_results._pi[i, j] = pi_initial
+                    theta_index += 1
+
+            # perturb alpha (price coefficient in linear parameters)
+            price_index = [idx for idx, v in enumerate(self.demand_results.beta_labels) if v == 'prices']
+            if price_index:
+                alpha_initial = self.demand_results.beta[price_index].copy()
+                self.demand_results._beta[price_index] = alpha_initial - epsilon / 2
                 with contextlib.redirect_stdout(open(os.devnull, 'w')):
                     self.demand_results._delta = self.demand_results.compute_delta()
                 markups_l, _, _ = self._perturb_and_build_markups()
-                self.demand_results._sigma[i, j] = sigma_initial + epsilon / 2
+                self.demand_results._beta[price_index] = alpha_initial + epsilon / 2
                 with contextlib.redirect_stdout(open(os.devnull, 'w')):
                     self.demand_results._delta = self.demand_results.compute_delta()
                 markups_u, _, _ = self._perturb_and_build_markups()
@@ -953,57 +999,33 @@ class Problem(Container, StringRepresentation):
                     apply_tax_adjustment(markups_u), apply_tax_adjustment(markups_l), epsilon, theta_index,
                     gradient_markups
                 )
-                self.demand_results._sigma[i, j] = sigma_initial
+                self.demand_results._beta[price_index] = alpha_initial
                 theta_index += 1
 
-        # perturb pi parameters
-        for (i, j) in itertools.product(range(K2), range(D)):
-            if not self.demand_results.pi[i, j] == 0:
-                pi_initial = self.demand_results.pi[i, j]
-                markups_l, _, _ = self._compute_perturbation(i, j, pi_initial - epsilon / 2)
-                markups_u, _, _ = self._compute_perturbation(i, j, pi_initial + epsilon / 2)
+            # perturb rho (nesting parameter)
+            if rho_saved is not None:
+                rho_initial = rho_saved.copy()
+                self.demand_results._rho = rho_initial - epsilon / 2
+                with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                    self.demand_results._delta = self.demand_results.compute_delta()
+                markups_l, _, _ = self._perturb_and_build_markups()
+                self.demand_results._rho = rho_initial + epsilon / 2
+                with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                    self.demand_results._delta = self.demand_results.compute_delta()
+                markups_u, _, _ = self._perturb_and_build_markups()
                 gradient_markups = self._compute_first_difference_markups(
                     apply_tax_adjustment(markups_u), apply_tax_adjustment(markups_l), epsilon, theta_index,
                     gradient_markups
                 )
-                self.demand_results._pi[i, j] = pi_initial
-                theta_index += 1
 
-        self.demand_results._delta = delta_estimate
-
-        # perturb alpha (price coefficient in linear parameters)
-        price_index = [idx for idx, v in enumerate(self.demand_results.beta_labels) if v == 'prices']
-        if price_index:
-            alpha_initial = self.demand_results.beta[price_index].copy()
-            self.demand_results._beta[price_index] = alpha_initial - epsilon / 2
-            with contextlib.redirect_stdout(open(os.devnull, 'w')):
-                self.demand_results._delta = self.demand_results.compute_delta()
-            markups_l, _, _ = self._perturb_and_build_markups()
-            self.demand_results._beta[price_index] = alpha_initial + epsilon / 2
-            with contextlib.redirect_stdout(open(os.devnull, 'w')):
-                self.demand_results._delta = self.demand_results.compute_delta()
-            markups_u, _, _ = self._perturb_and_build_markups()
-            gradient_markups = self._compute_first_difference_markups(
-                apply_tax_adjustment(markups_u), apply_tax_adjustment(markups_l), epsilon, theta_index, gradient_markups
-            )
-            self.demand_results._beta[price_index] = alpha_initial
-            theta_index += 1
-
-        # perturb rho (nesting parameter)
-        if len(self.demand_results.rho) != 0:
-            rho_initial = self.demand_results.rho.copy()
-            self.demand_results._rho = rho_initial - epsilon / 2
-            with contextlib.redirect_stdout(open(os.devnull, 'w')):
-                self.demand_results._delta = self.demand_results.compute_delta()
-            markups_l, _, _ = self._perturb_and_build_markups()
-            self.demand_results._rho = rho_initial + epsilon / 2
-            with contextlib.redirect_stdout(open(os.devnull, 'w')):
-                self.demand_results._delta = self.demand_results.compute_delta()
-            markups_u, _, _ = self._perturb_and_build_markups()
-            gradient_markups = self._compute_first_difference_markups(
-                apply_tax_adjustment(markups_u), apply_tax_adjustment(markups_l), epsilon, theta_index, gradient_markups
-            )
-            self.demand_results._rho = rho_initial
+        finally:
+            # Restore all demand parameter state regardless of success or failure
+            self.demand_results._sigma[:] = sigma_saved
+            self.demand_results._pi[:] = pi_saved
+            self.demand_results._beta[:] = beta_saved
+            if rho_saved is not None:
+                self.demand_results._rho[:] = rho_saved
+            self.demand_results._delta = delta_estimate
 
         return gradient_markups, H_prime_wd, H, h_i, h
 
@@ -1019,6 +1041,7 @@ class Problem(Container, StringRepresentation):
         """Compute all test statistics for a single instrument set."""
         instruments = self.products["Z{0}".format(instrument)]
         K = np.shape(instruments)[1]
+        K_effective = K - 1 if endog_hat is not None else K
 
         # Use only exogenous cost-shifter columns when an endogenous component has been IV-corrected
         if self.endogenous_cost_component is not None:
@@ -1091,10 +1114,13 @@ class Problem(Container, StringRepresentation):
 
         test_statistic_denominator = np.zeros((M, M))
         covariance_mc = np.zeros((M, M))
+        psi_gram = self._compute_block_gram(N, clustering_adjustment, psi)
         for m in range(M):
             for i in range(m):
-                variance_covariance = self._compute_variance_covariance(m, i, N, clustering_adjustment, psi)
-                weighted_variance = W_12 @ variance_covariance @ W_12
+                vc_ii = self._extract_block(psi_gram, i, i, K)
+                vc_mm = self._extract_block(psi_gram, m, m, K)
+                vc_im = self._extract_block(psi_gram, i, m, K)
+                weighted_variance = np.array([W_12 @ vc_ii @ W_12, W_12 @ vc_mm @ W_12, W_12 @ vc_im @ W_12])
                 operations = np.array([1, 1, -2])
                 moments = np.array([
                     g[i].T @ weighted_variance[0] @ g[i],
@@ -1130,10 +1156,15 @@ class Problem(Container, StringRepresentation):
         symbols_size = np.empty((M, M), dtype=object)
         symbols_power = np.empty((M, M), dtype=object)
 
+        phi_gram = self._compute_block_gram(N, clustering_adjustment, phi)
         for (m, i) in itertools.product(range(M), range(M)):
             if i < m:
-                variance = self._compute_variance_covariance(m, i, N, clustering_adjustment, phi)
-                sigma = 1 / K * np.array([
+                variance = np.array([
+                    self._extract_block(phi_gram, i, i, K),
+                    self._extract_block(phi_gram, m, m, K),
+                    self._extract_block(phi_gram, i, m, K)
+                ])
+                sigma = 1 / K_effective * np.array([
                     np.trace(variance[0] @ W_inverse),
                     np.trace(variance[1] @ W_inverse),
                     np.trace(variance[2] @ W_inverse)
@@ -1151,11 +1182,11 @@ class Problem(Container, StringRepresentation):
                 ]).flatten()
                 F_numerator = operations @ moments
                 F_denominator = sigma[0] * sigma[1] - sigma[2] ** 2
-                unscaled_F[i, m] = N / (2 * K) * F_numerator / F_denominator
+                unscaled_F[i, m] = N / (2 * K_effective) * F_numerator / F_denominator
                 F[i, m] = (1 - rho_squared) * unscaled_F[i, m]
 
                 rho_lookup = min(np.round(np.abs(rho[i, m]), 2), 0.99)
-                K_lookup = K if K <= 30 else 30
+                K_lookup = K_effective if K_effective <= 30 else 30
                 ind = np.where(
                     (critical_values_size['K'] == K_lookup) & (critical_values_size['rho'] == rho_lookup)
                 )[0][0]
@@ -1277,11 +1308,11 @@ class Problem(Container, StringRepresentation):
             diff_markups = (markups_u[m] - markups_l[m]) / epsilon
             if self._absorb_cost_ids is not None:
                 diff_markups, _ = self._absorb_cost_ids(diff_markups)
-                if Q_w is not None:
-                    resid = diff_markups - Q_w @ (Q_w.T @ diff_markups)
-                    gradient_markups[m][:, theta_index] = np.squeeze(resid)
-                else:
-                    gradient_markups[m][:, theta_index] = np.squeeze(diff_markups)
+            if Q_w is not None:
+                resid = diff_markups - Q_w @ (Q_w.T @ diff_markups)
+                gradient_markups[m][:, theta_index] = np.squeeze(resid)
+            else:
+                gradient_markups[m][:, theta_index] = np.squeeze(diff_markups)
         return gradient_markups
 
     def _compute_iv_correction(self, instrument: int, M: int, N: int, marginal_cost: list):
@@ -1344,27 +1375,37 @@ class Problem(Container, StringRepresentation):
             self.demand_results._delta = self.demand_results.compute_delta()
         return self._perturb_and_build_markups()
 
-    def _compute_variance_covariance(
-            self, m: int, i: int, N: int, clustering_adjustment: bool, var: Array
-    ) -> Array:
-        """Compute the sandwich variance-covariance matrix for model pair (m, i)."""
-        variance_covariance = 1 / N * np.array([
-            var[i].T @ var[i], var[m].T @ var[m], var[i].T @ var[m]
-        ])
+    def _compute_block_gram(self, N: int, clustering_adjustment: bool, var: Array) -> Array:
+        """Compute the (M*K, M*K) block Gram matrix for all model pairs at once.
+
+        Returns gram such that the (K, K) variance block for model pair (i, m) is:
+            gram[i*K:(i+1)*K, m*K:(m+1)*K]
+
+        With clustering, uses the Cameron-Gelbach-Miller cluster-sum formula:
+            V_clustered = (1/N) * sum_c s_c s_c'
+        where s_c is the sum of var within cluster c. This is mathematically equivalent
+        to the per-pair roll-based computation but runs in O(M*N) numpy operations
+        instead of O(C * S * M^2) Python loop iterations.
+        """
+        M, _, K = var.shape
         if clustering_adjustment:
-            cluster_ids = np.unique(self.products.clustering_ids)
-            for j in cluster_ids:
-                index = np.where(self.products.clustering_ids == j)[0]
-                var1_l = var[i][index, :]
-                var2_l = var[m][index, :]
-                var1_c = var1_l
-                var2_c = var2_l
-                for k in range(len(index) - 1):
-                    var1_c = np.roll(var1_c, 1, axis=0)
-                    var2_c = np.roll(var2_c, 1, axis=0)
-                    variance_covariance = variance_covariance + 1 / N * np.array([
-                        var1_l.T @ var1_c, var2_l.T @ var2_c, var1_l.T @ var2_c
-                    ])
-        return variance_covariance
+            cluster_ids_flat = self.products.clustering_ids.flatten()
+            unique_clusters = np.unique(cluster_ids_flat)
+            C = len(unique_clusters)
+            cluster_map = {c: idx for idx, c in enumerate(unique_clusters)}
+            cluster_idx = np.array([cluster_map[c] for c in cluster_ids_flat])
+            cluster_sums = np.zeros((M, C, K), dtype=var.dtype)
+            for m in range(M):
+                np.add.at(cluster_sums[m], cluster_idx, var[m])
+            cs_flat = cluster_sums.transpose(1, 0, 2).reshape(C, M * K)
+            return (1 / N) * cs_flat.T @ cs_flat
+        else:
+            var_flat = var.transpose(1, 0, 2).reshape(N, M * K)
+            return (1 / N) * var_flat.T @ var_flat
+
+    @staticmethod
+    def _extract_block(gram: Array, i: int, m: int, K: int) -> Array:
+        """Extract a (K, K) block from the block Gram matrix."""
+        return gram[i * K:(i + 1) * K, m * K:(m + 1) * K]
 
 
