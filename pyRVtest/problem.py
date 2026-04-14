@@ -474,7 +474,7 @@ class Problem(Container, StringRepresentation):
     L: int
     _market_indices: Dict[Hashable, int]
     _product_market_indices: Dict[Hashable, Array]
-    _max_J: int
+
     _absorb_cost_ids: Optional[Absorb]
 
     def __init__(
@@ -557,7 +557,7 @@ class Problem(Container, StringRepresentation):
 
         self._market_indices = {t: i for i, t in enumerate(self.unique_market_ids)}
         self._product_market_indices = get_indices(self.products.market_ids)
-        self._max_J = max(i.size for i in self._product_market_indices.values())
+
 
         self._absorb_cost_ids = None
         if self.EC > 0:
@@ -760,6 +760,7 @@ class Problem(Container, StringRepresentation):
             )
             omega_per_instrument = [omega] * L
             endog_hat_per_instrument = [None] * L
+            tau_list_per_instrument = None
 
         gradient_markups = H_prime_wd = H = h_i = h = None
         if demand_adjustment:
@@ -805,7 +806,8 @@ class Problem(Container, StringRepresentation):
             self, markups, markups_downstream, markups_upstream, markups_orthogonal, marginal_cost,
             tau_list, g_list, Q_list, RV_numerator_list, RV_denominator_list,
             test_statistic_RV_list, F_statistic_list, MCS_p_values_list, rho_list, unscaled_F_statistic_list,
-            F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list, cost_param
+            F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list, cost_param,
+            tau_list_per_instrument
         ))
         output(f"Solved the problem after {format_seconds(time.time() - step_start_time)}.")
         output("")
@@ -1056,17 +1058,24 @@ class Problem(Container, StringRepresentation):
 
         if self._absorb_cost_ids is not None:
             Z_orthogonal, _ = self._absorb_cost_ids(instruments)
+            w_absorbed, _ = self._absorb_cost_ids(w_for_ols)
+            endog_hat_absorbed = endog_hat
+            if endog_hat is not None:
+                endog_hat_absorbed, _ = self._absorb_cost_ids(endog_hat)
         else:
             Z_orthogonal = instruments
+            w_absorbed = w_for_ols
+            endog_hat_absorbed = endog_hat
 
         # Residualize instruments on exogenous cost-shifters and (when applicable) first-stage
         # fitted values of the endogenous cost component jointly, so that Z_orthogonal is orthogonal
         # to both simultaneously. The rank reduction from adding endog_hat is handled by pinv.
-        if endog_hat is not None:
-            controls = np.hstack([w_for_ols, endog_hat]) if w_for_ols.shape[1] > 0 else endog_hat
+        # All inputs must be in the same basis (absorbed or raw) for valid FWL.
+        if endog_hat_absorbed is not None:
+            controls = np.hstack([w_absorbed, endog_hat_absorbed]) if w_absorbed.shape[1] > 0 else endog_hat_absorbed
             Z_orthogonal = np.reshape(_qr_residualize(Z_orthogonal, controls), [N, K])
-        elif w_for_ols.any():
-            Z_orthogonal = np.reshape(_qr_residualize(Z_orthogonal, w_for_ols), [N, K])
+        elif w_absorbed.any():
+            Z_orthogonal = np.reshape(_qr_residualize(Z_orthogonal, w_absorbed), [N, K])
 
         W_inverse = np.reshape(1 / N * (Z_orthogonal.T @ Z_orthogonal), [K, K])
         if options.pseudo_inverses:
@@ -1101,12 +1110,64 @@ class Problem(Container, StringRepresentation):
         psi = np.zeros((M, N, K), dtype=options.dtype)
         if demand_adjustment:
             adjustment_value = np.zeros((M, K, H_prime_wd.shape[1]), dtype=options.dtype)
+
+        # Precompute first-stage correction ingredients when endogenous cost component is present.
+        # Per Appendix B of Duarte-Magnolfi-Quint-Solvsten-Sullivan (2025), the influence function
+        # psi includes a correction for estimation of the linear predictor q_tilde.
+        endog_correction_data = None
+        if endog_hat is not None:
+            endog_col_idx_local = next(
+                i for i, f in enumerate(self._w_formulation)
+                if str(f) == self.endogenous_cost_component
+            )
+            endog_col = self.products.w[:, [endog_col_idx_local]]  # (N, 1) raw endogenous variable
+            q_e = endog_col - endog_hat                            # (N, 1) first-stage residual
+
+            # z^r = z residualized on w only (not on endog_hat)
+            z_r = _qr_residualize(instruments, w_for_ols) if w_for_ols.shape[1] > 0 else instruments.copy()
+            if self._absorb_cost_ids is not None:
+                z_r, _ = self._absorb_cost_ids(z_r)
+            z_r = z_r.reshape(N, K)
+
+            # Z_prec = (1/n sum z^r z^{r'})^{-1}
+            Z_cov = (1 / N) * z_r.T @ z_r                         # (K, K)
+            Z_prec = np.linalg.pinv(Z_cov)                        # (K, K)
+
+            # lambda_q: coefficient on endog_hat in projection z^e = lambda_q * q_tilde + Lambda_w * w
+            # This is the coefficient from projecting z on [endog_hat, w], taking the endog_hat part
+            proj_X = np.hstack([endog_hat, w_for_ols]) if w_for_ols.shape[1] > 0 else endog_hat
+            Q_proj, R_proj = np.linalg.qr(proj_X, mode='reduced')
+            lambda_coefs = np.linalg.solve(R_proj, Q_proj.T @ instruments)  # (d_proj, K)
+            lambda_q = lambda_coefs[0, :]  # (K,) — coefficient on endog_hat (first column)
+
+            # Precompute the (K, K) matrix M_correction = W^{3/4} W^+ Z_prec, used in correction
+            W_plus = weight_matrix  # this is already the pseudo-inverse of W_inverse
+            M_corr = W_34 @ W_plus @ Z_prec  # (K, K)
+
+            endog_correction_data = (z_r, q_e, lambda_q, M_corr, Z_prec, W_plus)
+
         for m in range(M):
             psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
             W_34_Zg = (Z_orthogonal @ W_34 @ g[m])[:, np.newaxis]
             mc_col = omega[m][:, np.newaxis]
             psi_i = (mc_col * Z_orthogonal) @ W_12 - 0.5 * W_34_Zg * (Z_orthogonal @ W_34.T)
             psi[m] = psi_i - np.transpose(psi_bar)
+
+            # First-stage correction: Appendix B of Duarte-Magnolfi-Quint-Solvsten-Sullivan (2025).
+            # Per observation i, the correction to psi[m][i,:] is:
+            #   (1/2) W^{3/4} (W^+ Z_prec u_i lambda'_q + lambda_q u'_i Z_prec W^+) W^{3/4} g_m
+            # where u_i = z^r_i * q^e_i, M_corr = W^{3/4} W^+ Z_prec.
+            # Term 1 contracts to: M_corr @ u_i * (lambda_q . W^{3/4} g_m)
+            # Term 2 contracts to: W^{3/4} lambda_q * (u_i . Z_prec W^+ W^{3/4} g_m)
+            if endog_correction_data is not None:
+                z_r, q_e, lambda_q, M_corr, Z_prec, W_plus = endog_correction_data
+                W34_gm = W_34 @ g[m]                                       # (K,)
+                v = Z_prec @ W_plus @ W34_gm                               # (K,) right-side contraction
+                u = q_e * z_r                                              # (N, K)
+                term1 = (u @ M_corr.T) * (lambda_q @ W34_gm)              # (N, K)
+                term2 = (u @ v)[:, np.newaxis] * (W_34 @ lambda_q)[np.newaxis, :]  # (N, K)
+                psi[m] = psi[m] + 0.5 * (term1 + term2)
+
             if demand_adjustment:
                 G_k = -1 / N * np.transpose(Z_orthogonal) @ gradient_markups[m]
                 adjustment_value[m] = W_12 @ G_k @ inv(H_prime_wd @ H) @ H_prime_wd
@@ -1342,11 +1403,19 @@ class Problem(Container, StringRepresentation):
             if str(f) == self.endogenous_cost_component
         )
         exog_col_indices = [i for i in range(self.products.w.shape[1]) if i != endog_col_idx]
-        endog_col = self.products.w[:, [endog_col_idx]]   # (N, 1)
+        endog_col_raw = self.products.w[:, [endog_col_idx]]  # (N, 1) — raw, used for mc_correction
         exog_w = self.products.w[:, exog_col_indices]     # (N, K_w - 1)
 
         # Use only the instrument set for this test (keeps each instrument set's correction independent)
         Z_inst = self.products["Z{0}".format(instrument)]  # (N, K_l)
+
+        # Absorb cost-side fixed effects before running 2SLS, so that gamma_m is estimated
+        # within-group rather than in levels (consistent with _prepare_orthogonal_variables)
+        endog_col = endog_col_raw
+        if self._absorb_cost_ids is not None:
+            exog_w, _ = self._absorb_cost_ids(exog_w)
+            endog_col, _ = self._absorb_cost_ids(endog_col)
+            Z_inst, _ = self._absorb_cost_ids(Z_inst)
 
         # First stage: project endogenous variable on [exog_w, Z_inst]
         first_stage_X = np.hstack([exog_w, Z_inst])
@@ -1364,7 +1433,7 @@ class Problem(Container, StringRepresentation):
             params = np.linalg.solve(R_2sls, Q_2sls.T @ y_m)
             gamma_m = params[-1]                    # coefficient on the endogenous component
             cost_param[m] = params                  # [tau_exog..., gamma]
-            mc_correction[m] = -gamma_m * endog_col  # (N, 1)
+            mc_correction[m] = -gamma_m * endog_col_raw  # (N, 1) — uses raw (un-absorbed) endog
 
         return cost_param, mc_correction, endog_hat
 

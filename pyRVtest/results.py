@@ -37,6 +37,7 @@ class Progress:
     symbols_size_list: Array
     symbols_power_list: Array
     cost_param: Optional[list] = None
+    tau_list_per_instrument: Optional[list] = None
 
 
 class ProblemResults(StringRepresentation):
@@ -125,6 +126,7 @@ class ProblemResults(StringRepresentation):
         self._symbols_size_list = progress.symbols_size_list
         self._symbols_power_list = progress.symbols_power_list
         self.cost_param = progress.cost_param
+        self.tau_list_per_instrument = progress.tau_list_per_instrument
 
     def __str__(self) -> str:
         """Format results information as a string."""
