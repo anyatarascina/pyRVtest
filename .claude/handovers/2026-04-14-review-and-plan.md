@@ -1,69 +1,74 @@
-# Handover: pyRVtest CClean Review and Fix Plan
+# Handover: pyRVtest CClean-fixes — Complete
 
 **Date:** 2026-04-14
-**Session:** ~3 hours, deep review + planning
-**Branch:** `CClean-fixes` created off CClean tip `bc62371`
+**Session:** ~5 hours, review + planning + implementation
+**Branch:** `CClean-fixes` off CClean tip `bc62371`
+**Commits:** `d1ab378` (batch 1), `16b655a` (batch 2)
+**Status:** All 16 planned items complete. Branch ready for review.
 
 ---
 
 ## What was done
 
-### 1. Theory loading
-Read three papers cover-to-cover via pymupdf:
-- **DMSS 2024** "Testing Firm Conduct" (QE) — core RV test, F-diagnostic, MCS, variance estimator (eq. 6-8, 17-18)
-- **DMQSS 2025** "Conduct and Scale Economies" — non-constant cost extension. **Appendix B page 48** has the modified psi formula and F-statistic with d_z-1. This is the key reference for fixes 1.1 and 1.3.
-- **DMSQW 2026** "Learning Firm Conduct" — pass-through framework. Conclusion: primarily theoretical guidance, no immediate code changes needed. Pass-through matrix display is a future feature.
+### Theory loading
+Read three papers via pymupdf:
+- DMSS 2024 "Testing Firm Conduct" (QE) — core RV test, F-diagnostic, MCS
+- DMQSS 2025 "Conduct and Scale Economies" — non-constant cost. **Appendix B page 48** has modified psi and F formulas
+- DMSQW 2026 "Learning Firm Conduct" — pass-through framework. Future feature only.
 
-### 2. Code review
-Full audit of all source files in `pyRVtest/`. Combined with Lorenzo's four memos (`~/Downloads/MEMO_pyRVtest_*.md`):
-- `MEMO_pyRVtest_CClean_review_2026-04-14.md` — correctness review, found 12 issues
-- `MEMO_pyRVtest_outward_polish_2026-04-14.md` — adoption/UX improvements
-- `MEMO_pyRVtest_backend_compatibility_2026-04-14.md` — DemandBackend protocol design
-- `MEMO_pyRVtest_test_strategy_2026-04-14.md` — test suite design
+### Code review
+Full audit of all source files combined with Lorenzo's four memos (`~/Downloads/MEMO_pyRVtest_*.md`). Found additional bugs beyond Lorenzo's list (partial_xi_theta undefined, psi vectorization). Caught false positives from our own agents (symbol ordering, uninitialized arrays). Verified K normalization cancellation numerically.
 
-### 3. Key numerical verification
-- **Clustering equivalence:** Verified that cluster-sum Gram matrix produces identical results to the roll loop (max diff < 2e-14). Benchmarked 909x speedup at N=50K.
-- **K normalization cancellation:** Proved that `1/K` in sigma trace and `2*K` in F denominator cancel, so F value is invariant to K vs K-1. Only the critical value lookup row actually changes output. Plan changes all three to K_effective to match paper notation.
+### Implementation (all 16 items)
 
-### 4. Agent false positives caught
-Three findings from our explore agents were verified as incorrect:
-- Symbol ordering logic (claimed backwards) — actually correct
-- Uninitialized symbol arrays — `else` clause at line 1183 initializes all cells
-- NaN column mismatch between ownership/response matrices — both trimmed consistently
+**Commit 1 (`d1ab378`) — 8 correctness fixes + 2 perf + tests:**
+- 1.1: K_effective for F-diagnostic (sigma, F denom, CV lookup all use K-1; cancels numerically but matches paper notation)
+- 1.2: gradient zeroed without FEs (de-gated assignment from absorb_cost_ids conditional)
+- 1.4: raise when demand_adjustment + endogenous_cost_component both True
+- 2.2: demand_results state restoration via try/finally
+- 2.3: ModelFormulation.__reduce__ (all 14 fields round-trip)
+- 2.4: partial_xi_theta undefined (except Exception → except LinAlgError + re-raise)
+- 2.5: Problem.__init__ output de-indented
+- 2.7: validation for model_downstream='other' without custom_model_specification
+- 3.1: batch Gram matrix replaces O(C*S*M^2) roll loop (~900x speedup, verified identical < 2e-14)
+- 3.2: inv→solve for Bertrand/monopoly markups
+- 11 tests (5 formulation pickle/validation, 6 clustering equivalence)
 
----
-
-## What was decided
-
-### Approved plan
-At `~/.claude/plans/snug-seeking-zephyr.md`. Four tiers, 16 items.
-
-**Tier 1 — release blockers:**
-1. K_effective for F-stat and critical values (change all 3 sites to match paper)
-2. Gradient zeroed without cost FEs (de-gate the assignment from the FE conditional)
-3. Variance psi first-stage correction (Appendix B page 48 formula)
-4. Raise when demand_adjustment + endogenous_cost_component both True (short-term guard)
-
-**Tier 2 — correctness:** IV correction FE absorption, demand_results state restoration, __reduce__ pickling, partial_xi_theta undefined, output indentation, per-instrument tau_list, 'other' model validation.
-
-**Tier 3 — performance:** Batch Gram matrix for clustering (909x), inv to solve in markups.
-
-**Tier 4 — docs:** Docstrings, dead code.
-
-### Branching
-`CClean-fixes` off CClean. Marco may be working on CClean concurrently. Merge back when reviewed.
-
-### Scope
-Correctness + performance + tests for each bug. Outward polish, expanded test suite, backend decoupling are future work (documented in plan).
+**Commit 2 (`16b655a`) — 3 correctness fixes + cleanup:**
+- 1.3: variance psi first-stage correction per Appendix B. Precomputes z^r, q^e, Z_prec, lambda_q; adds vectorized per-model correction (verified against direct computation < 2e-13)
+- 2.1: IV correction FE absorption (_compute_iv_correction absorbs before 2SLS; _compute_instrument_results absorbs w/endog_hat before joint residualization; raw endog_col used for mc_correction)
+- 2.6: tau_list_per_instrument exposed on Progress/ProblemResults
+- Removed dead self._max_J
 
 ---
 
-## What's next
+## Key numerical insights
 
-1. **Set up test scaffolding:** `tests/conftest.py`, pytest config, tiny synthetic fixture that can exercise the pipeline without real PyBLP data
-2. **Fix 1.1 (K_effective):** Write a test that checks the critical value lookup uses K-1 when endogenous_cost_component is set. Test fails on current code. Apply the 3-line fix. Test passes.
-3. **Fix 1.2 (gradient without FEs):** Write a test that checks gradient_markups is nonzero after demand adjustment without cost FEs. Apply Lorenzo's patch from §4.3.
-4. **Continue through tiers 1-4.**
+1. **K normalization cancels:** `1/K` in sigma trace and `2*K` in F denominator cancel. F value is invariant. Only the CV lookup row affects output. Changed all three to K_effective to match paper.
+
+2. **Psi correction vectorization:** The Appendix B formula `W^{3/4}(W^+ Z u lambda' + lambda u' Z W^+)W^{3/4} g_m` contracts to two terms: `(M_corr @ u_i) * (lambda . W34 g_m)` + `(W34 lambda) * (u_i . v)` where `v = Z_prec W^+ W34 g_m`. Verified to < 2e-13 against direct per-observation computation.
+
+3. **Clustering equivalence:** Cameron-Gelbach-Miller cluster-sum `(1/N) S'S` where `S[c,:] = sum within cluster c` is algebraically identical to the roll-based sum of cross-products. Benchmarked 909x speedup at N=50K.
+
+---
+
+## What's NOT done (future work documented in plan)
+
+**Next release — outward polish:**
+- `to_latex()`, `to_markdown()`, `summary_df()` on ProblemResults
+- README rewrite, CITATION.cff, Zenodo DOI
+- Error message fuzzy matching, tutorial series, diagnostic plots, `show_versions()`
+
+**Next release — expanded tests:**
+- Property tests, golden-file tests pinning published results, benchmarks, GitHub Actions CI
+
+**Later — backend decoupling:**
+- `DemandBackend` protocol, PyBLPBackend wrapper, Grumps/FRAC backends
+
+**Later — new features:**
+- Pass-through matrix computation (Dearing et al. 2026)
+- `Dict_K` class→instance attribute fix
+- `options.finite_differences_epsilon` dynamic update
 
 ---
 
@@ -81,8 +86,9 @@ Correctness + performance + tests for each bug. Outward polish, expanded test su
 
 ---
 
-## Open questions
+## Next steps for this branch
 
-1. **Sigma trace `1/K` vs `1/K_effective`:** We proved these cancel in F, so both conventions give the same number. Decision: change to K_effective to match paper. But worth double-checking against the monte carlo example output after implementing.
-2. **Fix 1.3 (psi correction):** The Appendix B formula involves `z^r` (instruments residualized on w only), `q^e` (first-stage residual), `Z_prec` (precision matrix), `lambda_q` (projection coefficient). The exact numpy translation needs care — verify against a hand-computed 2-product example.
-3. **Test fixtures:** Need a tiny synthetic dataset that exercises the full pipeline. The monte carlo example in `docs/notebooks/` uses PyBLP simulation, which is heavy. Consider a mock/pre-computed approach for fast unit tests.
+1. **Push** `CClean-fixes` to origin for coauthor review
+2. **Integration test** against the monte carlo example (`docs/notebooks/monte_carlo_example.py`) or the auto tariffs data if accessible
+3. **Review with Lorenzo/Marco** — the psi correction (1.3) and FE absorption (2.1) are the items most likely to need discussion
+4. **Merge** CClean-fixes → CClean → main once reviewed
