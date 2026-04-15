@@ -831,9 +831,10 @@ class Problem(Container, StringRepresentation):
         # accounts for the dependence of gamma_m on theta via per-instrument finite differences.
         for m in range(self.M):
             if self.model_formulations[m]._user_supplied_markups is not None:
-                if clustering_adjustment or demand_adjustment:
+                if demand_adjustment:
                     raise ValueError(
-                        "If using own markups, demand_adjustment and clustering_adjustment should be False."
+                        "demand_adjustment is not supported with user-supplied markups, because the "
+                        "finite-difference gradient requires a demand system to perturb."
                     )
 
     def _perturb_and_build_markups(self):

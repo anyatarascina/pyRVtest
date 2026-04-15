@@ -299,7 +299,6 @@ class TestAlgebraBase:
 # Test class 2: Clustering
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="Requires relaxing user_supplied_markups + clustering validation in pyRVtest")
 class TestAlgebraClustering:
     """Same DGP, with clustering at the market level."""
 
@@ -346,30 +345,29 @@ def _build_scale_dgp(seed=54321, T=30, J=2):
     market_ids = np.repeat(np.arange(T), J)
     firm_ids = np.tile(np.arange(J), T)
 
-    alpha = -2.0
+    alpha = -1.5     # moderate price sensitivity (keeps shares interior)
     beta_x = 1.0
-    gamma_true = -0.3  # scale economies
-    x = rng.uniform(0.5, 2.0, size=(N, 1))
-    cost_shifter = rng.uniform(0.5, 2.0, size=(N, 1))
+    gamma_true = -0.1  # mild scale economies (avoids divergence)
+    x = rng.uniform(0.8, 1.5, size=(N, 1))  # tighter x range
+    cost_shifter = rng.uniform(0.5, 1.5, size=(N, 1))
     # Two instruments (need at least 2: one to identify gamma, one for testing)
     iv1 = rng.uniform(0.5, 2.0, size=(N, 1))
     iv2 = rng.uniform(0.5, 2.0, size=(N, 1))
-    xi = rng.normal(0, 0.05, size=(N, 1))
-    omega_true = rng.normal(0, 0.05, size=(N, 1))
+    xi = rng.normal(0, 0.02, size=(N, 1))     # small demand shocks
+    omega_true = rng.normal(0, 0.02, size=(N, 1))  # small cost shocks
 
-    # Market size (used to compute quantities from shares)
-    market_size = 1000.0
+    # Large market size ensures positive quantities
+    market_size = 100000.0
 
     # True cost: log(c) = gamma*log(q) + tau_0 + tau_w*w + omega
-    # We need to solve for equilibrium: prices, shares, quantities, and costs simultaneously.
-    # Start with constant-cost Bertrand equilibrium as initial guess.
     tau_0, tau_w = 1.0, 0.3
     mc_init = np.exp(tau_0 + tau_w * cost_shifter + omega_true)
     prices, shares, markups_b = _solve_bertrand_logit(alpha, beta_x, x, xi, mc_init, market_ids, T, N)
 
     # Iterate: update cost with scale economies, re-solve equilibrium
-    for _ in range(100):
+    for iteration in range(200):
         quantities = market_size * shares
+        assert np.all(quantities > 0), f"Zero quantities at iteration {iteration}"
         log_mc = gamma_true * np.log(quantities) + tau_0 + tau_w * cost_shifter + omega_true
         mc_true = np.exp(log_mc)
         prices_new, shares_new, markups_b_new = _solve_bertrand_logit(
@@ -430,7 +428,7 @@ def _hand_compute_scale(dgp):
     Q_fs, _ = np.linalg.qr(first_stage_X, mode='reduced')
     endog_hat = (Q_fs @ (Q_fs.T @ endog_col)).reshape(-1, 1)
 
-    # Second stage per model
+    # Second stage per model: regress log(mc) on [w_exog, endog_hat]
     X_2sls = np.hstack([w_exog, endog_hat])
     Q_2sls, R_2sls = np.linalg.qr(X_2sls, mode='reduced')
     gamma = np.zeros(M)
@@ -438,19 +436,13 @@ def _hand_compute_scale(dgp):
     for m in range(M):
         params = np.linalg.solve(R_2sls, Q_2sls.T @ mc_list[m])
         gamma[m] = float(params[-1])
-        mc_corrected = mc_list[m] - gamma[m] * endog_col
-        # Residualize corrected mc on w_exog to get omega
-        omega[m] = mc_corrected - Q_2sls[:, :w_exog.shape[1]] @ (Q_2sls[:, :w_exog.shape[1]].T @ mc_corrected)
 
-    # Actually, residualize properly: omega = mc - [w_exog, endog_hat] @ params
-    for m in range(M):
-        params = np.linalg.solve(R_2sls, Q_2sls.T @ mc_list[m])
-        omega[m] = mc_list[m] - X_2sls @ params
-
-    # Then residualize omega on w_exog only (since the IV correction already handled the endogenous part)
+    # Marginal cost after IV correction: mc_corrected = mc - gamma * endog_col (raw)
+    # Then omega = residualize mc_corrected on w_exog
     Q_w, R_w = np.linalg.qr(w_exog, mode='reduced')
     for m in range(M):
-        omega[m] = omega[m] - Q_w @ (Q_w.T @ omega[m])
+        mc_corrected = mc_list[m] - gamma[m] * endog_col
+        omega[m] = mc_corrected - Q_w @ (Q_w.T @ mc_corrected)
 
     # Effective instruments: z^e = instruments residualized on [w_exog, endog_hat]
     controls = np.hstack([w_exog, endog_hat])
@@ -558,7 +550,6 @@ def _hand_compute_scale(dgp):
     }
 
 
-@pytest.mark.skip(reason="DGP produces zero shares/log(0); needs fixing in test construction")
 class TestAlgebraScaleEconomies:
     """Validate engine with endogenous cost component (economies of scale)."""
 
@@ -581,7 +572,7 @@ class TestAlgebraScaleEconomies:
             demand_results=None,
             endogenous_cost_component='log_quantity',
         )
-        results = testing_problem.solve(demand_adjustment=False, clustering_adjustment=False)
+        results = testing_problem.solve(demand_adjustment=False, clustering_adjustment=False, costs_type='log')
         return results, expected
 
     def test_trv(self, data):
