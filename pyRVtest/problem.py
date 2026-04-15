@@ -1424,7 +1424,12 @@ class Problem(Container, StringRepresentation):
             w_for_ols = self.products.w[:, exog_col_indices]
         else:
             w_for_ols = self.products.w
-        Q_w = np.linalg.qr(w_for_ols, mode='reduced')[0] if w_for_ols.any() else None
+        # Absorb w before QR so that the projection is in the same basis as the absorbed diff_markups
+        if self._absorb_cost_ids is not None:
+            w_absorbed, _ = self._absorb_cost_ids(w_for_ols)
+        else:
+            w_absorbed = w_for_ols
+        Q_w = np.linalg.qr(w_absorbed, mode='reduced')[0] if w_absorbed.any() else None
         for m in range(self.M):
             diff_markups = (markups_u[m] - markups_l[m]) / epsilon
             if self._absorb_cost_ids is not None:
