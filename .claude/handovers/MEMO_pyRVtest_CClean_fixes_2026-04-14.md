@@ -9,9 +9,13 @@
 
 ## 1. Summary
 
-I reviewed the CClean branch end-to-end alongside Lorenzo's four memos from the same date. I then implemented all correctness fixes from Lorenzo's memo 1 (plus additional items he identified as deferred), the ~900x clustering performance improvement Lorenzo flagged in his memo 1 section 4.12, and the variance estimator correction from Appendix B of our non-constant-cost paper. The work is on branch `CClean-fixes`, three commits ahead of CClean tip `bc62371`. All 11 tests pass. Integration tests on the monte carlo DGP confirm the pipeline runs correctly with both `demand_adjustment=False` and `demand_adjustment=True` alongside `endogenous_cost_component`.
+I reviewed the CClean branch end-to-end alongside Lorenzo's four memos from the same date. I then implemented all correctness fixes from Lorenzo's memo 1 (plus additional items he identified as deferred), the ~900x clustering performance improvement Lorenzo flagged in his memo 1 section 4.12, and the variance estimator correction from Appendix B of our non-constant-cost paper. The work is on branch `CClean-fixes`, seven commits ahead of CClean tip `bc62371`, pushed to origin. 28 tests pass, covering:
 
-Notably, the `demand_adjustment` x `endogenous_cost_component` interaction that Lorenzo flagged as deferred (memo 1 section 4.2) is now fully implemented. The fix re-runs the IV correction at each finite-difference perturbation, capturing how gamma_m changes with theta.
+- **Algebra validation:** hand-computed g, Q, tau, TRV, F match pyRVtest to < 1e-8 for three configurations (base, clustering, scale economies with endogenous cost component)
+- **Size/power validation:** 500-replication Monte Carlo confirms correct size (~5%), high power for Bertrand vs perfect competition, correct rejection direction, and strong instrument detection
+- **Integration test:** full 13-model monte carlo example runs end-to-end with demand_adjustment=True and endogenous_cost_component
+
+Notably, the `demand_adjustment` x `endogenous_cost_component` interaction that Lorenzo flagged as deferred (memo 1 section 4.2) is now fully implemented. Also relaxed the overly restrictive validation that blocked clustering_adjustment with user-supplied markups (clustering is a variance computation with no demand dependency).
 
 Two items require discussion before merging. The rest is mechanical and can be reviewed from the diffs.
 
@@ -97,9 +101,13 @@ Removed dead `self._max_J` (computed but never referenced).
 
 The wrong model (Cournot) compensates with a higher gamma, which is exactly the behavior predicted by the theory. The test correctly identifies Bertrand as the better-fitting model but does not reject at 5% (expected: 10K obs, one instrument set, mild endogeneity with correlation=0). With demand adjustment, TRV is smaller in magnitude and F is lower, reflecting wider standard errors from accounting for demand estimation uncertainty. Both configurations show strong instruments.
 
-**Unit tests (11 total, all passing):**
-- 5 formulation tests: pickle round-trip (basic, all fields, mix_flag), validation (other without custom spec, other with custom spec)
-- 6 clustering equivalence tests: parametrized over (N, M, K, C, cluster_size) for both clustered and non-clustered cases
+**Test suite (28 tests, all passing):**
+- 6 base algebra tests: hand-computed g, Q, tau, TRV, F on 2-firm 20-market logit match pyRVtest to < 1e-8
+- 4 clustering algebra tests: hand-computed clustered TRV and F match; GMM moments unchanged by clustering; clustered variance differs from unclustered
+- 3 scale economies algebra tests: hand-computed gamma, TRV, F with endogenous cost component (2SLS, effective instruments, psi correction) match pyRVtest
+- 6 clustering equivalence tests: batch Gram matrix matches old roll-based computation to < 1e-12
+- 5 formulation tests: pickle round-trip, validation
+- 4 size/power Monte Carlo tests (500 replications, T=500 markets each): size < 10%, power > 50%, correct rejection direction > 90%, strong instruments > 80%
 
 **Numerical verification of psi correction.** The vectorized implementation matches a direct per-observation loop to < 2e-13 on random (K=5, N=100) data with non-identity weight/precision matrices.
 
@@ -133,8 +141,9 @@ The wrong model (Cournot) compensates with a higher gamma, which is exactly the 
 **Expanded test suite (Lorenzo memo 4):**
 - Property tests (determinism, row-permutation invariance, Frisch-Waugh-Lovell check)
 - Golden-file tests pinning published results (DMSS auto, DMQS non-constant-cost, Miller-Weinberg beer)
-- Performance benchmarks
+- Performance benchmarks with `pytest-benchmark`
 - GitHub Actions CI
+- Demand adjustment algebra test: requires hand-computing markup gradient w.r.t. demand parameters; may be better as a property test (demand-adjusted variance wider than unadjusted)
 
 ### Later
 
@@ -155,14 +164,18 @@ The wrong model (Cournot) compensates with a higher gamma, which is exactly the 
 ```bash
 git fetch origin
 git checkout CClean-fixes
-git diff CClean..CClean-fixes --stat    # 4 files changed
-git log CClean..CClean-fixes --oneline  # 3 commits
-pytest tests/ -v                         # 11 tests, all should pass
+git diff CClean..CClean-fixes --stat    # files changed
+git log CClean..CClean-fixes --oneline  # 7 commits
+pytest tests/ -v                         # 28 tests, all should pass (~56s including MC)
 ```
 
-The three commits are structured as:
+The seven commits are structured as:
 1. `d1ab378` — mechanical fixes (1.1, 1.2, 2.2-2.5, 2.7, 3.1, 3.2) plus test scaffolding
 2. `16b655a` — items requiring judgment (1.3 psi correction, 2.1 FE absorption, 2.6 tau_list, dead code)
 3. `9544fcd` — demand_adjustment x endogenous_cost_component interaction (1.4 proper fix)
+4. `51be3ba` — MC results update and this memo
+5. `2d48ee8` — analytical base algebra test
+6. `8838804` — clustering and scale economy algebra tests, relaxed clustering validation
+7. `bb4acab` — Monte Carlo size/power test (500 replications)
 
-Reviewing them separately is recommended. The first commit is uncontroversial. The second and third are where the discussion items live.
+For review: commits 2-3 are where the discussion items live. Commit 7 is the strongest evidence the package works correctly (size and power at the right rates across 500 replications).
