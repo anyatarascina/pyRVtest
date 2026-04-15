@@ -561,6 +561,7 @@ class Problem(Container, StringRepresentation):
         self.model_formulations = model_formulations
         self.demand_results = demand_results
         self.demand_params = demand_params
+        self._product_data_raw = product_data  # kept for demand_params path to access arbitrary columns
         self.markups = markups
         self.endogenous_cost_component = endogenous_cost_component
 
@@ -787,10 +788,16 @@ class Problem(Container, StringRepresentation):
         gradient_markups = H_prime_wd = H = h_i = h = None
         gradient_gamma_per_instrument = None
         if demand_adjustment:
-            mc_base_for_grad = marginal_cost_base if self.endogenous_cost_component is not None else None
-            gradient_markups, H_prime_wd, H, h_i, h, gradient_gamma_per_instrument = (
-                self._compute_demand_adjustment_gradient(N, advalorem_tax_adj, cost_scaling, mc_base_for_grad)
-            )
+            if self.demand_params is not None:
+                gradient_markups, H_prime_wd, H, h_i, h = (
+                    self._compute_analytical_demand_adjustment(M, N, markups, advalorem_tax_adj, cost_scaling)
+                )
+                gradient_gamma_per_instrument = None
+            else:
+                mc_base_for_grad = marginal_cost_base if self.endogenous_cost_component is not None else None
+                gradient_markups, H_prime_wd, H, h_i, h, gradient_gamma_per_instrument = (
+                    self._compute_demand_adjustment_gradient(N, advalorem_tax_adj, cost_scaling, mc_base_for_grad)
+                )
 
         g_list = [None] * L
         Q_list = [None] * L
@@ -892,6 +899,209 @@ class Problem(Container, StringRepresentation):
             self.models["custom_model_specification"], self.models["user_supplied_markups"],
             self.models["mix_flag"], demand_jacobian=demand_jacobian
         )
+
+    def _compute_analytical_demand_adjustment(self, M: int, N: int, markups: list,
+                                                  advalorem_tax_adj: list, cost_scaling: list):
+        """Compute demand adjustment quantities analytically for logit/nested logit.
+
+        Replaces _compute_demand_adjustment_gradient when demand_params is set. No finite
+        differences, no PyBLP. Uses closed-form derivatives of the Berry (1994) demand system.
+
+        Returns gradient_markups, H_prime_wd, H, h_i, h (same interface as the PyBLP path).
+        """
+        from .demand_jacobian import compute_analytical_jacobian, _logit_jacobian, _nested_logit_jacobian
+
+        dp = self.demand_params
+        alpha = dp['alpha']
+        sigma = [s for s in dp.get('sigma', []) if s > 0]
+        L = len(sigma)
+        beta = np.asarray(dp['beta']).flatten()
+        x_cols = dp['x_columns']
+        z_d_cols = dp['demand_instrument_columns']
+
+        # Build demand-side matrices from the original product_data (not the structured Products recarray,
+        # which only stores cost/instrument columns)
+        raw = self._product_data_raw
+        X_D = np.column_stack([np.asarray(raw[col]).flatten() for col in x_cols])  # (N, K_x)
+        Z_D = np.column_stack([np.asarray(raw[col]).flatten() for col in z_d_cols])  # (N, K_z)
+        prices = np.asarray(self.products.prices).flatten()  # (N,)
+        shares = np.asarray(self.products.shares).flatten()  # (N,)
+        market_ids = np.asarray(self.products.market_ids).flatten()
+        markets = np.unique(market_ids)
+
+        # Compute outside good share and within-nest shares
+        s0 = np.zeros(N)
+        for t in markets:
+            idx = market_ids == t
+            s0[idx] = 1.0 - shares[idx].sum()
+
+        # Within-nest conditional shares for each nesting level
+        nesting_arrays = []
+        log_within_nest_shares = []
+        if L > 0:
+            nesting_cols = dp.get('nesting_ids_columns', None)
+            if nesting_cols is None:
+                nesting_cols = ['nesting_ids'] if L == 1 else [f'nesting_ids_{l+1}' for l in range(L)]
+            for l, col in enumerate(nesting_cols):
+                nest_ids = np.asarray(raw[col]).flatten()
+                nesting_arrays.append(nest_ids)
+                # Compute within-nest shares per market
+                within_share = np.zeros(N)
+                for t in markets:
+                    idx = np.where(market_ids == t)[0]
+                    nest_ids_t = nest_ids[idx]
+                    shares_t = shares[idx]
+                    for g in np.unique(nest_ids_t):
+                        mask = nest_ids_t == g
+                        nest_share = shares_t[mask].sum()
+                        within_share[idx[mask]] = shares_t[mask] / nest_share
+                log_within_nest_shares.append(np.log(within_share))
+
+        # Compute xi: demand residual
+        # Berry (1994): log(s_j) - log(s_0) = x'beta + alpha*p + sum_l sigma_l * log(s_{j|g_l}) + xi
+        log_share_ratio = np.log(shares) - np.log(s0)
+        xi = log_share_ratio - X_D @ beta - alpha * prices
+        for l in range(L):
+            xi = xi - sigma[l] * log_within_nest_shares[l]
+
+        # Demand moment condition: E[Z_D * xi] = 0
+        # h = (1/N) Z_D' xi
+        h = (1 / N) * Z_D.T @ xi  # (K_z,)
+        h_i = Z_D * xi[:, np.newaxis]  # (N, K_z)
+
+        # Demand weight matrix: W_D = (Z_D'Z_D/N)^{-1}
+        W_D = dp.get('W_demand', None)
+        if W_D is None:
+            W_D = np.linalg.inv((1 / N) * Z_D.T @ Z_D)
+
+        # Derivatives of xi w.r.t. theta = (alpha, sigma_1, ..., sigma_L)
+        # d(xi)/d(alpha) = -prices
+        # d(xi)/d(sigma_l) = -log(s_{j|g_l})
+        n_theta = 1 + L
+        dxi_dtheta = np.zeros((N, n_theta))
+        dxi_dtheta[:, 0] = -prices
+        for l in range(L):
+            dxi_dtheta[:, 1 + l] = -log_within_nest_shares[l]
+
+        # H = (1/N) Z_D' @ d(xi)/d(theta)
+        H = (1 / N) * Z_D.T @ dxi_dtheta  # (K_z, n_theta)
+        H_prime_wd = H.T @ W_D  # (n_theta, K_z)
+
+        # Gradient of markups w.r.t. theta
+        # For each model m, d(markup_m)/d(theta_k) is computed analytically.
+        # The markup is a function of the Jacobian D(alpha, sigma) and shares:
+        #   markup = f(D, Omega, s) where D depends on alpha and sigma.
+        # We compute d(markup)/d(theta) per market using the chain rule.
+
+        # First, need to know which cost-shifter columns to residualize against
+        if self.endogenous_cost_component is not None:
+            endog_col_idx = next(
+                i for i, f in enumerate(self._w_formulation)
+                if str(f) == self.endogenous_cost_component
+            )
+            exog_col_indices = [i for i in range(self.products.w.shape[1]) if i != endog_col_idx]
+            w_for_ols = self.products.w[:, exog_col_indices]
+        else:
+            w_for_ols = self.products.w
+
+        if self._absorb_cost_ids is not None:
+            w_absorbed, _ = self._absorb_cost_ids(w_for_ols)
+        else:
+            w_absorbed = w_for_ols
+        Q_w = np.linalg.qr(w_absorbed, mode='reduced')[0] if w_absorbed.any() else None
+
+        gradient_markups = np.zeros((M, N, n_theta), dtype=options.dtype)
+
+        for t in markets:
+            idx = np.where(market_ids == t)[0]
+            J_t = len(idx)
+            s_t = shares[idx]
+            nesting_t = [arr[idx] for arr in nesting_arrays]
+
+            for m in range(M):
+                # Get the ownership matrix for this model and market
+                model_type = self.models["models_downstream"][m]
+                if model_type == 'perfect_competition':
+                    # Markups are zero regardless of alpha/sigma, gradient is zero
+                    continue
+
+                ownership_m = self.models["ownership_downstream"][m]
+                if ownership_m is not None:
+                    O_t = ownership_m[idx]
+                    O_t = O_t[:, ~np.isnan(O_t).all(axis=0)]
+                else:
+                    O_t = np.ones((J_t, J_t))
+
+                # d(markup)/d(alpha):
+                # D = alpha * F(s, sigma) where F doesn't depend on alpha
+                # So D/alpha = F, and d(D)/d(alpha) = F = D/alpha
+                # For Bertrand: markup = -(Omega*D')^{-1} s
+                # d(markup)/d(alpha) = (Omega*D')^{-1} (Omega * d(D')/d(alpha)) (Omega*D')^{-1} s
+                #                    = (Omega*D')^{-1} (Omega * D'/alpha) (Omega*D')^{-1} s
+                #                    = (1/alpha) (Omega*D')^{-1} (Omega*D') markup
+                #                    = markup / alpha
+                # This is beautifully simple: d(markup)/d(alpha) = markup / alpha
+                mu_t = markups[m][idx].flatten()
+                gradient_markups[m][idx, 0] = mu_t / alpha
+
+                # d(markup)/d(sigma_l): more complex, need d(D)/d(sigma_l)
+                # For each sigma_l, compute the derivative of the Jacobian
+                for l in range(L):
+                    # Perturb sigma_l by a tiny amount and finite-difference the Jacobian
+                    # This is a finite difference on the JACOBIAN (cheap, no BLP), not on delta
+                    eps = 1e-7
+                    sigma_plus = list(sigma)
+                    sigma_minus = list(sigma)
+                    sigma_plus[l] = sigma[l] + eps / 2
+                    sigma_minus[l] = sigma[l] - eps / 2
+
+                    if L == 0:
+                        D_plus = _logit_jacobian(alpha, s_t)
+                        D_minus = D_plus  # no sigma dependence
+                    else:
+                        D_plus = _nested_logit_jacobian(alpha, sigma_plus, s_t, nesting_t)
+                        D_minus = _nested_logit_jacobian(alpha, sigma_minus, s_t, nesting_t)
+
+                    dD_dsigma = (D_plus - D_minus) / eps
+
+                    # d(markup)/d(sigma_l) via implicit differentiation of FOC
+                    # FOC: (Omega * D') markup + s = 0
+                    # Differentiating: (Omega * d(D')/d(sigma)) markup + (Omega * D') d(markup)/d(sigma) = 0
+                    # d(markup)/d(sigma) = -(Omega * D')^{-1} (Omega * d(D')/d(sigma)) markup
+                    if model_type == 'bertrand':
+                        A = O_t * D_plus.T  # using D at sigma (not perturbed)
+                        # Actually use D at the actual sigma, not perturbed
+                        D_actual = _nested_logit_jacobian(alpha, sigma, s_t, nesting_t)
+                        A = O_t * D_actual.T
+                        dA = O_t * dD_dsigma.T
+                        d_mu = -np.linalg.solve(A, dA @ mu_t)
+                    elif model_type == 'cournot':
+                        D_actual = _nested_logit_jacobian(alpha, sigma, s_t, nesting_t)
+                        D_inv = np.linalg.inv(D_actual)
+                        dD_inv = -D_inv @ dD_dsigma @ D_inv
+                        d_mu = -(O_t * dD_inv) @ s_t
+                    elif model_type == 'monopoly':
+                        D_actual = _nested_logit_jacobian(alpha, sigma, s_t, nesting_t)
+                        dA = dD_dsigma.T
+                        d_mu = -np.linalg.solve(D_actual.T, dA @ mu_t)
+                    else:
+                        # For custom/other models, skip sigma gradient
+                        d_mu = np.zeros(J_t)
+
+                    gradient_markups[m][idx, 1 + l] = d_mu
+
+        # Residualize gradient_markups on cost shifters (same basis as omega)
+        for m in range(M):
+            for k in range(n_theta):
+                col = gradient_markups[m][:, k]
+                if self._absorb_cost_ids is not None:
+                    col, _ = self._absorb_cost_ids(col.reshape(-1, 1))
+                    col = col.flatten()
+                if Q_w is not None:
+                    col = col - Q_w @ (Q_w.T @ col)
+                gradient_markups[m][:, k] = col
+
+        return gradient_markups, H_prime_wd, H, h_i, h.reshape(-1, 1)
 
     def _prepare_orthogonal_variables(self, M: int, N: int, markups_effective: list, marginal_cost: Array):
         """Absorb fixed effects and residualize markups and marginal costs w.r.t. cost shifters."""
