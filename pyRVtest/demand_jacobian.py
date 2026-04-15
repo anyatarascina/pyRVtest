@@ -181,6 +181,69 @@ def _nested_logit_jacobian(alpha: float, sigma: List[float], s: Array,
     return D
 
 
+def _nested_logit_jacobian_derivative(alpha: float, sigma: List[float], s: Array,
+                                      nesting: List[Array], deriv_index: int) -> Array:
+    """Compute d(D)/d(sigma_{deriv_index}) analytically for the L-level nested logit Jacobian.
+
+    The Jacobian inner matrix (before alpha * s_j multiplication) is:
+        M[j,k] = 1/(1-sigma_1) * I(j==k)
+                - sum_l coef_l * same_nest_l[j,k] * cond_shares_l[k]
+                - s_k
+    where coef_l = (sigma_l - sigma_{l-1}) / ((1-sigma_l)(1-sigma_{l-1})).
+
+    Differentiating w.r.t. sigma_m (0-indexed as deriv_index):
+    - Diagonal: d[1/(1-sigma_1)]/d(sigma_m) = 1/(1-sigma_1)^2 if m==0, else 0
+    - Level l=m: d(coef_m)/d(sigma_m) = 1/(1-sigma_m)^2
+    - Level l=m+1: d(coef_{m+1})/d(sigma_m) = -1/(1-sigma_m)^2
+    - All other levels: 0
+    - Outer share term: 0
+
+    Parameters
+    ----------
+    deriv_index : int
+        0-indexed index into the sigma list. d(D)/d(sigma_{deriv_index+1}) in
+        the 1-indexed convention of the paper.
+    """
+    J = len(s)
+    L = len(sigma)
+    m = deriv_index  # 0-indexed level we're differentiating w.r.t.
+
+    sigma_ext = [0.0] + list(sigma)  # [sigma_0=0, sigma_1, ..., sigma_L]
+    sig_m = sigma_ext[m + 1]
+
+    dM = np.zeros((J, J))
+
+    # Diagonal term: d[1/(1-sigma_1)]/d(sigma_m)
+    if m == 0:  # differentiating w.r.t. sigma_1 (finest level)
+        np.fill_diagonal(dM, 1.0 / (1.0 - sig_m) ** 2)
+
+    # Level m contribution: d(coef_m)/d(sigma_m) = 1/(1-sigma_m)^2
+    nest_ids_m = nesting[m]
+    same_nest_m = nest_ids_m[:, None] == nest_ids_m[None, :]
+    nest_shares_m = np.zeros(J)
+    for g in np.unique(nest_ids_m):
+        mask = nest_ids_m == g
+        nest_shares_m[mask] = s[mask].sum()
+    cond_shares_m = s / nest_shares_m
+    d_coef_m = 1.0 / (1.0 - sig_m) ** 2
+    dM -= d_coef_m * same_nest_m * cond_shares_m[np.newaxis, :]
+
+    # Level m+1 contribution (if it exists): d(coef_{m+1})/d(sigma_m) = -1/(1-sigma_m)^2
+    if m + 1 < L:
+        nest_ids_mp1 = nesting[m + 1]
+        same_nest_mp1 = nest_ids_mp1[:, None] == nest_ids_mp1[None, :]
+        nest_shares_mp1 = np.zeros(J)
+        for g in np.unique(nest_ids_mp1):
+            mask = nest_ids_mp1 == g
+            nest_shares_mp1[mask] = s[mask].sum()
+        cond_shares_mp1 = s / nest_shares_mp1
+        d_coef_mp1 = -1.0 / (1.0 - sig_m) ** 2
+        dM -= d_coef_mp1 * same_nest_mp1 * cond_shares_mp1[np.newaxis, :]
+
+    # Multiply by alpha * s_j (same outer factor as the Jacobian itself)
+    return alpha * s[:, np.newaxis] * dM
+
+
 def _infer_nesting_columns(product_data: Mapping, L: int) -> List[str]:
     """Infer nesting ID columns from product_data and validate hierarchy.
 

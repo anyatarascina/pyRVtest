@@ -909,7 +909,8 @@ class Problem(Container, StringRepresentation):
 
         Returns gradient_markups, H_prime_wd, H, h_i, h (same interface as the PyBLP path).
         """
-        from .demand_jacobian import compute_analytical_jacobian, _logit_jacobian, _nested_logit_jacobian
+        from .demand_jacobian import (compute_analytical_jacobian, _logit_jacobian,
+                                      _nested_logit_jacobian, _nested_logit_jacobian_derivative)
 
         dp = self.demand_params
         alpha = dp['alpha']
@@ -1044,48 +1045,29 @@ class Problem(Container, StringRepresentation):
                 mu_t = markups[m][idx].flatten()
                 gradient_markups[m][idx, 0] = mu_t / alpha
 
-                # d(markup)/d(sigma_l): more complex, need d(D)/d(sigma_l)
-                # For each sigma_l, compute the derivative of the Jacobian
+                # d(markup)/d(sigma_l): analytical derivative of Jacobian w.r.t. sigma_l,
+                # then implicit differentiation of the FOC to get d(markup)/d(sigma_l).
+                # Compute D at the actual sigma once for this market (shared across sigma_l's)
+                D_actual = _nested_logit_jacobian(alpha, sigma, s_t, nesting_t) if L > 0 else None
                 for l in range(L):
-                    # Perturb sigma_l by a tiny amount and finite-difference the Jacobian
-                    # This is a finite difference on the JACOBIAN (cheap, no BLP), not on delta
-                    eps = 1e-7
-                    sigma_plus = list(sigma)
-                    sigma_minus = list(sigma)
-                    sigma_plus[l] = sigma[l] + eps / 2
-                    sigma_minus[l] = sigma[l] - eps / 2
-
-                    if L == 0:
-                        D_plus = _logit_jacobian(alpha, s_t)
-                        D_minus = D_plus  # no sigma dependence
-                    else:
-                        D_plus = _nested_logit_jacobian(alpha, sigma_plus, s_t, nesting_t)
-                        D_minus = _nested_logit_jacobian(alpha, sigma_minus, s_t, nesting_t)
-
-                    dD_dsigma = (D_plus - D_minus) / eps
+                    dD_dsigma = _nested_logit_jacobian_derivative(alpha, sigma, s_t, nesting_t, l)
 
                     # d(markup)/d(sigma_l) via implicit differentiation of FOC
                     # FOC: (Omega * D') markup + s = 0
                     # Differentiating: (Omega * d(D')/d(sigma)) markup + (Omega * D') d(markup)/d(sigma) = 0
                     # d(markup)/d(sigma) = -(Omega * D')^{-1} (Omega * d(D')/d(sigma)) markup
                     if model_type == 'bertrand':
-                        A = O_t * D_plus.T  # using D at sigma (not perturbed)
-                        # Actually use D at the actual sigma, not perturbed
-                        D_actual = _nested_logit_jacobian(alpha, sigma, s_t, nesting_t)
                         A = O_t * D_actual.T
                         dA = O_t * dD_dsigma.T
                         d_mu = -np.linalg.solve(A, dA @ mu_t)
                     elif model_type == 'cournot':
-                        D_actual = _nested_logit_jacobian(alpha, sigma, s_t, nesting_t)
                         D_inv = np.linalg.inv(D_actual)
                         dD_inv = -D_inv @ dD_dsigma @ D_inv
                         d_mu = -(O_t * dD_inv) @ s_t
                     elif model_type == 'monopoly':
-                        D_actual = _nested_logit_jacobian(alpha, sigma, s_t, nesting_t)
                         dA = dD_dsigma.T
                         d_mu = -np.linalg.solve(D_actual.T, dA @ mu_t)
                     else:
-                        # For custom/other models, skip sigma gradient
                         d_mu = np.zeros(J_t)
 
                     gradient_markups[m][idx, 1 + l] = d_mu
