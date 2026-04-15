@@ -182,12 +182,11 @@ class TestValidation:
 # End-to-end: demand_params vs PyBLP on the same data
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="PyBLP Simulation setup for pure logit needs work; unit tests validate the Jacobian independently")
 class TestDemandParamsVsPyBLP:
     """Compare demand_params path against PyBLP on the same logit problem.
 
-    Constructs a PyBLP Simulation with logit demand, solves it, then runs
-    pyRVtest both ways. TRV, F, and markups should match.
+    Constructs a PyBLP Simulation with logit demand (no random coefficients),
+    estimates demand, then runs pyRVtest both ways. TRV, F, and markups should match.
     """
 
     @pytest.fixture(scope='class')
@@ -196,50 +195,43 @@ class TestDemandParamsVsPyBLP:
         import pyblp
         pyblp.options.verbose = False
 
-        rng = np.random.default_rng(seed=99)
-        T = 30
-        J = 3
-        N = T * J
+        T, J = 20, 3
         market_ids = np.repeat(np.arange(T), J)
         firm_ids = np.tile(np.arange(J), T)
         id_data = pd.DataFrame({'market_ids': market_ids, 'firm_ids': firm_ids})
 
-        integration = pyblp.Integration('product', 5)
         X1 = pyblp.Formulation('1 + prices + x1')
-        X3 = pyblp.Formulation('1 + x1')
+        X3 = pyblp.Formulation('1 + z1')  # cost shifter z1 (separate from demand char x1)
 
+        # Pure logit: X2=None means no random coefficients
         simulation = pyblp.Simulation(
-            product_formulations=(X1, X3),
+            product_formulations=(X1, None, X3),
             beta=[0, -2, 1],
-            sigma=0,  # logit (no random coefficients)
             gamma=[1, 0.5],
             xi_variance=0.2,
             omega_variance=0.2,
-            correlation=0,
+            correlation=0.0,
             product_data=id_data,
-            integration=integration,
             seed=99,
         )
         sim_results = simulation.replace_endogenous()
         data = pd.DataFrame(pyblp.data_to_dict(sim_results.product_data))
 
-        # Build instruments
-        blp_iv = pyblp.build_blp_instruments(pyblp.Formulation('0 + x1'), data)
-        for i, col in enumerate(blp_iv.T):
-            data[f'test_iv{i}'] = col
-        iv_form = '+'.join(c for c in data.columns if c.startswith('test_iv'))
+        # Build test instruments: rival x1 and rival z1
+        for t in range(T):
+            idx = np.where(data['market_ids'] == t)[0]
+            for j in idx:
+                rival = [i for i in idx if i != j]
+                data.loc[j, 'rival_x1'] = data.loc[rival, 'x1'].mean()
+                data.loc[j, 'rival_z1'] = data.loc[rival, 'z1'].mean()
 
-        # Demand estimation
-        demand_iv = pyblp.build_blp_instruments(pyblp.Formulation('0 + x1'), data)
-        for i, col in enumerate(demand_iv.T):
-            data[f'demand_iv{i}'] = col
-        problem = pyblp.Problem((X1,), product_data=data, integration=integration)
-        pyblp_results = problem.solve(sigma=0, method='1s')
+        # Demand estimation (logit: no X2, no sigma)
+        problem = pyblp.Problem((X1,), product_data=data)
+        pyblp_results = problem.solve(method='1s')
 
-        # Extract alpha for demand_params
+        # Extract alpha
         alpha = float(pyblp_results.beta[pyblp_results.beta_labels.index('prices')])
 
-        # Model formulations
         models = (
             pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
             pyRVtest.ModelFormulation(model_downstream='perfect_competition'),
@@ -247,28 +239,46 @@ class TestDemandParamsVsPyBLP:
 
         pyRVtest.options.verbose = False
 
-        # Path 1: PyBLP
-        p1 = pyRVtest.Problem(
-            cost_formulation=pyRVtest.Formulation('1 + x1'),
+        iv_form = 'rival_x1 + rival_z1'
+
+        # Path 1: PyBLP demand results
+        r1 = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1'),
             instrument_formulation=pyRVtest.Formulation('0 + ' + iv_form),
             model_formulations=models,
             product_data=data,
             demand_results=pyblp_results,
-        )
-        r1 = p1.solve(demand_adjustment=False)
+        ).solve(demand_adjustment=False)
 
-        # Path 2: demand_params
-        p2 = pyRVtest.Problem(
-            cost_formulation=pyRVtest.Formulation('1 + x1'),
+        # Path 2: demand_params with the same alpha
+        r2 = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1'),
             instrument_formulation=pyRVtest.Formulation('0 + ' + iv_form),
             model_formulations=models,
             product_data=data,
             demand_params={'alpha': alpha, 'sigma': []},
-        )
-        r2 = p2.solve(demand_adjustment=False)
+        ).solve(demand_adjustment=False)
 
         pyRVtest.options.verbose = True
         return r1, r2
+
+    def test_markups_match(self, comparison_data):
+        r1, r2 = comparison_data
+        for m in range(2):
+            np.testing.assert_allclose(
+                r1.markups[m].flatten(), r2.markups[m].flatten(), atol=1e-8,
+                err_msg=f"Markups for model {m} differ between PyBLP and demand_params paths"
+            )
+
+    def test_g_matches(self, comparison_data):
+        r1, r2 = comparison_data
+        np.testing.assert_allclose(r1.g[0], r2.g[0], atol=1e-8,
+                                   err_msg="g differs between paths")
+
+    def test_q_matches(self, comparison_data):
+        r1, r2 = comparison_data
+        np.testing.assert_allclose(r1.Q[0], r2.Q[0], atol=1e-8,
+                                   err_msg="Q differs between paths")
 
     def test_trv_matches(self, comparison_data):
         r1, r2 = comparison_data
@@ -279,21 +289,3 @@ class TestDemandParamsVsPyBLP:
         r1, r2 = comparison_data
         np.testing.assert_allclose(r1.F[0][0, 1], r2.F[0][0, 1], atol=1e-6,
                                    err_msg="F differs between PyBLP and demand_params paths")
-
-    def test_markups_match(self, comparison_data):
-        r1, r2 = comparison_data
-        for m in range(2):
-            np.testing.assert_allclose(
-                r1.markups[m].flatten(), r2.markups[m].flatten(), atol=1e-8,
-                err_msg=f"Markups for model {m} differ between paths"
-            )
-
-    def test_q_matches(self, comparison_data):
-        r1, r2 = comparison_data
-        np.testing.assert_allclose(r1.Q[0], r2.Q[0], atol=1e-8,
-                                   err_msg="Q differs between paths")
-
-    def test_g_matches(self, comparison_data):
-        r1, r2 = comparison_data
-        np.testing.assert_allclose(r1.g[0], r2.g[0], atol=1e-8,
-                                   err_msg="g differs between paths")
