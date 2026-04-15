@@ -1067,6 +1067,38 @@ class Problem(Container, StringRepresentation):
                     elif model_type == 'monopoly':
                         dA = dD_dsigma.T
                         d_mu = -np.linalg.solve(D_actual.T, dA @ mu_t)
+                    elif model_type == 'mix_cournot_bertrand':
+                        mix_flag_m = self.models["mix_flag"][m]
+                        b_t = mix_flag_m[idx].flatten().astype(bool)
+                        c_t = ~b_t
+                        if c_t.any() and b_t.any():
+                            D_BB = D_actual[np.ix_(b_t, b_t)]
+                            D_BC = D_actual[np.ix_(b_t, c_t)]
+                            D_CB = D_actual[np.ix_(c_t, b_t)]
+                            D_CC = D_actual[np.ix_(c_t, c_t)]
+                            D_CC_inv = np.linalg.inv(D_CC)
+                            O_BB = O_t[np.ix_(b_t, b_t)]
+                            O_CC = O_t[np.ix_(c_t, c_t)]
+                            dD_BB = dD_dsigma[np.ix_(b_t, b_t)]
+                            dD_BC = dD_dsigma[np.ix_(b_t, c_t)]
+                            dD_CB = dD_dsigma[np.ix_(c_t, b_t)]
+                            dD_CC = dD_dsigma[np.ix_(c_t, c_t)]
+                            # Cournot block: d(mu_C)/d(sigma)
+                            dD_CC_inv = -D_CC_inv @ dD_CC @ D_CC_inv
+                            d_mu_C = -(O_CC * dD_CC_inv) @ s_t[c_t]
+                            # Bertrand block: implicit diff of A_B mu_B + s_B = 0
+                            # A_B = O_BB * (D_BC D_CC^{-1} D_CB + D_BB)
+                            Schur = D_BC @ D_CC_inv @ D_CB + D_BB
+                            dSchur = (dD_BC @ D_CC_inv @ D_CB + D_BC @ dD_CC_inv @ D_CB
+                                      + D_BC @ D_CC_inv @ dD_CB + dD_BB)
+                            A_B = O_BB * Schur
+                            dA_B = O_BB * dSchur
+                            d_mu_B = -np.linalg.solve(A_B, dA_B @ mu_t[b_t])
+                            d_mu = np.zeros(J_t)
+                            d_mu[b_t] = d_mu_B.flatten()
+                            d_mu[c_t] = d_mu_C.flatten()
+                        else:
+                            d_mu = np.zeros(J_t)
                     else:
                         d_mu = np.zeros(J_t)
 
