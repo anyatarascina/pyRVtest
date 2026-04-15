@@ -1111,35 +1111,38 @@ class Problem(Container, StringRepresentation):
         # - Custom: the user's markup function may not be homogeneous in alpha or have a
         #   known relationship to sigma, so all derivatives must be finite-differenced.
         eps_fd = 1e-7
+        alpha_orig = dp['alpha']
         sigma_orig = list(dp.get('sigma', []))
         for m in range(M):
             needs_fd = (self.models["models_upstream"][m] is not None
                         or self.models["custom_model_specification"][m] is not None)
             if not needs_fd:
                 continue
-            # d(markup)/d(alpha) via finite difference
-            self.demand_params['alpha'] = alpha + eps_fd / 2
-            markups_up, _, _ = self._perturb_and_build_markups()
-            self.demand_params['alpha'] = alpha - eps_fd / 2
-            markups_dn, _, _ = self._perturb_and_build_markups()
-            self.demand_params['alpha'] = alpha  # restore
-            gradient_markups[m][:, 0] = (
-                markups_up[m].flatten() - markups_dn[m].flatten()
-            ) / eps_fd
-            # d(markup)/d(sigma_l) via finite difference
-            for l in range(L):
-                sigma_plus = list(sigma_orig)
-                sigma_minus = list(sigma_orig)
-                sigma_plus[l] = sigma_orig[l] + eps_fd / 2
-                sigma_minus[l] = sigma_orig[l] - eps_fd / 2
-                self.demand_params['sigma'] = sigma_plus
+            try:
+                # d(markup)/d(alpha) via finite difference
+                self.demand_params['alpha'] = alpha + eps_fd / 2
                 markups_up, _, _ = self._perturb_and_build_markups()
-                self.demand_params['sigma'] = sigma_minus
+                self.demand_params['alpha'] = alpha - eps_fd / 2
                 markups_dn, _, _ = self._perturb_and_build_markups()
-                gradient_markups[m][:, 1 + l] = (
+                gradient_markups[m][:, 0] = (
                     markups_up[m].flatten() - markups_dn[m].flatten()
                 ) / eps_fd
-            self.demand_params['sigma'] = sigma_orig  # restore
+                # d(markup)/d(sigma_l) via finite difference
+                for l in range(L):
+                    sigma_plus = list(sigma_orig)
+                    sigma_minus = list(sigma_orig)
+                    sigma_plus[l] = sigma_orig[l] + eps_fd / 2
+                    sigma_minus[l] = sigma_orig[l] - eps_fd / 2
+                    self.demand_params['sigma'] = sigma_plus
+                    markups_up, _, _ = self._perturb_and_build_markups()
+                    self.demand_params['sigma'] = sigma_minus
+                    markups_dn, _, _ = self._perturb_and_build_markups()
+                    gradient_markups[m][:, 1 + l] = (
+                        markups_up[m].flatten() - markups_dn[m].flatten()
+                    ) / eps_fd
+            finally:
+                self.demand_params['alpha'] = alpha_orig
+                self.demand_params['sigma'] = sigma_orig
 
         # Residualize gradient_markups on cost shifters (same basis as omega)
         for m in range(M):
