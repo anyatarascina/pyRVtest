@@ -364,6 +364,32 @@ class TestDemandAdjustmentNonzeroXi:
         ).solve(demand_adjustment=True)
         assert not np.isnan(r.TRV[0][0, 1])
 
+    def test_demand_adj_custom_model(self, nested_logit_data):
+        """Demand adjustment with custom model uses finite differences for all derivatives."""
+        data, alpha, sigma, _ = nested_logit_data
+        pyRVtest.options.verbose = False
+        models = (
+            pyRVtest.ModelFormulation(
+                model_downstream='other', ownership_downstream='firm_ids',
+                custom_model_specification={
+                    'rule_of_thumb': lambda O, D, s: 0.5 * s / np.diag(D).reshape(-1, 1)
+                }
+            ),
+            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
+        )
+        r = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+            instrument_formulation=pyRVtest.Formulation('0 + iv1 + iv2 + iv3'),
+            model_formulations=models, product_data=data,
+            demand_params={
+                'alpha': alpha, 'sigma': [sigma],
+                'beta': np.array([1.0]),
+                'x_columns': ['x'],
+                'demand_instrument_columns': ['iv1', 'iv2', 'iv3'],
+            },
+        ).solve(demand_adjustment=True)
+        assert not np.isnan(r.TRV[0][0, 1])
+
     def test_demand_adj_with_clustering(self, nested_logit_data):
         """Demand adjustment + clustering should both work together."""
         data, alpha, sigma, _ = nested_logit_data
