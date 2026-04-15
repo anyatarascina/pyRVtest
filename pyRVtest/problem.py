@@ -479,13 +479,34 @@ class Problem(Container, StringRepresentation):
 
     def __init__(
             self, cost_formulation: Formulation, instrument_formulation: Sequence[Formulation],
-            product_data: Mapping, demand_results: Mapping, model_formulations: Sequence[ModelFormulation] = None,
+            product_data: Mapping, demand_results: Mapping = None,
+            model_formulations: Sequence[ModelFormulation] = None,
             markup_data: Optional[RecArray] = None,
-            endogenous_cost_component: Optional[str] = None) -> None:
+            endogenous_cost_component: Optional[str] = None,
+            demand_params: Optional[dict] = None) -> None:
         """Initialize the underlying economy with product and agent data before absorbing fixed effects."""
 
         output("Initializing the problem ...")
         start_time = time.time()
+
+        # Validate demand_params
+        if demand_params is not None and demand_results is not None:
+            raise ValueError("Specify demand_params or demand_results, not both.")
+        if demand_params is not None:
+            if 'alpha' not in demand_params:
+                raise ValueError("demand_params must contain 'alpha' (price coefficient).")
+            alpha = demand_params['alpha']
+            if not isinstance(alpha, (int, float)) or alpha >= 0:
+                raise ValueError("demand_params['alpha'] must be a negative number.")
+            sigma = demand_params.get('sigma', [])
+            if not isinstance(sigma, (list, tuple)):
+                raise TypeError("demand_params['sigma'] must be a list of nesting parameters.")
+            for i, s_val in enumerate(sigma):
+                if s_val < 0 or s_val >= 1:
+                    raise ValueError(
+                        f"demand_params['sigma'][{i}] = {s_val} out of range [0, 1). "
+                        f"sigma = 0 is plain logit (Berry 1994 convention)."
+                    )
 
         if markup_data is None:
             M = len(model_formulations)
@@ -539,6 +560,7 @@ class Problem(Container, StringRepresentation):
         self.instrument_formulation = instrument_formulation
         self.model_formulations = model_formulations
         self.demand_results = demand_results
+        self.demand_params = demand_params
         self.markups = markups
         self.endogenous_cost_component = endogenous_cost_component
 
@@ -829,6 +851,21 @@ class Problem(Container, StringRepresentation):
             raise ValueError("product_data.clustering_ids must be specified with clustering_adjustment True.")
         # demand_adjustment + endogenous_cost_component is now supported; the gradient
         # accounts for the dependence of gamma_m on theta via per-instrument finite differences.
+        if demand_adjustment and self.demand_params is not None:
+            # Validate that demand adjustment extras are provided
+            dp = self.demand_params
+            missing = []
+            if 'beta' not in dp:
+                missing.append('beta')
+            if 'demand_instrument_columns' not in dp:
+                missing.append('demand_instrument_columns')
+            if 'x_columns' not in dp:
+                missing.append('x_columns')
+            if missing:
+                raise ValueError(
+                    f"demand_adjustment=True with demand_params requires: {', '.join(missing)}. "
+                    f"These are only needed for demand adjustment; omit them if demand_adjustment=False."
+                )
         for m in range(self.M):
             if self.model_formulations[m]._user_supplied_markups is not None:
                 if demand_adjustment:
@@ -839,12 +876,21 @@ class Problem(Container, StringRepresentation):
 
     def _perturb_and_build_markups(self):
         """Call _compute_markups with current demand_results and model specifications."""
+        demand_jacobian = None
+        if self.demand_params is not None:
+            from .demand_jacobian import compute_analytical_jacobian
+            demand_jacobian = compute_analytical_jacobian(
+                self.demand_params['alpha'],
+                self.demand_params.get('sigma', []),
+                self.products,
+                self.demand_params.get('nesting_ids_columns', None)
+            )
         return _compute_markups(
             self.products, self.demand_results, self.models["models_downstream"],
             self.models["ownership_downstream"], self.models["models_upstream"],
             self.models["ownership_upstream"], self.models["vertical_integration"],
             self.models["custom_model_specification"], self.models["user_supplied_markups"],
-            self.models["mix_flag"]
+            self.models["mix_flag"], demand_jacobian=demand_jacobian
         )
 
     def _prepare_orthogonal_variables(self, M: int, N: int, markups_effective: list, marginal_cost: Array):

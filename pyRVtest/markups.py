@@ -98,7 +98,7 @@ def _compute_markups(
         ownership_downstream: Optional[Array], model_upstream: Optional[Array] = None,
         ownership_upstream: Optional[Array] = None, vertical_integration: Optional[Array] = None,
         custom_model_specification: Optional[dict] = None, user_supplied_markups: Optional[Array] = None,
-        mix_flag: Optional[Array] = None) -> Array:
+        mix_flag: Optional[Array] = None, demand_jacobian: Optional[Array] = None) -> Array:
     r"""Compute markups given pre-processed model arrays.
 
     Internal function called by :func:`build_markups` and :meth:`Problem.solve`. Accepts the raw arrays produced by
@@ -171,7 +171,9 @@ def _compute_markups(
         mix_flag = [None] * number_models
 
     # precompute demand jacobians
-    if pyblp_results is not None:
+    if demand_jacobian is not None:
+        ds_dp = demand_jacobian
+    elif pyblp_results is not None:
         with contextlib.redirect_stdout(open(os.devnull, 'w')):
             ds_dp = pyblp_results.compute_demand_jacobians()
 
@@ -195,6 +197,11 @@ def _compute_markups(
 
                 # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
                 if not (model_upstream[i] is None):
+                    if demand_jacobian is not None and pyblp_results is None:
+                        raise ValueError(
+                            "Upstream models (bilateral oligopoly) require demand Hessians and are not yet "
+                            "supported with demand_params. Use demand_results from PyBLP for vertical models."
+                        )
 
                     # construct the matrix of derivatives with respect to prices for other manufacturers
                     markups_t = markups_downstream[i][index_t]
