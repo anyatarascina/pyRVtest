@@ -335,6 +335,183 @@ class TestAlgebraClustering:
 
 
 # ---------------------------------------------------------------------------
+# Test class 2b: Cost-side fixed effects
+# ---------------------------------------------------------------------------
+
+def _absorb_fe(x, group_ids):
+    """Within-group demean: subtract group means from each observation."""
+    x_out = x.copy()
+    for g in np.unique(group_ids):
+        idx = group_ids == g
+        x_out[idx] -= x[idx].mean(axis=0)
+    return x_out
+
+
+def _hand_compute_with_fe(dgp):
+    """Hand-compute test statistics with cost-side fixed effects (firm FEs)."""
+    N = dgp['N']
+    K = dgp['K']
+    prices = dgp['prices']
+    markups_m1 = dgp['markups_m1']
+    markups_m2 = dgp['markups_m2']
+    cost_shifter = dgp['cost_shifter']
+    z = dgp['excluded_iv']
+
+    # Use firm_ids as cost-side FEs (2 firms = 2 groups)
+    # Build product_data's firm_ids for absorption
+    T, J = dgp['T'], dgp['J']
+    firm_ids = np.tile(np.arange(J), T)
+
+    # Cost formulation: cost_shifter only (intercept is absorbed by firm FEs).
+    # After demeaning, the intercept column is all zeros and must be excluded.
+    w_raw = cost_shifter  # (N, 1) — no intercept; it's absorbed by firm FEs
+
+    # Implied marginal cost
+    mc_m1 = prices - markups_m1
+    mc_m2 = prices - markups_m2
+
+    # Absorb firm FEs from everything (within-group demean)
+    mc_m1_abs = _absorb_fe(mc_m1, firm_ids)
+    mc_m2_abs = _absorb_fe(mc_m2, firm_ids)
+    w_abs = _absorb_fe(w_raw, firm_ids)
+    z_abs = _absorb_fe(z, firm_ids)
+
+    # Residualize on absorbed w
+    Q_w, R_w = np.linalg.qr(w_abs, mode='reduced')
+    omega_m1 = mc_m1_abs - Q_w @ (Q_w.T @ mc_m1_abs)
+    omega_m2 = mc_m2_abs - Q_w @ (Q_w.T @ mc_m2_abs)
+    z_orth = z_abs - Q_w @ (Q_w.T @ z_abs)
+
+    # Tau (on absorbed data)
+    tau_m1 = np.linalg.solve(R_w, Q_w.T @ mc_m1_abs)
+    tau_m2 = np.linalg.solve(R_w, Q_w.T @ mc_m2_abs)
+
+    # Weight matrix
+    W_inv = (1 / N) * z_orth.T @ z_orth
+    W = np.linalg.pinv(W_inv)
+
+    # GMM moments and fit
+    g_m1 = (1 / N) * z_orth.T @ omega_m1
+    g_m2 = (1 / N) * z_orth.T @ omega_m2
+    Q_m1 = float(g_m1.flatten() @ W @ g_m1.flatten())
+    Q_m2 = float(g_m2.flatten() @ W @ g_m2.flatten())
+
+    # RV numerator
+    rv_num = np.sqrt(N) * (Q_m1 - Q_m2)
+
+    # W powers
+    eigvals, eigvecs = np.linalg.eigh((W + W.T) / 2)
+    eigvals = np.maximum(eigvals, 0)
+    W_12 = (eigvecs * (eigvals ** 0.5)) @ eigvecs.T
+    W_34 = (eigvecs * (eigvals ** 0.75)) @ eigvecs.T
+
+    # Psi
+    def _compute_psi(omega_m, g_m):
+        g_flat = g_m.flatten()
+        psi_bar = W_12 @ g_flat - 0.5 * W_34 @ W_inv @ W_34 @ g_flat
+        W34_Zg = (z_orth @ W_34 @ g_flat)[:, np.newaxis]
+        mc_col = omega_m if omega_m.ndim == 2 else omega_m[:, np.newaxis]
+        psi_i = (mc_col * z_orth) @ W_12 - 0.5 * W34_Zg * (z_orth @ W_34.T)
+        return psi_i - psi_bar[np.newaxis, :]
+
+    psi_m1 = _compute_psi(omega_m1, g_m1)
+    psi_m2 = _compute_psi(omega_m2, g_m2)
+
+    M = 2
+    psi = np.stack([psi_m1, psi_m2])
+    psi_flat = psi.transpose(1, 0, 2).reshape(N, M * K)
+    gram = (1 / N) * psi_flat.T @ psi_flat
+
+    V11 = gram[0:K, 0:K]
+    V22 = gram[K:2*K, K:2*K]
+    V12 = gram[0:K, K:2*K]
+    wv11, wv22, wv12 = W_12 @ V11 @ W_12, W_12 @ V22 @ W_12, W_12 @ V12 @ W_12
+    _g1, _g2 = g_m1.flatten(), g_m2.flatten()
+    sigma2 = float(4 * (_g1 @ wv11 @ _g1 + _g2 @ wv22 @ _g2 - 2 * _g1 @ wv12 @ _g2))
+    trv = float(rv_num / np.sqrt(sigma2))
+
+    # F-statistic
+    Q_z, _ = np.linalg.qr(z_orth, mode='reduced')
+    e_m1 = omega_m1 - Q_z @ (Q_z.T @ omega_m1)
+    e_m2 = omega_m2 - Q_z @ (Q_z.T @ omega_m2)
+    phi_m1 = (e_m1 * z_orth) @ W
+    phi_m2 = (e_m2 * z_orth) @ W
+    phi = np.stack([phi_m1, phi_m2])
+    phi_flat = phi.transpose(1, 0, 2).reshape(N, M * K)
+    phi_gram = (1 / N) * phi_flat.T @ phi_flat
+    V_ar_11 = phi_gram[0:K, 0:K]
+    V_ar_22 = phi_gram[K:2*K, K:2*K]
+    V_ar_12 = phi_gram[0:K, K:2*K]
+    sigma_ar = (1 / K) * np.array([
+        float(np.trace(V_ar_11 @ W_inv)),
+        float(np.trace(V_ar_22 @ W_inv)),
+        float(np.trace(V_ar_12 @ W_inv)),
+    ])
+    rho_num = sigma_ar[0] - sigma_ar[1]
+    rho_den = np.sqrt((sigma_ar[0] + sigma_ar[1]) ** 2 - 4 * sigma_ar[2] ** 2)
+    rho = rho_num / rho_den
+    F_ops = np.array([sigma_ar[1], sigma_ar[0], -2 * sigma_ar[2]])
+    F_moms = np.array([float(_g1 @ W @ _g1), float(_g2 @ W @ _g2), float(_g1 @ W @ _g2)])
+    F_num = F_ops @ F_moms
+    F_den = sigma_ar[0] * sigma_ar[1] - sigma_ar[2] ** 2
+    unscaled_F = N / (2 * K) * F_num / F_den
+    F = (1 - rho ** 2) * unscaled_F
+
+    return {
+        'TRV': trv, 'F': float(F), 'Q_m1': Q_m1, 'Q_m2': Q_m2,
+        'g_m1': g_m1.flatten(), 'g_m2': g_m2.flatten(),
+        'tau_m1': tau_m1.flatten(), 'tau_m2': tau_m2.flatten(),
+    }
+
+
+class TestAlgebraWithFE:
+    """Validate engine with cost-side fixed effects (firm FEs absorbed)."""
+
+    @pytest.fixture(scope='class')
+    def data(self):
+        product_data, dgp = _build_base_dgp()
+        expected = _hand_compute_with_fe(dgp)
+
+        model_formulations = (
+            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids',
+                                     user_supplied_markups='markups_m1'),
+            pyRVtest.ModelFormulation(model_downstream='perfect_competition',
+                                     user_supplied_markups='markups_m2'),
+        )
+        testing_problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('0 + cost_shifter', absorb='C(firm_ids)'),
+            instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+            model_formulations=model_formulations,
+            product_data=product_data,
+            demand_results=None,
+        )
+        results = testing_problem.solve(demand_adjustment=False, clustering_adjustment=False)
+        return results, expected
+
+    def test_trv(self, data):
+        results, expected = data
+        np.testing.assert_allclose(results.TRV[0][0, 1], expected['TRV'], atol=1e-6,
+                                   err_msg="TRV with cost FEs does not match hand computation")
+
+    def test_f(self, data):
+        results, expected = data
+        np.testing.assert_allclose(results.F[0][0, 1], expected['F'], atol=1e-6,
+                                   err_msg="F with cost FEs does not match hand computation")
+
+    def test_g(self, data):
+        results, expected = data
+        np.testing.assert_allclose(results.g[0][0], expected['g_m1'], atol=1e-8)
+        np.testing.assert_allclose(results.g[0][1], expected['g_m2'], atol=1e-8)
+
+    def test_trv_differs_from_no_fe(self, data):
+        """TRV with FEs should differ from TRV without FEs."""
+        _, dgp = _build_base_dgp()
+        no_fe = _hand_compute_base(dgp, clustering_ids=None)
+        _, expected = data
+        assert expected['TRV'] != no_fe['TRV'], "FE and no-FE TRV should differ"
+
+
+# ---------------------------------------------------------------------------
 # Test class 3: Economies of scale (endogenous cost component)
 # ---------------------------------------------------------------------------
 
