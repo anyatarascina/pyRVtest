@@ -1035,16 +1035,10 @@ class Problem(Container, StringRepresentation):
                 else:
                     O_t = np.ones((J_t, J_t))
 
-                # d(markup)/d(alpha):
-                # D = alpha * F(s, sigma) where F doesn't depend on alpha
-                # So D/alpha = F, and d(D)/d(alpha) = F = D/alpha
-                # For Bertrand: markup = -(Omega*D')^{-1} s
-                # d(markup)/d(alpha) = (Omega*D')^{-1} (Omega * d(D')/d(alpha)) (Omega*D')^{-1} s
-                #                    = (Omega*D')^{-1} (Omega * D'/alpha) (Omega*D')^{-1} s
-                #                    = (1/alpha) (Omega*D')^{-1} (Omega*D') markup
-                #                    = markup / alpha
-                # This is beautifully simple: d(markup)/d(alpha) = markup / alpha
                 mu_t = markups[m][idx].flatten()
+
+                # d(markup)/d(alpha) = markup / alpha (analytical)
+                # D = alpha * F(s, sigma) where F doesn't depend on alpha
                 gradient_markups[m][idx, 0] = mu_t / alpha
 
                 # d(markup)/d(sigma_l): analytical derivative of Jacobian w.r.t. sigma_l,
@@ -1105,6 +1099,32 @@ class Problem(Container, StringRepresentation):
                         d_mu = np.zeros(J_t)
 
                     gradient_markups[m][idx, 1 + l] = d_mu
+
+        # For vertical and custom models, the per-market analytical sigma derivative above
+        # only handles the downstream FOC. Vertical models need the full chain rule through
+        # the Hessian and passthrough matrix. We handle this by finite-differencing the entire
+        # markup computation w.r.t. sigma, which is cheap (closed-form Jacobian + Hessian).
+        # d(markup)/d(alpha) = markup/alpha is already correct for vertical models since the
+        # Jacobian and Hessian are both proportional to alpha.
+        if L > 0:
+            eps_fd = 1e-7
+            sigma_orig = list(dp.get('sigma', []))
+            for m in range(M):
+                model_upstream_m = self.models["models_upstream"][m]
+                if model_upstream_m is not None or self.models["custom_model_specification"][m] is not None:
+                    for l in range(L):
+                        sigma_plus = list(sigma_orig)
+                        sigma_minus = list(sigma_orig)
+                        sigma_plus[l] = sigma_orig[l] + eps_fd / 2
+                        sigma_minus[l] = sigma_orig[l] - eps_fd / 2
+                        self.demand_params['sigma'] = sigma_plus
+                        markups_up, _, _ = self._perturb_and_build_markups()
+                        self.demand_params['sigma'] = sigma_minus
+                        markups_dn, _, _ = self._perturb_and_build_markups()
+                        gradient_markups[m][:, 1 + l] = (
+                            markups_up[m].flatten() - markups_dn[m].flatten()
+                        ) / eps_fd
+            self.demand_params['sigma'] = sigma_orig  # restore
 
         # Residualize gradient_markups on cost shifters (same basis as omega)
         for m in range(M):

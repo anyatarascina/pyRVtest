@@ -342,6 +342,28 @@ class TestDemandAdjustmentNonzeroXi:
             f"TRV unchanged by demand adjustment: {r_no.TRV[0][0, 1]} vs {r_adj.TRV[0][0, 1]}"
         )
 
+    def test_demand_adj_vertical_model(self, nested_logit_data):
+        """Demand adjustment should work with vertical models (sigma derivative via finite diff)."""
+        data, alpha, sigma, _ = nested_logit_data
+        pyRVtest.options.verbose = False
+        models = (
+            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids',
+                                     model_upstream='bertrand', ownership_upstream='firm_ids_up'),
+            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),
+        )
+        r = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+            instrument_formulation=pyRVtest.Formulation('0 + iv1 + iv2 + iv3'),
+            model_formulations=models, product_data=data,
+            demand_params={
+                'alpha': alpha, 'sigma': [sigma],
+                'beta': np.array([1.0]),
+                'x_columns': ['x'],
+                'demand_instrument_columns': ['iv1', 'iv2', 'iv3'],
+            },
+        ).solve(demand_adjustment=True)
+        assert not np.isnan(r.TRV[0][0, 1])
+
     def test_demand_adj_with_clustering(self, nested_logit_data):
         """Demand adjustment + clustering should both work together."""
         data, alpha, sigma, _ = nested_logit_data
