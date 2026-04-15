@@ -244,6 +244,58 @@ def _nested_logit_jacobian_derivative(alpha: float, sigma: List[float], s: Array
     return alpha * s[:, np.newaxis] * dM
 
 
+def compute_analytical_hessian(alpha: float, sigma: List[float], s: Array,
+                               nesting: List[Array]) -> Array:
+    """Compute the (J, J, J) demand Hessian d^2s_j/(dp_k dp_l) for a single market.
+
+    Uses finite differences of the analytical Jacobian w.r.t. shares, then chains
+    through ds/dp (the Jacobian itself). This avoids the lengthy analytical derivation
+    of d^2s/dp^2 while being exact to ~1e-8 since it only finite-differences through
+    the closed-form Jacobian, not through any iterative solver.
+
+    Parameters
+    ----------
+    alpha : float
+        Price coefficient.
+    sigma : list of float
+        Nesting parameters (empty for logit).
+    s : ndarray
+        (J,) market shares.
+    nesting : list of ndarray
+        Nesting ID arrays per level.
+
+    Returns
+    -------
+    ndarray
+        (J, J, J) tensor where element [j, k, l] is d^2 s_j / (dp_k dp_l).
+    """
+    J = len(s)
+    eps = 1e-7
+
+    # Get Jacobian at current shares
+    if len(sigma) == 0 or all(sig == 0 for sig in sigma):
+        D_func = lambda s_: _logit_jacobian(alpha, s_)
+    else:
+        D_func = lambda s_: _nested_logit_jacobian(alpha, sigma, s_, nesting)
+
+    D = D_func(s)
+
+    # dD[j,k]/ds_r via finite difference on shares
+    dD_ds = np.zeros((J, J, J))  # dD_ds[j, k, r] = partial D[j,k] / partial s_r
+    for r in range(J):
+        s_plus = s.copy()
+        s_plus[r] += eps / 2
+        s_minus = s.copy()
+        s_minus[r] -= eps / 2
+        dD_ds[:, :, r] = (D_func(s_plus) - D_func(s_minus)) / eps
+
+    # Chain rule: d^2 s_j / (dp_k dp_l) = sum_r (partial D[j,k] / partial s_r) * D[r,l]
+    # Hessian[j, k, l] = sum_r dD_ds[j, k, r] * D[r, l]
+    hessian = np.einsum('jkr,rl->jkl', dD_ds, D)
+
+    return hessian
+
+
 def _infer_nesting_columns(product_data: Mapping, L: int) -> List[str]:
     """Infer nesting ID columns from product_data and validate hierarchy.
 

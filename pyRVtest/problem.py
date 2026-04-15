@@ -892,12 +892,14 @@ class Problem(Container, StringRepresentation):
                 self.products,
                 self.demand_params.get('nesting_ids_columns', None)
             )
+        dp = self.demand_params or {}
         return _compute_markups(
             self.products, self.demand_results, self.models["models_downstream"],
             self.models["ownership_downstream"], self.models["models_upstream"],
             self.models["ownership_upstream"], self.models["vertical_integration"],
             self.models["custom_model_specification"], self.models["user_supplied_markups"],
-            self.models["mix_flag"], demand_jacobian=demand_jacobian
+            self.models["mix_flag"], demand_jacobian=demand_jacobian,
+            demand_alpha=dp.get('alpha'), demand_sigma=dp.get('sigma'),
         )
 
     def _compute_analytical_demand_adjustment(self, M: int, N: int, markups: list,

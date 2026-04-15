@@ -93,12 +93,25 @@ def build_markups(
     )
 
 
+def _construct_passthrough_from_hessian(d2s_dp2_t, retailer_response_matrix, retailer_ownership_matrix, markups_t):
+    """Construct passthrough matrix from a pre-computed Hessian (same formula as construct_passthrough_matrix)."""
+    J = len(markups_t)
+    g = np.zeros((J, J))
+    for j in range(J):
+        g[:, [j]] = (retailer_ownership_matrix * d2s_dp2_t[:, :, j]) @ markups_t
+    H = np.transpose(retailer_ownership_matrix * retailer_response_matrix)
+    G = retailer_response_matrix + H + g
+    return inv(G) @ H
+
+
 def _compute_markups(
         product_data: RecArray, pyblp_results: Mapping, model_downstream: Optional[Array],
         ownership_downstream: Optional[Array], model_upstream: Optional[Array] = None,
         ownership_upstream: Optional[Array] = None, vertical_integration: Optional[Array] = None,
         custom_model_specification: Optional[dict] = None, user_supplied_markups: Optional[Array] = None,
-        mix_flag: Optional[Array] = None, demand_jacobian: Optional[Array] = None) -> Array:
+        mix_flag: Optional[Array] = None, demand_jacobian: Optional[Array] = None,
+        demand_alpha: Optional[float] = None, demand_sigma: Optional[list] = None,
+        demand_nesting: Optional[list] = None) -> Array:
     r"""Compute markups given pre-processed model arrays.
 
     Internal function called by :func:`build_markups` and :meth:`Problem.solve`. Accepts the raw arrays produced by
@@ -170,6 +183,16 @@ def _compute_markups(
     if mix_flag is None:
         mix_flag = [None] * number_models
 
+    # Store demand params for analytical Hessian path in upstream computation
+    _demand_alpha = demand_alpha
+    _demand_sigma = demand_sigma
+    _demand_nesting = demand_nesting
+
+    # Precompute nesting arrays from product_data if needed for Hessian
+    if _demand_nesting is None and _demand_sigma and any(s > 0 for s in _demand_sigma):
+        if hasattr(product_data, 'nesting_ids'):
+            _demand_nesting = [np.asarray(product_data.nesting_ids).flatten()]
+
     # precompute demand jacobians
     if demand_jacobian is not None:
         ds_dp = demand_jacobian
@@ -197,17 +220,24 @@ def _compute_markups(
 
                 # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
                 if not (model_upstream[i] is None):
-                    if demand_jacobian is not None and pyblp_results is None:
-                        raise ValueError(
-                            "Upstream models (bilateral oligopoly) require demand Hessians and are not yet "
-                            "supported with demand_params. Use demand_results from PyBLP for vertical models."
-                        )
 
                     # construct the matrix of derivatives with respect to prices for other manufacturers
                     markups_t = markups_downstream[i][index_t]
-                    passthrough_matrix = construct_passthrough_matrix(
-                        pyblp_results, t, retailer_response_matrix, retailer_ownership_matrix, markups_t
-                    )
+                    if demand_jacobian is not None and pyblp_results is None:
+                        # Analytical Hessian for logit/nested logit
+                        from .demand_jacobian import compute_analytical_hessian
+                        sigma_clean = [s for s in (_demand_sigma or []) if s > 0]
+                        nesting_t = [arr[index_t] for arr in _demand_nesting] if sigma_clean else []
+                        d2s_dp2_t = compute_analytical_hessian(
+                            _demand_alpha, sigma_clean, shares_t.flatten(), nesting_t
+                        )
+                        passthrough_matrix = _construct_passthrough_from_hessian(
+                            d2s_dp2_t, retailer_response_matrix, retailer_ownership_matrix, markups_t
+                        )
+                    else:
+                        passthrough_matrix = construct_passthrough_matrix(
+                            pyblp_results, t, retailer_response_matrix, retailer_ownership_matrix, markups_t
+                        )
 
                     # solve for matrix of cross-price elasticities of derived demand and the effects of cost
                     #   pass-through
