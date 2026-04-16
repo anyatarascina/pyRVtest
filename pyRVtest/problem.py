@@ -972,12 +972,15 @@ class Problem(Container, StringRepresentation):
         h = (1 / N) * Z_D.T @ xi  # (K_z,)
         h_i = Z_D * xi[:, np.newaxis]  # (N, K_z)
 
-        # Demand weight matrix: W_D = (Z_D'Z_D/N)^{-1}
+        # Demand weight matrix: the 2SLS (homoskedastic) weight W_D = (Z_D'Z_D/N)^{-1}.
+        # Logit and nested logit demand are linear-in-parameters 2SLS (not iterative
+        # GMM), so the weight matrix used in estimation is the 2SLS weight. Users can
+        # override by passing demand_params['W_demand'] explicitly.
         W_D = dp.get('W_demand', None)
         if W_D is None:
             W_D = np.linalg.inv((1 / N) * Z_D.T @ Z_D)
 
-        # Derivatives of xi w.r.t. theta = (alpha, sigma_1, ..., sigma_L)
+        # Direct partials of xi w.r.t. theta = (alpha, sigma_1, ..., sigma_L)
         # d(xi)/d(alpha) = -prices
         # d(xi)/d(sigma_l) = -log(s_{j|g_l})
         n_theta = 1 + L
@@ -986,8 +989,35 @@ class Problem(Container, StringRepresentation):
         for l in range(L):
             dxi_dtheta[:, 1 + l] = -log_within_nest_shares[l]
 
-        # H = (1/N) Z_D' @ d(xi)/d(theta)
-        H = (1 / N) * Z_D.T @ dxi_dtheta  # (K_z, n_theta)
+        # Concentration adjustment (matches PyBLP path _compute_demand_adjustment_gradient).
+        #
+        # In both PyBLP's estimation and this analytic path, the linear coefficients
+        # beta (including the intercept and non-price coefficients) are concentrated
+        # out via 2SLS at fixed non-linear parameters (alpha, rho). The asymptotic
+        # expansion theta_hat - theta_0 = -Lambda h(theta_0) + o_p(n^{-1/2}) for the
+        # DMSS (2024) Appendix C eq (77) correction is about the PROFILED moments,
+        # which treat beta as a function of (alpha, rho) via the 2SLS FOC.
+        #
+        # The profiled gradient is:
+        #    d(xi_profiled)/d(theta) = d(xi)/d(theta) - X_D @ (d(beta_hat)/d(theta))
+        # where d(beta_hat)/d(theta) = (X_D' Z_D W_D Z_D' X_D)^{-1} X_D' Z_D W_D Z_D' @ d(xi)/d(theta).
+        # This gives
+        #    partial_xi_theta = dxi_dtheta - X_D @ inv(X_D' Z_D W_D Z_D' X_D) @ X_D' Z_D W_D Z_D' @ dxi_dtheta
+        # which is the 2SLS residual of dxi_dtheta on X_D instrumented by Z_D.
+        #
+        # For pure logit this reduces to the standard 2SLS delta-method correction with
+        # beta concentrated. For nested logit it correctly profiles beta out at fixed rho.
+        # In both cases the result matches the PyBLP path to machine precision.
+        if X_D.shape[1] > 0:
+            XtZW = X_D.T @ Z_D @ W_D  # (K_x, K_z)
+            M_xx = XtZW @ Z_D.T @ X_D  # (K_x, K_x)
+            projection_coeffs = np.linalg.inv(M_xx) @ (XtZW @ Z_D.T @ dxi_dtheta)  # (K_x, n_theta)
+            partial_xi_theta = dxi_dtheta - X_D @ projection_coeffs  # (N, n_theta)
+        else:
+            partial_xi_theta = dxi_dtheta
+
+        # H = (1/N) Z_D' @ partial_xi_theta
+        H = (1 / N) * Z_D.T @ partial_xi_theta  # (K_z, n_theta)
         H_prime_wd = H.T @ W_D  # (n_theta, K_z)
 
         # Gradient of markups w.r.t. theta
@@ -1037,12 +1067,23 @@ class Problem(Container, StringRepresentation):
 
                 mu_t = markups[m][idx].flatten()
 
-                # d(markup)/d(alpha) = markup / alpha (analytical, for standard models).
-                # This holds because D = alpha * F(s, sigma) and standard FOC-based markups
-                # are homogeneous of degree -1 in D. Custom models may not have this property,
-                # so they are handled by the finite-difference block below.
+                # d(markup)/d(alpha) = -markup / alpha (analytical, for standard models).
+                #
+                # Derivation: D = alpha * N(sigma, s), so markup = -(O*D^T)^{-1} s
+                # = -alpha^{-1} (O*N^T)^{-1} s. Differentiating w.r.t. alpha with
+                # shares held fixed:
+                #     d(markup)/d(alpha) = alpha^{-2} (O*N^T)^{-1} s
+                #                        = alpha^{-2} * (-alpha) * markup    [using (O*N^T)^{-1} s = -alpha * markup]
+                #                        = -markup / alpha.
+                # Equivalently: markup is homogeneous of degree -1 in D, and
+                # D scales linearly in alpha, so Euler's theorem gives the same result.
+                #
+                # Sign check: with alpha < 0 and markup > 0, -markup/alpha > 0, matching
+                # the expectation that less-elastic demand (alpha closer to 0) increases markups.
+                # Custom models may not have this property, so they are handled by the
+                # finite-difference block below.
                 if self.models["custom_model_specification"][m] is None:
-                    gradient_markups[m][idx, 0] = mu_t / alpha
+                    gradient_markups[m][idx, 0] = -mu_t / alpha
 
                 # d(markup)/d(sigma_l): analytical derivative of Jacobian w.r.t. sigma_l,
                 # then implicit differentiation of the FOC to get d(markup)/d(sigma_l).
@@ -1215,7 +1256,20 @@ class Problem(Container, StringRepresentation):
         """
         M = self.M
         ZD = self.demand_results.problem.products.ZD
-        WD = self.demand_results.updated_W
+        # Choose the pyblp weight matrix per options.demand_adjustment_weight.
+        # Default 'W' is the weight actually used in estimation (correct per DMSS
+        # Appendix C). 'updated_W' reproduces the pre-v0.3.3 behavior for
+        # validation/replication against older results.
+        weight_choice = getattr(options, 'demand_adjustment_weight', 'W')
+        if weight_choice == 'W':
+            WD = self.demand_results.W
+        elif weight_choice == 'updated_W':
+            WD = self.demand_results.updated_W
+        else:
+            raise ValueError(
+                f"options.demand_adjustment_weight must be 'W' or 'updated_W', "
+                f"got {weight_choice!r}."
+            )
         h = self.demand_results.moments
         h_i = ZD * self.demand_results.xi
         K2 = self.demand_results.problem.K2

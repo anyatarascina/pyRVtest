@@ -92,6 +92,28 @@ psd_atol : `float`
 psd_rtol : `float`
     Relative tolerance for detecting non-positive definite matrices, which is by default also ``1e-8``.
 
+demand_adjustment_weight : `str`
+    Which demand-side GMM weight matrix to use in the DMSS (2024) Appendix C equation (77)
+    first-stage correction when ``demand_adjustment=True`` and ``demand_results`` is a pyblp
+    results object.
+
+    - ``'W'`` (default, pyRVtest v0.3.3+): use ``demand_results.W``, the weight matrix actually
+      used in the GMM estimation step. For ``method='1s'`` this is the 2SLS weight
+      :math:`(Z'Z/N)^{-1}`. For ``method='2s'`` this is the efficient weight that pyblp used
+      in step 2. This matches the DMSS Appendix C formulation, which specifies Λ with the
+      weight used to estimate θ̂.
+    - ``'updated_W'``: use ``demand_results.updated_W``, pyblp's "next-step" efficient weight
+      computed from current-step residuals. This was the pyRVtest behavior prior to v0.3.3.
+      Setting this reproduces prior output for backwards comparison.
+
+    This option only affects the PyBLP path (when ``demand_results`` is passed). The
+    ``demand_params`` analytic path uses :math:`(Z'Z/N)^{-1}` by default; to reproduce a
+    different weight there, pass ``demand_params['W_demand']`` explicitly.
+
+    **Why this was changed:** using ``updated_W`` did not correspond to the weight actually
+    used in estimation and gave incorrect first-stage corrections per DMSS. See CClean-fixes
+    memo, item on "first-stage correction weight matrix."
+
 """
 
 import numpy as _np
@@ -109,3 +131,9 @@ collinear_atol = collinear_rtol = 1e-14
 psd_atol = psd_rtol = 1e-8
 ndraws = 99999
 random_seed = 1
+
+# Controls which pyblp weight matrix is used in the DMSS demand-adjustment correction.
+# 'W' (default): the weight actually used in estimation (correct).
+# 'updated_W': the pre-v0.3.3 behavior (pyblp's "next-step" efficient weight). Set to
+# this value to reproduce pre-v0.3.3 TRV/F values for validation or replication.
+demand_adjustment_weight = 'W'
