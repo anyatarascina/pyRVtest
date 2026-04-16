@@ -79,10 +79,19 @@ def test_v03_public_api_preserved():
 _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     # Updated in step 3a: protocols populated in backends/base.py.
     # Updated in step 3b: PyBLPBackend added.
-    ('pyRVtest.backends', ['DemandBackend', 'SupportsDemandAdjustment', 'PyBLPBackend']),
+    # Updated in step 3c: LogitBackend, NestedLogitBackend added.
+    ('pyRVtest.backends', [
+        'DemandBackend', 'SupportsDemandAdjustment',
+        'PyBLPBackend', 'LogitBackend', 'NestedLogitBackend',
+    ]),
     ('pyRVtest.backends.base', ['DemandBackend', 'SupportsDemandAdjustment']),
     ('pyRVtest.backends.pyblp', ['PyBLPBackend']),
-    ('pyRVtest.backends.logit', []),
+    ('pyRVtest.backends.logit', [
+        'compute_analytical_jacobian', 'compute_analytical_hessian',
+        '_logit_jacobian', '_nested_logit_jacobian',
+        '_nested_logit_jacobian_derivative', '_infer_nesting_columns',
+        'LogitBackend', 'NestedLogitBackend',
+    ]),
     ('pyRVtest.backends.user', []),
     ('pyRVtest.backends.labor', []),
     ('pyRVtest.backends.labor.nested_logit_labor', []),

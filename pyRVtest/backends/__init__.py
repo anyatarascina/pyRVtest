@@ -11,6 +11,10 @@ for the PyBLPBackend prototype design.
 """
 
 from .base import DemandBackend, SupportsDemandAdjustment
+from .logit import LogitBackend, NestedLogitBackend
 from .pyblp import PyBLPBackend
 
-__all__ = ['DemandBackend', 'SupportsDemandAdjustment', 'PyBLPBackend']
+__all__ = [
+    'DemandBackend', 'SupportsDemandAdjustment',
+    'PyBLPBackend', 'LogitBackend', 'NestedLogitBackend',
+]

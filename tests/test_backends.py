@@ -18,7 +18,10 @@ import pyblp
 import pytest
 
 import pyRVtest
-from pyRVtest.backends import DemandBackend, PyBLPBackend, SupportsDemandAdjustment
+from pyRVtest.backends import (
+    DemandBackend, LogitBackend, NestedLogitBackend, PyBLPBackend,
+    SupportsDemandAdjustment,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -155,3 +158,143 @@ class TestPyBLPBackendDemandMoments:
             np.testing.assert_array_equal(W_D, pyblp_logit_results.updated_W)
         finally:
             pyRVtest.options.demand_adjustment_weight = 'W'
+
+
+# ---------------------------------------------------------------------------
+# LogitBackend (analytical, no PyBLP)
+# ---------------------------------------------------------------------------
+
+def _synthetic_logit_data(seed: int = 12345, T: int = 10, J: int = 3):
+    """Build synthetic logit shares for LogitBackend unit tests."""
+    rng = np.random.default_rng(seed=seed)
+    market_ids = np.repeat(np.arange(T), J)
+    firm_ids = np.tile(np.arange(J), T)
+    # Generate logit shares directly from random utilities
+    utilities = rng.normal(size=T * J)
+    shares = np.zeros(T * J)
+    for t in range(T):
+        idx = np.where(market_ids == t)[0]
+        u_t = utilities[idx]
+        exp_u = np.exp(u_t)
+        shares[idx] = exp_u / (1.0 + exp_u.sum())
+    return pd.DataFrame({'market_ids': market_ids, 'firm_ids': firm_ids, 'shares': shares})
+
+
+class TestLogitBackend:
+    """Plain logit analytical backend."""
+
+    def test_satisfies_core_protocol(self):
+        data = _synthetic_logit_data()
+        backend = LogitBackend(alpha=-2.0, product_data=data)
+        assert isinstance(backend, DemandBackend)
+
+    def test_does_not_satisfy_demand_adjustment(self):
+        """LogitBackend does NOT yet implement SupportsDemandAdjustment (step 4 adds it)."""
+        data = _synthetic_logit_data()
+        backend = LogitBackend(alpha=-2.0, product_data=data)
+        assert not isinstance(backend, SupportsDemandAdjustment)
+
+    def test_n_parameters_is_one(self):
+        data = _synthetic_logit_data()
+        backend = LogitBackend(alpha=-2.0, product_data=data)
+        assert backend.n_parameters == 1
+        assert backend.theta_names == ['alpha']
+
+    def test_jacobian_matches_module_level_function(self):
+        """LogitBackend.compute_jacobian() matches compute_analytical_jacobian directly."""
+        from pyRVtest.backends.logit import compute_analytical_jacobian
+        data = _synthetic_logit_data()
+        alpha = -2.0
+        backend = LogitBackend(alpha=alpha, product_data=data)
+        expected = compute_analytical_jacobian(alpha, [], data, nesting_ids_columns=None)
+        actual = backend.compute_jacobian()
+        np.testing.assert_allclose(actual, expected, atol=1e-14, equal_nan=True)
+
+    def test_per_market_jacobian_shape(self):
+        data = _synthetic_logit_data(T=10, J=3)
+        backend = LogitBackend(alpha=-2.0, product_data=data)
+        block = backend.compute_jacobian(market_id=0)
+        assert block.shape == (3, 3)
+        assert not np.isnan(block).any()
+
+    def test_hessian_shape(self):
+        data = _synthetic_logit_data(T=10, J=3)
+        backend = LogitBackend(alpha=-2.0, product_data=data)
+        H = backend.compute_hessian(market_id=0)
+        assert H.shape == (3, 3, 3)
+
+    def test_perturbed_shifts_alpha(self):
+        """perturbed(0, delta) temporarily shifts alpha, then restores."""
+        data = _synthetic_logit_data()
+        backend = LogitBackend(alpha=-2.0, product_data=data)
+        before = backend.compute_jacobian().copy()
+        with backend.perturbed(0, 0.1):
+            during = backend.compute_jacobian()
+            assert not np.allclose(during, before, atol=1e-14, equal_nan=True)
+        after = backend.compute_jacobian()
+        np.testing.assert_allclose(after, before, atol=1e-14, equal_nan=True)
+
+    def test_perturbed_rejects_invalid_index(self):
+        data = _synthetic_logit_data()
+        backend = LogitBackend(alpha=-2.0, product_data=data)
+        with pytest.raises(IndexError):
+            with backend.perturbed(1, 0.01):
+                pass
+
+
+# ---------------------------------------------------------------------------
+# NestedLogitBackend (analytical, with nesting_ids)
+# ---------------------------------------------------------------------------
+
+def _synthetic_nested_logit_data(seed: int = 777, T: int = 10, J: int = 4):
+    """Build synthetic nested-logit shares. Each market has J=4 products in 2 nests."""
+    rng = np.random.default_rng(seed=seed)
+    market_ids = np.repeat(np.arange(T), J)
+    firm_ids = np.tile(np.arange(J), T)
+    # Products 0, 1 in nest A; products 2, 3 in nest B (per market)
+    nesting_ids = np.tile(['A', 'A', 'B', 'B'], T)
+    utilities = rng.normal(size=T * J)
+    shares = np.zeros(T * J)
+    for t in range(T):
+        idx = np.where(market_ids == t)[0]
+        u_t = utilities[idx]
+        exp_u = np.exp(u_t)
+        shares[idx] = exp_u / (1.0 + exp_u.sum())
+    return pd.DataFrame({
+        'market_ids': market_ids, 'firm_ids': firm_ids,
+        'shares': shares, 'nesting_ids': nesting_ids,
+    })
+
+
+class TestNestedLogitBackend:
+    """L=1 nested logit analytical backend."""
+
+    def test_satisfies_core_protocol(self):
+        data = _synthetic_nested_logit_data()
+        backend = NestedLogitBackend(alpha=-2.0, sigma=[0.3], product_data=data)
+        assert isinstance(backend, DemandBackend)
+
+    def test_n_parameters_is_two_for_single_nest(self):
+        data = _synthetic_nested_logit_data()
+        backend = NestedLogitBackend(alpha=-2.0, sigma=[0.3], product_data=data)
+        assert backend.n_parameters == 2
+        assert backend.theta_names == ['alpha', 'sigma[0]']
+
+    def test_jacobian_matches_module_function(self):
+        data = _synthetic_nested_logit_data()
+        from pyRVtest.backends.logit import compute_analytical_jacobian
+        alpha, sigma = -2.0, [0.3]
+        backend = NestedLogitBackend(alpha=alpha, sigma=sigma, product_data=data)
+        expected = compute_analytical_jacobian(alpha, sigma, data, nesting_ids_columns=['nesting_ids'])
+        actual = backend.compute_jacobian()
+        np.testing.assert_allclose(actual, expected, atol=1e-14, equal_nan=True)
+
+    def test_perturbed_shifts_sigma(self):
+        data = _synthetic_nested_logit_data()
+        backend = NestedLogitBackend(alpha=-2.0, sigma=[0.3], product_data=data)
+        before = backend.compute_jacobian().copy()
+        with backend.perturbed(1, 0.05):  # perturb sigma[0]
+            during = backend.compute_jacobian()
+            assert not np.allclose(during, before, atol=1e-14, equal_nan=True)
+        after = backend.compute_jacobian()
+        np.testing.assert_allclose(after, before, atol=1e-14, equal_nan=True)
