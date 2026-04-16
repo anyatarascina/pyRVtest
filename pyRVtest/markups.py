@@ -111,7 +111,7 @@ def _compute_markups(
         custom_model_specification: Optional[dict] = None, user_supplied_markups: Optional[Array] = None,
         mix_flag: Optional[Array] = None, demand_jacobian: Optional[Array] = None,
         demand_alpha: Optional[float] = None, demand_sigma: Optional[list] = None,
-        demand_nesting: Optional[list] = None) -> Array:
+        demand_nesting: Optional[list] = None, demand_backend: Optional[object] = None) -> Array:
     r"""Compute markups given pre-processed model arrays.
 
     Internal function called by :func:`build_markups` and :meth:`Problem.solve`. Accepts the raw arrays produced by
@@ -193,8 +193,13 @@ def _compute_markups(
         if hasattr(product_data, 'nesting_ids'):
             _demand_nesting = [np.asarray(product_data.nesting_ids).flatten()]
 
-    # precompute demand jacobians
-    if demand_jacobian is not None:
+    # precompute demand jacobians. Resolution priority:
+    #   1. demand_backend (v0.4 step 3e — wraps pyblp or analytical logit)
+    #   2. demand_jacobian (precomputed array, demand_params legacy path)
+    #   3. pyblp_results (PyBLP legacy path, original code)
+    if demand_backend is not None:
+        ds_dp = demand_backend.compute_jacobian()
+    elif demand_jacobian is not None:
         ds_dp = demand_jacobian
     elif pyblp_results is not None:
         with contextlib.redirect_stdout(open(os.devnull, 'w')):

@@ -385,3 +385,60 @@ class TestUserSuppliedBackend:
             UserSuppliedBackend(
                 jacobian=np.zeros((6, 3)), market_ids=np.arange(10),
             )
+
+
+# ---------------------------------------------------------------------------
+# Backend equivalence: the demand_backend path in _compute_markups produces
+# the same markups as the existing pyblp_results path (v0.4 step 3e).
+# ---------------------------------------------------------------------------
+
+class TestBackendEquivalenceInComputeMarkups:
+    """Verify the new demand_backend parameter of _compute_markups.
+
+    The plan's step 3e wires backends into the markups pipeline. To
+    guard against drift, these tests call _compute_markups BOTH ways
+    on the same DGP and assert byte-identical markups.
+    """
+
+    def test_pyblp_backend_matches_pyblp_results_path(self, pyblp_logit_results):
+        """_compute_markups(pyblp_results=X) == _compute_markups(demand_backend=PyBLPBackend(X))."""
+        from pyRVtest.markups import _compute_markups
+        from pyRVtest.problem import Models, Products
+
+        data_dict = {
+            'market_ids': pyblp_logit_results.problem.products.market_ids,
+            'firm_ids': pyblp_logit_results.problem.products.firm_ids,
+            'shares': pyblp_logit_results.problem.products.shares,
+            'prices': pyblp_logit_results.problem.products.prices,
+        }
+        product_data = pd.DataFrame({k: np.asarray(v).flatten() for k, v in data_dict.items()})
+
+        # Build a minimal Models object with a Bertrand formulation
+        models_formulations = (
+            pyRVtest.ModelFormulation(
+                model_downstream='bertrand', ownership_downstream='firm_ids',
+            ),
+        )
+        models = Models(models_formulations, product_data)
+
+        # Path A: existing pyblp_results path
+        markups_A, _, _ = _compute_markups(
+            product_data=product_data, pyblp_results=pyblp_logit_results,
+            model_downstream=models['models_downstream'],
+            ownership_downstream=models['ownership_downstream'],
+        )
+
+        # Path B: new demand_backend path
+        backend = PyBLPBackend(pyblp_logit_results)
+        markups_B, _, _ = _compute_markups(
+            product_data=product_data, pyblp_results=pyblp_logit_results,
+            model_downstream=models['models_downstream'],
+            ownership_downstream=models['ownership_downstream'],
+            demand_backend=backend,
+        )
+
+        # Markups must match to machine precision
+        np.testing.assert_allclose(
+            markups_A[0], markups_B[0], atol=1e-14,
+            err_msg="PyBLPBackend path diverges from direct pyblp_results path"
+        )
