@@ -1,4 +1,11 @@
-"""Conduct testing results."""
+"""Conduct testing results.
+
+v0.4 step 1 note: this file is a verbatim move from `pyRVtest/results.py`
+into a `results/` subpackage so the plan's §4.1 `results/` directory
+layout is possible. No code change from the previous module. Step 9
+will split this into `results.py`, `aggregation.py`, `panel.py`, and
+`diagnostics.py` within this subpackage.
+"""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,10 +14,10 @@ from typing import List, Optional, Union, TYPE_CHECKING
 
 from pyblp.utilities.basics import Array, StringRepresentation
 
-from .output import format_table
+from ..output import format_table
 
 if TYPE_CHECKING:
-    from .problem import Problem
+    from ..problem import Problem
 
 
 @dataclass
@@ -178,3 +185,6 @@ class ProblemResults(StringRepresentation):
         """
         with open(path, 'wb') as handle:
             pickle.dump(self, handle)
+
+
+__all__ = ['Progress', 'ProblemResults']
