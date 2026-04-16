@@ -17,7 +17,8 @@ from .markups import (
     build_ownership, build_markups, construct_passthrough_matrix,
     evaluate_first_order_conditions, read_pickle
 )
-from .problem import Problem, Models, Products
+from .problem import Problem, Models
+from .products import Products
 from .results import ProblemResults
 from .version import __version__
 

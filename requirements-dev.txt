@@ -12,3 +12,9 @@ pytest>=7.0.0
 # Property-based testing (see tests/test_properties.py)
 # Added as part of v0.4 Step 0f baseline protection.
 hypothesis>=6.0.0
+
+# Static type checking (see mypy.ini)
+# Added in v0.4 step 2 as the first use of mypy in this project. Per
+# the incremental-strict rule, each new or moved module ships with
+# `mypy --strict` clean; full-package strict is step 17.
+mypy>=1.0.0

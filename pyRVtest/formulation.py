@@ -6,6 +6,9 @@ from pyblp.utilities.basics import Array
 from pyblp.configurations.formulation import Absorb, Formulation  # noqa: F401
 
 
+__all__ = ['Absorb', 'Formulation', 'ModelFormulation']
+
+
 class ModelFormulation(object):
     r"""Configuration for designing matrices and absorbing fixed effects.
 
