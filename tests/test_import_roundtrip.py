@@ -77,11 +77,11 @@ def test_v03_public_api_preserved():
 # expected __all__) pair. Step 1 __all__ is always empty; later steps
 # update this list as they populate the subpackages.
 _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
-    # Updated in step 3a: protocols populated in backends/base.py and
-    # re-exported from backends/__init__.py.
-    ('pyRVtest.backends', ['DemandBackend', 'SupportsDemandAdjustment']),
+    # Updated in step 3a: protocols populated in backends/base.py.
+    # Updated in step 3b: PyBLPBackend added.
+    ('pyRVtest.backends', ['DemandBackend', 'SupportsDemandAdjustment', 'PyBLPBackend']),
     ('pyRVtest.backends.base', ['DemandBackend', 'SupportsDemandAdjustment']),
-    ('pyRVtest.backends.pyblp', []),
+    ('pyRVtest.backends.pyblp', ['PyBLPBackend']),
     ('pyRVtest.backends.logit', []),
     ('pyRVtest.backends.user', []),
     ('pyRVtest.backends.labor', []),
