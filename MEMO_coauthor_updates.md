@@ -9,19 +9,121 @@ This is a running memo of pyRVtest changes that affect methodology, results, or 
 
 ---
 
-## Status right now (2026-04-16 evening)
+## Status right now (2026-04-16 late evening)
 
-**Branch:** `CClean-fixes` at `d25f5de` on origin.
-**Tests:** 71 pass (62 pre-existing + 9 new first-stage-correction tests).
-**Headline:** three first-stage-correction bugs were found and fixed today. Two were in yesterday's `demand_params` feature (not released outside CClean-fixes). One was pre-existing in the PyBLP path and may have affected prior results.
+**Branch:** `CClean-fixes` at `47b4457` on origin.
+**Tag:** `v0.3.3-stable` annotated, pushed (baseline anchor for the v0.4 refactor).
+**Tests:** 92 pass + 3 skipped (DMSS yogurt placeholders pending Lorenzo).
+**Headline:** v0.4 Step 0 protection landed today (snapshots, property tests, equivalence tests, rollback tooling). The refactor can now safely begin. Lorenzo's input is the only remaining Step 0 item; see below.
 
 **What coauthors need to know right now:**
 
 1. **Prior pyRVtest results with `demand_adjustment=True` on the PyBLP path are affected.** The weight matrix used in DMSS Appendix C equation (77)'s Λ was wrong (`updated_W` instead of `W`). Default behavior now matches DMSS. To reproduce prior output: set `pyRVtest.options.demand_adjustment_weight = 'updated_W'` before `.solve()`.
 
-2. **Yesterday's `demand_params` feature had two additional bugs** (sign error in d(markup)/dα; missing concentration adjustment). Both fixed. Anyone who ran demand_params with `demand_adjustment=True` on the pre-today CClean-fixes branch should rerun.
+2. **The `demand_params` feature had two additional bugs** (sign error in d(markup)/dα; missing concentration adjustment). Both fixed in `b3b08a3`. Anyone who ran demand_params with `demand_adjustment=True` before `b3b08a3` should rerun.
 
-3. **A v0.4 refactor design is complete** (`.claude/plans/v0.4-refactor.md` on the branch). 892-line document covering backend protocol, class-based ConductModel API, labor-market hooks, custom demand integration, snapshot regression suite, and a 25-step migration plan. Not yet started; awaiting coauthor read.
+3. **v0.4 refactor design + adversarial review both on the branch.**
+   - `.claude/plans/v0.4-refactor.md` — updated design doc (~980 lines). Backend protocol, class-based ConductModel API, labor hooks, custom demand integration, 25-step migration plan with Step 0 baseline protection, snapshot-update decision rule, rollback-trigger criteria, release-blocking status for the AFSSZ dogfood step.
+   - `.claude/plans/review-2026-04-16.md` — adversarial review of the design. Nine sections: readiness, sequencing, gaps, scope honest reassessment. Each finding has a proposed fix. All approved fixes are in the updated design doc.
+
+4. **Step 0 of the refactor has landed** (except the DMSS yogurt golden file, which needs Lorenzo's input):
+   - 9 first-stage-correction equivalence tests (already in `b3b08a3`)
+   - 6 snapshot regression tests at `atol=1e-10` on the main DGPs
+   - 11 property-based tests covering all currently-implemented conduct models (bertrand, cournot, monopoly, perfect_comp, mix, vertical, kappa-weighted profit weights, custom 'other') with hand-computed ground truth
+   - Rollback procedure + trigger criteria
+   - `v0.3.3-stable` tag as the nuclear-revert anchor
+
+5. **What we need from Lorenzo** (to complete Step 0d):
+   - **Data.** Where the DMSS yogurt product_data lives (path / loader / script).
+   - **Specification.** Which table/column from the DMSS paper to pin — demand side (logit / nested logit / BLP), instruments, cost side, FEs, conduct pairs, adjustment flags.
+   - **Expected values.** Pinned TRV, F, MCS-p from the paper to 4-5 significant figures.
+   - **Tolerance.** Default `rtol=1e-4, atol=1e-6`; tighten if the paper reports more digits.
+   Scaffold is ready at `tests/replication/test_dmss_yogurt.py` with a `NEEDED FROM LORENZO` block listing these items. Populating the constants and un-skipping the three tests is sufficient to complete 0d.
+
+6. **Next step on the refactor:** v0.4 migration step 1 — create the module skeleton (empty `backends/`, `models/`, `instruments/`, `solve/`, `results/` subpackages; `__init__.py` re-exports preserve the current public API). No behavior change. Will land on a new `v0.4-refactor` branch off `CClean-fixes`.
+
+---
+
+## 2026-04-16 (late evening) — v0.4 refactor review + Step 0 protection landing
+
+Second session on 2026-04-16. Adversarial review of the v0.4 design doc, then the Step 0 baseline protection committed and pushed to origin. Tag `v0.3.3-stable` created as the nuclear-revert anchor per the rollback procedure.
+
+### What changed on CClean-fixes (5 commits, all on origin)
+
+| Commit | Description |
+|---|---|
+| `f0840c3` | DOC: incorporate v0.4 review feedback into design doc |
+| `1bcda1d` | TEST: v0.4 Step 0f property-based test scaffolding |
+| `edcb2e1` | TEST: expand property tests to cover all current conduct models |
+| `7268925` | TEST: v0.4 Step 0b snapshot regression suite |
+| `47b4457` | TEST: v0.4 Step 0d scaffolding (DMSS yogurt golden file) |
+
+Tag `v0.3.3-stable` pushed to origin at `47b4457`.
+
+### Review findings — major design-doc updates
+
+- **Tag name corrected.** The original plan tagged `v0.3.2-stable` at `45bcc4b` — the pre-bug-fix commit. Would have pointed the nuclear-revert anchor at known-broken math. Renamed to `v0.3.3-stable` at `47b4457` (post-fix).
+- **Dearing verification reordered.** Original plan shipped `ConstantMarkup`/`RuleOfThumb`/`CostPlus` in step 5 before verifying the parameterization against Dearing's paper in step 12. Reordered: step 5 ships mechanical classes only (Bertrand, Cournot, Monopoly, PerfectCompetition, MixCournotBertrand, PartialCollusion); simple-markup classes defer to step 12 where their formulas are first pinned against the paper.
+- **Step 16 (AFSSZ dogfood) now release-blocking for step 25.** Chris confirmed "one set of code, once it is ready, we will launch it on AFSSZ and scalable labor" — coauthors migrate once.
+- **Minimal CI added as step 24.5.** One-config GitHub Actions (pytest + mypy + doctest). Full matrix deferred to v0.5.
+- **mypy / property tests / `__all__` moved from late-stage batch to incremental rules** applied at every step.
+- **Snapshot-update decision rule formalized.** `<= 1e-12` auto-update / `1e-12 to 1e-7` deliberate-source commit required / `> 1e-7` blocks merge.
+- **Rollback triggers formalized.** Single-step-breaks = soft revert / two-step-regression = hard revert / >1% DMSS yogurt drift = nuclear.
+- **Labor sign-convention validation** added to §4.5 so upstream sign errors don't produce silent garbage.
+- **Scope tiers** (§2.5) listed as fire-sale order. Maximalist scope stays locked per Chris's decision.
+- **Coauthor gates stay informal** per Chris.
+
+### Step 0 protection now in place
+
+Six pieces of protection, built out during this session:
+
+1. **`tests/test_snapshots.py`** — 6 snapshot regression tests at `atol=1e-10`:
+   - `analytical_base` — user_supplied_markups Bertrand-vs-perfect-competition
+   - `analytical_clustering` — with `clustering_adjustment=True`
+   - `analytical_base_fe` — with cost absorb=`C(firm_ids)`
+   - `analytical_scale` — endogenous_cost_component path
+   - `first_stage_pyblp_path` — the code that had Bug 3 (`updated_W` vs `W`)
+   - `first_stage_demand_params_path` — the code that had Bugs 1 and 2 (sign + concentration)
+
+   Mismatch detection verified. Snapshot-update decision rule documented in the helper module.
+
+2. **`tests/test_properties.py`** — 11 property-based tests (Hypothesis library):
+   - determinism / permutation invariance / seed reproducibility
+   - perfect_competition markups exactly zero
+   - Bertrand markups computed by pyRVtest match DGP ground truth across alpha
+   - dispatch smoke test across all 5 standard conduct models + hand-computed match
+   - Cournot / Monopoly markups match hand-computed (Hypothesis × 100)
+   - profit-weight `kappa_specification` Bertrand matches hand-computed
+   - custom `'other'` model extension point
+   - vertical Bertrand-downstream + Monopoly-upstream
+
+   TODO block at the end of the file names the conduct models not yet in pyRVtest (rule_of_thumb, constant_markup, cost_plus, nash_bargaining, monopsony, etc.) — these get property tests when their classes ship in v0.4 steps 5, 12, 14.
+
+3. **`tests/test_first_stage_correction.py`** — 9 equivalence tests (already in `b3b08a3`).
+
+4. **`tests/replication/test_dmss_yogurt.py`** — scaffolding only. Three `@pytest.mark.skip` tests (TRV / F / MCS). Awaiting Lorenzo's input on data + pinned specification + expected values.
+
+5. **Design doc `§10` rollback procedure** — reverified, tag name corrected throughout.
+
+6. **Tag `v0.3.3-stable`** at `47b4457` on origin. Nuclear-revert anchor.
+
+### Action items from this session for coauthors
+
+1. **Lorenzo** — populate the DMSS yogurt golden file. File `tests/replication/test_dmss_yogurt.py` has a `NEEDED FROM LORENZO` block with four items: data location, specification to pin, published expected values, tolerance. Once filled in, the three tests un-skip automatically (remove the `@pytest.mark.skip` decorator on each).
+
+2. **Marco and Lorenzo** — read `.claude/plans/review-2026-04-16.md` for the full review and `.claude/plans/v0.4-refactor.md` for the updated plan. The Decisions Log section §8 lists each decision with rationale. Flag any disagreement before step 1 lands on the `v0.4-refactor` branch.
+
+3. **Both** — check whether any prior PyBLP-path result used `demand_adjustment=True`. If so, rerun with default `options.demand_adjustment_weight='W'`. See next section for the bug-fix details.
+
+### Uncertainty flags I want to name explicitly
+
+1. **Monopoly ≥ Bertrand element-wise** is asserted in the dispatch smoke test; it passes on the single fixed-seed DGP we run but is not theoretically guaranteed for every DGP. If a future step breaks this assertion, weaken to `np.mean(mono) >= np.mean(bert)`.
+
+2. **Labor sign-convention validation** defaults to strict (raises on negative wages). May need a `strict_signs=False` opt-out for users with deviation-from-mean wage-like data. Decided to keep strict default today; revisit at v0.4 step 14.
+
+3. **`v0.3.3-stable` tag** is placed while 0d is still a scaffold. If Lorenzo's inputs change any pyRVtest behavior, we may create `v0.3.4-stable` rather than moving the existing tag.
+
+4. **Hypothesis `max_examples=100`** gives strong coverage but adds ~13s to the test suite. If the suite creeps past 5 minutes during the refactor, split into dev (30 examples) and CI (100) Hypothesis profiles.
 
 ---
 
