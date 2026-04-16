@@ -188,11 +188,28 @@ class TestLogitBackend:
         backend = LogitBackend(alpha=-2.0, product_data=data)
         assert isinstance(backend, DemandBackend)
 
-    def test_does_not_satisfy_demand_adjustment(self):
-        """LogitBackend does NOT yet implement SupportsDemandAdjustment (step 4 adds it)."""
+    def test_satisfies_demand_adjustment_structurally(self):
+        """v0.4 step 4c: LogitBackend now structurally satisfies SupportsDemandAdjustment.
+
+        The three protocol methods (demand_moments, xi_gradient, jacobian_gradient) are
+        defined on the class. When the demand-adjustment state was not supplied at
+        construction, the methods raise a clear ValueError — see
+        ``test_demand_adjustment_methods_raise_without_state`` below.
+        """
         data = _synthetic_logit_data()
         backend = LogitBackend(alpha=-2.0, product_data=data)
-        assert not isinstance(backend, SupportsDemandAdjustment)
+        assert isinstance(backend, SupportsDemandAdjustment)
+
+    def test_demand_adjustment_methods_raise_without_state(self):
+        """Without beta / x_columns / demand_instrument_columns, the methods error clearly."""
+        data = _synthetic_logit_data()
+        backend = LogitBackend(alpha=-2.0, product_data=data)
+        with pytest.raises(ValueError, match="demand-adjustment state"):
+            backend.demand_moments()
+        with pytest.raises(ValueError, match="demand-adjustment state"):
+            backend.xi_gradient()
+        # jacobian_gradient does NOT depend on demand-adjustment state, so it must
+        # still work; this is asserted elsewhere.
 
     def test_n_parameters_is_one(self):
         data = _synthetic_logit_data()

@@ -12,8 +12,10 @@ for user-facing clarity (tracebacks + API docs). Contents now:
     with existing callers (pyRVtest/problem.py, pyRVtest/markups.py,
     tests).
 
-  - `LogitBackend` class: plain-logit (sigma=[]) DemandBackend wrapper.
-    Parameter count = 1 (just alpha).
+  - `LogitBackend` class: plain-logit (sigma=[]) DemandBackend wrapper
+    that also implements `SupportsDemandAdjustment`. Parameter count
+    = 1 (just alpha) in the plain-logit case; NestedLogitBackend
+    overrides `self._sigma` to get 1 + L parameters.
 
 `NestedLogitBackend` moved to `pyRVtest/backends/nested_logit.py` and
 subclasses `LogitBackend`. Users who want nested logit do:
@@ -22,8 +24,11 @@ subclasses `LogitBackend`. Users who want nested logit do:
     # or, for submodule access:
     from pyRVtest.backends.nested_logit import NestedLogitBackend
 
-SupportsDemandAdjustment is NOT implemented here — that lands in step 4
-when we unify the two demand-adjustment paths.
+v0.4 step 4c adds `SupportsDemandAdjustment` methods (`demand_moments`,
+`xi_gradient`, `jacobian_gradient`) to `LogitBackend`. They key on
+`self._sigma` — length-0 for plain logit, length-L for nested via
+`NestedLogitBackend`. `NestedLogitBackend` inherits these methods
+without overriding them (decision 2 for step 4, option ii).
 
 Based on Berry (1994) for plain logit (sigma=[]) and the general
 L-level nested-logit formulas in AFSSZ equation (6).
@@ -32,10 +37,12 @@ L-level nested-logit formulas in AFSSZ equation (6).
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Iterator, List, Mapping, Optional
+from typing import Any, Iterator, List, Mapping, Optional, Tuple
 
 import numpy as np
 from pyblp.utilities.basics import Array, output
+
+from ..solve.demand_adjustment import _residualize_on_xd
 
 
 __all__ = [
@@ -333,11 +340,42 @@ class LogitBackend:
     Wraps `compute_analytical_jacobian` and `compute_analytical_hessian`
     with the DemandBackend class API. Only parameter is alpha (the price
     coefficient). `perturbed(0, delta)` shifts alpha by delta.
+
+    v0.4 step 4c: if the demand-adjustment state (``beta``, ``x_columns``,
+    ``demand_instrument_columns``, optionally ``W_demand``) is provided
+    at construction, the backend implements ``SupportsDemandAdjustment``.
+    Without it, ``demand_moments`` / ``xi_gradient`` / ``jacobian_gradient``
+    raise a clear error listing the missing fields. ``NestedLogitBackend``
+    inherits these methods by overriding ``self._sigma`` and
+    ``self._nesting_ids_columns`` in its own ``__init__``.
     """
 
-    def __init__(self, alpha: float, product_data: Mapping) -> None:
+    def __init__(
+            self,
+            alpha: float,
+            product_data: Mapping,
+            beta: Optional[Array] = None,
+            x_columns: Optional[List[str]] = None,
+            demand_instrument_columns: Optional[List[str]] = None,
+            W_demand: Optional[Array] = None,
+    ) -> None:
         self._alpha = float(alpha)
         self._product_data = product_data
+        # Plain logit by default; NestedLogitBackend overrides.
+        self._sigma: List[float] = []
+        self._nesting_ids_columns: Optional[List[str]] = None
+        # Demand-adjustment state. All optional; SupportsDemandAdjustment
+        # methods raise if accessed before these are set.
+        self._beta: Optional[Array] = (
+            np.asarray(beta).flatten() if beta is not None else None
+        )
+        self._x_columns: Optional[List[str]] = list(x_columns) if x_columns else None
+        self._demand_instrument_columns: Optional[List[str]] = (
+            list(demand_instrument_columns) if demand_instrument_columns else None
+        )
+        self._W_demand: Optional[Array] = (
+            np.asarray(W_demand) if W_demand is not None else None
+        )
         self._jacobian_cache: Optional[Array] = None
 
     @property
@@ -383,5 +421,163 @@ class LogitBackend:
         finally:
             self._alpha = saved_alpha
             self._jacobian_cache = saved_cache
+
+    # -----------------------------------------------------------------
+    # SupportsDemandAdjustment (v0.4 step 4c)
+    # -----------------------------------------------------------------
+
+    def demand_moments(self) -> Tuple[Array, Array, Array]:
+        """Return (xi, Z_D, W_D) for the DMSS eq. (77) first-stage correction.
+
+        xi is the demand residual from Berry (1994) inversion:
+        ``log(s_j) - log(s_0) - X_D beta - alpha p - sum_l sigma_l log(s_{j|g_l})``.
+        Z_D and W_D come from the stored demand-adjustment state.
+        """
+        self._require_demand_adjustment_state()
+        shares = np.asarray(self._product_data['shares']).flatten()
+        prices = np.asarray(self._product_data['prices']).flatten()
+        market_ids = np.asarray(self._product_data['market_ids']).flatten()
+        N = shares.shape[0]
+        s0 = self._compute_s0(shares, market_ids)
+        X_D = self._build_X_D()
+        Z_D = self._build_Z_D()
+        xi = np.log(shares) - np.log(s0) - X_D @ self._beta - self._alpha * prices
+        for sig, log_wn in zip(self._sigma, self._log_within_nest_shares(shares, market_ids)):
+            xi = xi - sig * log_wn
+        W_D = self._compute_W_D(Z_D, N)
+        return xi, Z_D, W_D
+
+    def xi_gradient(self) -> Array:
+        """Return ∂xi/∂theta profiled on X_D (2SLS residualize on exogenous regressors).
+
+        Shape ``(N, 1 + L)`` where ``L == len(self._sigma)``. For plain logit (L=0)
+        this is ``(-prices,)`` residualized. For nested logit the additional columns
+        are ``-log(s_{j|g_l})`` for each nesting level l.
+        """
+        self._require_demand_adjustment_state()
+        shares = np.asarray(self._product_data['shares']).flatten()
+        prices = np.asarray(self._product_data['prices']).flatten()
+        market_ids = np.asarray(self._product_data['market_ids']).flatten()
+        N = prices.shape[0]
+        L = len(self._sigma)
+        dxi_dtheta = np.zeros((N, 1 + L))
+        dxi_dtheta[:, 0] = -prices
+        for level, log_wn in enumerate(self._log_within_nest_shares(shares, market_ids)):
+            dxi_dtheta[:, 1 + level] = -log_wn
+        X_D = self._build_X_D()
+        Z_D = self._build_Z_D()
+        W_D = self._compute_W_D(Z_D, N)
+        return _residualize_on_xd(dxi_dtheta, X_D, Z_D, W_D)
+
+    def jacobian_gradient(self, market_id: Any) -> Array:
+        """Return ∂D/∂theta for one market, shape ``(J_t, J_t, 1 + L)``.
+
+        The alpha column uses ``D / alpha`` (D is linear in alpha).
+        Sigma columns use the analytical derivative
+        ``_nested_logit_jacobian_derivative(alpha, sigma, s_t, nesting_t, l)``.
+        """
+        mids = np.asarray(self._product_data['market_ids']).flatten()
+        idx = np.where(mids == market_id)[0]
+        shares = np.asarray(self._product_data['shares']).flatten()
+        s_t = shares[idx]
+        J_t = idx.shape[0]
+        L = len(self._sigma)
+        grad = np.zeros((J_t, J_t, 1 + L))
+        # d(D)/d(alpha) = D/alpha (D = alpha * f(s, sigma))
+        D_t = self.compute_jacobian(market_id=market_id)
+        grad[:, :, 0] = D_t / self._alpha
+        if L > 0:
+            cols = self._nesting_ids_columns
+            if cols is None:
+                cols = _infer_nesting_columns(self._product_data, L)
+            nesting_t: List[Array] = []
+            for col in cols:
+                arr = np.asarray(self._product_data[col]).flatten()
+                nesting_t.append(arr[idx])
+            for level in range(L):
+                grad[:, :, 1 + level] = _nested_logit_jacobian_derivative(
+                    self._alpha, self._sigma, s_t, nesting_t, level
+                )
+        return grad
+
+    # -----------------------------------------------------------------
+    # Internal helpers for SupportsDemandAdjustment
+    # -----------------------------------------------------------------
+
+    def _require_demand_adjustment_state(self) -> None:
+        """Raise a clear error if the backend was constructed without the fields
+        that SupportsDemandAdjustment needs.
+        """
+        missing: List[str] = []
+        if self._beta is None:
+            missing.append('beta')
+        if self._x_columns is None:
+            missing.append('x_columns')
+        if self._demand_instrument_columns is None:
+            missing.append('demand_instrument_columns')
+        if missing:
+            raise ValueError(
+                f"{type(self).__name__} was constructed without the demand-adjustment "
+                f"state: {', '.join(missing)}. Pass these kwargs at construction to "
+                f"enable demand_moments / xi_gradient / jacobian_gradient."
+            )
+
+    def _build_X_D(self) -> Array:
+        assert self._x_columns is not None  # narrowed by _require_demand_adjustment_state
+        return np.column_stack([
+            np.asarray(self._product_data[col]).flatten() for col in self._x_columns
+        ])
+
+    def _build_Z_D(self) -> Array:
+        assert self._demand_instrument_columns is not None
+        return np.column_stack([
+            np.asarray(self._product_data[col]).flatten()
+            for col in self._demand_instrument_columns
+        ])
+
+    def _compute_W_D(self, Z_D: Array, N: int) -> Array:
+        if self._W_demand is not None:
+            return self._W_demand
+        return np.linalg.inv((1 / N) * Z_D.T @ Z_D)
+
+    @staticmethod
+    def _compute_s0(shares: Array, market_ids: Array) -> Array:
+        """Outside-good share per observation, computed per market."""
+        s0 = np.zeros(shares.shape[0])
+        for t in np.unique(market_ids):
+            mask = market_ids == t
+            s0[mask] = 1.0 - shares[mask].sum()
+        return s0
+
+    def _log_within_nest_shares(
+            self, shares: Array, market_ids: Array
+    ) -> List[Array]:
+        """``log(s_{j|g_l})`` vectors, one per nesting level.
+
+        Returns a list of length ``L = len(self._sigma)``. For plain logit
+        (L=0) returns ``[]``. Matches the inline loop in
+        ``Problem._compute_analytical_demand_adjustment``.
+        """
+        L = len(self._sigma)
+        if L == 0:
+            return []
+        cols = self._nesting_ids_columns
+        if cols is None:
+            cols = _infer_nesting_columns(self._product_data, L)
+        result: List[Array] = []
+        N = shares.shape[0]
+        for col in cols:
+            nest_ids = np.asarray(self._product_data[col]).flatten()
+            within = np.zeros(N)
+            for t in np.unique(market_ids):
+                idx = np.where(market_ids == t)[0]
+                nest_t = nest_ids[idx]
+                s_t = shares[idx]
+                for g in np.unique(nest_t):
+                    mask = nest_t == g
+                    nest_sum = s_t[mask].sum()
+                    within[idx[mask]] = s_t[mask] / nest_sum
+            result.append(np.log(within))
+        return result
 
 

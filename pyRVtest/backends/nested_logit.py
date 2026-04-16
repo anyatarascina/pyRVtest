@@ -41,17 +41,36 @@ class NestedLogitBackend(LogitBackend):
 
     Parameters are ordered: theta = [alpha, sigma_1, sigma_2, ..., sigma_L].
     `perturbed(0, delta)` shifts alpha; `perturbed(1+i, delta)` shifts sigma[i].
+
+    v0.4 step 4c: sigmas of exactly 0 are filtered at construction to match
+    the inline `_compute_analytical_demand_adjustment` convention (a zero
+    sigma collapses that nesting level to plain logit, so it contributes
+    nothing to theta). ``demand_moments`` / ``xi_gradient`` /
+    ``jacobian_gradient`` are inherited unchanged from ``LogitBackend``;
+    they key on ``self._sigma`` (which ``LogitBackend.__init__`` defaults
+    to ``[]`` and this class overrides with the filtered user-supplied
+    list).
     """
 
     def __init__(
             self, alpha: float, sigma: List[float], product_data: Mapping,
-            nesting_ids_columns: Optional[List[str]] = None
+            nesting_ids_columns: Optional[List[str]] = None,
+            beta: Optional[Array] = None,
+            x_columns: Optional[List[str]] = None,
+            demand_instrument_columns: Optional[List[str]] = None,
+            W_demand: Optional[Array] = None,
     ) -> None:
-        self._alpha = float(alpha)
-        self._sigma = list(sigma)
-        self._product_data = product_data
+        super().__init__(
+            alpha=alpha, product_data=product_data,
+            beta=beta, x_columns=x_columns,
+            demand_instrument_columns=demand_instrument_columns, W_demand=W_demand,
+        )
+        # Filter nonzero: a sigma of exactly 0 is plain logit at that level.
+        # This matches the inline convention in both
+        # compute_analytical_jacobian (backends/logit.py) and
+        # Problem._compute_analytical_demand_adjustment (problem.py).
+        self._sigma = [float(s) for s in sigma if s > 0]
         self._nesting_ids_columns = nesting_ids_columns
-        self._jacobian_cache: Optional[Array] = None
 
     @property
     def n_parameters(self) -> int:
