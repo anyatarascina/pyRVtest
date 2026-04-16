@@ -115,7 +115,7 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.solve.passthrough', []),
     ('pyRVtest.solve.orthogonalize', []),
     ('pyRVtest.solve.endogenous_cost', []),
-    ('pyRVtest.solve.demand_adjustment', []),
+    ('pyRVtest.solve.demand_adjustment', ['_residualize_on_xd']),  # v0.4 step 4b
     ('pyRVtest.solve.test_engine', []),
     # Added in v0.4 step 2: Products extracted to its own module.
     ('pyRVtest.products', ['Products']),

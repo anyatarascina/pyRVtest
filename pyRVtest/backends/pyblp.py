@@ -29,6 +29,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .. import options
+from ..solve.demand_adjustment import _residualize_on_xd
 
 
 __all__ = ['PyBLPBackend']
@@ -210,18 +211,10 @@ class PyBLPBackend:
             N = r.problem.products.prices.shape[0]
             partial_y_theta = np.reshape(absorbed, [N, n_theta])
 
-        if not XD.shape[1]:
-            return partial_y_theta
-
         ZD = r.problem.products.ZD
         WD = self._select_weight_matrix()
-        product: _NDArray = (
-            XD
-            @ np.linalg.inv(XD.T @ ZD @ WD @ ZD.T @ XD)
-            @ (XD.T @ ZD @ WD @ ZD.T @ partial_y_theta)
-        )
-        residualized: _NDArray = partial_y_theta - product
-        return residualized
+        # v0.4 step 4b: shared 2SLS-residualize helper (single source of truth).
+        return _residualize_on_xd(partial_y_theta, XD, ZD, WD)
 
     def jacobian_gradient(self, market_id: Any) -> _NDArray:
         """Finite-difference fallback for d(D)/d(theta) in one market.
