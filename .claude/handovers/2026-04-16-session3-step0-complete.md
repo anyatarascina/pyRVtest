@@ -3,9 +3,9 @@
 **Date:** 2026-04-16 (third session of the day, continuing from `2026-04-16-v0.4-refactor-design.md`)
 **Branches:**
 - `CClean-fixes` at `e921649` on origin — Step 0 protection
-- `v0.4-refactor` at `f7da57b` on origin — branched from `CClean-fixes`, steps 1 + 2 landed
+- `v0.4-refactor` at HEAD on origin — branched from `CClean-fixes`, steps 1 + 2 + 3 landed plus post-step-3 file split
 **Tag:** `v0.3.3-stable` (annotated, pushed) pointing at `47b4457` on `CClean-fixes`
-**Status:** v0.4 Step 0 protection landed (except 0d real data) AND v0.4 migration steps 1 (module skeleton) + 2 (extract Products) committed and pushed. 121 tests pass + 3 skipped on `v0.4-refactor`. Step 3 (DemandBackend protocol + four backend implementations) is the next work item.
+**Status:** v0.4 Step 0 protection landed (except 0d real data), migration steps 1 (skeleton) + 2 (Products) + 3 (DemandBackend + 4 backends + additive wiring) committed and pushed. 155 tests pass + 3 skipped on `v0.4-refactor`. Step 4 (unify demand adjustment + complete step 3e deferrals) is the next work item. Plan doc `.claude/plans/v0.4-refactor.md` updated with the actual step 3 scope (additive only) and the split of `NestedLogitBackend` into its own file.
 
 ## TL;DR
 
@@ -115,6 +115,13 @@ Tag `v0.3.3-stable` pushed to origin at `47b4457`.
 | `7e20ccb` | REFACTOR: v0.4 step 1 module skeleton + __all__ declarations |
 | `e3daa21` | DOC: update handover + memo after step 1 skeleton lands |
 | `f7da57b` | REFACTOR: v0.4 step 2 extract Products -> products.py (+ mypy strict) |
+| `e7c7fbc` | DOC: update handover + memo after step 2 (Products extraction) |
+| `063cfd5` | REFACTOR: v0.4 step 3a DemandBackend + SupportsDemandAdjustment protocols |
+| `f0b61a8` | REFACTOR: v0.4 step 3b PyBLPBackend implementation + unit tests |
+| `e1ee8cb` | REFACTOR: v0.4 step 3c LogitBackend + NestedLogitBackend + move demand_jacobian content |
+| `ee5e31b` | REFACTOR: v0.4 step 3d UserSuppliedBackend escape hatch |
+| `c87b199` | REFACTOR: v0.4 step 3e wire demand_backend into _compute_markups |
+| (pending) | REFACTOR: split NestedLogitBackend into backends/nested_logit.py + plan doc updates |
 
 ---
 
@@ -153,41 +160,64 @@ Verification:
 
 Uncertainty flagged: the `# type: ignore[attr-defined]` annotations collapsed from two to one in the L=1 Z-building branch. The L>1 branch now uses an `assert f_l is not None`. Runtime-equivalent; flagged for audit at step 17.
 
-## What's next — step 3
+## Step 3: DONE — five sub-commits landed
 
-Per `.claude/plans/v0.4-refactor.md` §5:
+Step 3 shipped as five sub-commits on `v0.4-refactor`:
 
-> Step 3 | Add `DemandBackend` protocol + `SupportsDemandAdjustment` mixin + `PyBLPBackend` + `LogitBackend` + `NestedLogitBackend` + `UserSuppliedBackend`. Wire into `_compute_markups`. Delete `demand_jacobian.py` (merged into `backends/logit.py`). | All step-0 tests including equivalence + backend unit tests + property test: determinism across backends on a shared DGP
+  - `063cfd5` — 3a protocols (`DemandBackend` + `SupportsDemandAdjustment`).
+  - `f0b61a8` — 3b `PyBLPBackend` with 10 unit tests.
+  - `e1ee8cb` — 3c `LogitBackend` + `NestedLogitBackend` + `demand_jacobian.py` content moved to `backends/logit.py` (shim preserved). 11 new unit tests.
+  - `ee5e31b` — 3d `UserSuppliedBackend` escape hatch. 9 new unit tests.
+  - `c87b199` — 3e wire `demand_backend` into `_compute_markups` (additive). 1 new equivalence test.
 
-This is the largest single migration step. The PyBLPBackend prototype is already worked out in §3 of the design doc — encapsulation is mechanically straightforward (all five PyBLP private attributes `_sigma`, `_pi`, `_beta`, `_rho`, `_delta` get hidden behind the `perturbed(k, delta)` context manager and five public methods).
+Post-step-3 polish (pending commit when this handover is pushed): split `NestedLogitBackend` into its own `backends/nested_logit.py` for user-facing clarity (tracebacks + API docs), plus plan-doc updates documenting step 3e's actual scope.
 
-**Sub-tasks (proposed split into multiple commits for easier review):**
+Full suite after step 3 + split: **155 passed + 3 skipped in 2:47**. All 6 Step 0 snapshots still match at `atol=1e-10`.
 
-1. **3a — Protocol.** Populate `pyRVtest/backends/base.py` with the `DemandBackend` Protocol and the `SupportsDemandAdjustment` optional mixin. Add `__all__ = ['DemandBackend', 'SupportsDemandAdjustment']` to both `base.py` and `backends/__init__.py`. No behavior change — just the Protocol class definition. mypy strict on `base.py`.
+### What step 3 deliberately did NOT do (deferred to step 4)
 
-2. **3b — PyBLPBackend.** Populate `pyRVtest/backends/pyblp.py` with the prototype from §3 of the plan. Does NOT yet wire into `_compute_markups`; just makes the class importable and unit-testable. Add unit tests (isolation test: PyBLPBackend's private-attribute access still works; equivalence test: its `compute_jacobian()` returns what `_compute_markups`'s inline code currently computes).
+Plan §5 was updated to reflect this accurately. The deferrals:
 
-3. **3c — LogitBackend + NestedLogitBackend.** Populate `pyRVtest/backends/logit.py` by moving the content of `pyRVtest/demand_jacobian.py` into class-based implementations. Delete `pyRVtest/demand_jacobian.py`. Add unit tests.
+1. **Vertical-integration Hessian path** still uses the existing code (`compute_analytical_hessian` for `demand_jacobian` path; `construct_passthrough_matrix` for `pyblp_results` path). Threading `backend.compute_hessian(market_id=t)` through the vertical loop in `_compute_markups` is step 4.
 
-4. **3d — UserSuppliedBackend.** Populate `pyRVtest/backends/user.py` with a minimal implementation accepting a user-supplied Jacobian function. Add unit tests.
+2. **`demand_jacobian.py` is a shim**, not deleted. Internal callers (`problem.py`, `markups.py`) and external tests (`test_demand_params.py`, `test_demand_params_integration.py`) still import from `pyRVtest.demand_jacobian`. Deletion + import updates is step 4.
 
-5. **3e — Wire the backends into `_compute_markups`.** Replace the current `if self.demand_params is not None / else` branch in `markups.py` with a single backend-based code path. This is the commit that actually changes runtime behavior — all Step 0 snapshots and the first-stage-correction equivalence tests must still pass at `atol=1e-10`. Property test for determinism across backends on a shared DGP lands here.
+3. **`Problem.__init__` does not construct backends internally.** The `demand_backend` parameter lives on `_compute_markups` only. `Problem(demand_results=X)` / `Problem(demand_params={...})` still go through the legacy construction paths. Integrating backend construction at `Problem.__init__` is step 4 — doing it requires the vertical path to also be backend-aware.
 
-6. **Track progress via the import-roundtrip test.** Each sub-step updates the expected `__all__` for the relevant backend module in `_STEP_1_SKELETON_MODULES`.
+4. **`LogitBackend` and `NestedLogitBackend` do NOT implement `SupportsDemandAdjustment`.** They have only the core `DemandBackend` methods (`compute_jacobian`, `compute_hessian`, `perturbed`, `n_parameters`, `theta_names`). Adding `demand_moments`, `xi_gradient`, `jacobian_gradient` to them requires access to the `Problem`-level demand estimation data (xi, ZD, WD); that plumbing is step 4's.
 
-**Critical safety:**
+## What's next — step 4
 
-- Run the full suite after every sub-commit. If any Step 0 snapshot fails, revert that sub-commit and investigate (per the rollback-trigger criteria in §5 of the plan).
-- The first-stage-correction equivalence test (tests/test_first_stage_correction.py) must keep passing at machine precision — the new backend-generic `compute_demand_adjustment` in sub-step 3e will be what's tested.
-- Do NOT yet delete the old paths in `problem.py` (`_compute_analytical_demand_adjustment`, `_compute_demand_adjustment_gradient`). Those stay as reference implementations until step 4 unifies them.
+Per the updated `.claude/plans/v0.4-refactor.md` §5:
 
-**What NOT to do in step 3:**
+> Step 4 | Unify demand adjustment behind backend. Delete `_compute_analytical_demand_adjustment` and `_compute_demand_adjustment_gradient`; replace with single `solve/demand_adjustment.py` generic over backend. Also complete the step-3 deferrals: (a) thread `backend.compute_hessian` through the vertical path in `_compute_markups`; (b) delete the `demand_jacobian.py` shim and update internal callers / tests to import from `backends.logit`; (c) have `Problem.__init__` construct the appropriate backend internally; (d) add `SupportsDemandAdjustment` (with `demand_moments`, `xi_gradient`, `jacobian_gradient`) to `LogitBackend` and `NestedLogitBackend`.
 
-- Do not unify the two demand-adjustment paths (that's step 4).
-- Do not change the public API. `Problem(demand_results=..., ...)` and `Problem(demand_params=..., ...)` must keep working identically.
-- Do not add labor-side backends yet (that's step 14).
+Step 4 is the riskiest step in the entire v0.4 plan because it touches the first-stage-correction code that had the three b3b08a3 bugs. Every commit within step 4 must pass:
+- All 6 Step 0 snapshots at `atol=1e-10`
+- All 9 first-stage-correction equivalence tests at machine precision
+- The backend-equivalence test from step 3e
+- The new property tests mentioned in the plan's §5 step 4 row (row-permutation invariance)
 
-**Incremental mypy note:** each new backend module gets a `[mypy-pyRVtest.backends.<name>]` strict section in `mypy.ini`. PyBLP internal types may need `# type: ignore[attr-defined]` on `_sigma`, `_pi`, etc. — each such ignore should have a short comment noting that the attribute is intentionally private (these are the very attributes the backend encapsulates).
+Recommended sub-commit strategy for step 4:
+
+1. **4a — Add `SupportsDemandAdjustment` to `LogitBackend` + `NestedLogitBackend`.** Port the analytic-path logic from `_compute_analytical_demand_adjustment` into the backend classes. Keep the existing `_compute_analytical_demand_adjustment` in `problem.py` intact for now. Add a unit test asserting the backend produces the same `demand_moments` / `xi_gradient` / `jacobian_gradient` as the inline code.
+
+2. **4b — Thread `backend.compute_hessian` through the vertical path in `_compute_markups`.** When a backend is provided, use `backend.compute_hessian(market_id=t)` instead of `compute_analytical_hessian(...)` or `construct_passthrough_matrix(pyblp_results, t, ...)`. Snapshot tests catch any drift.
+
+3. **4c — Have `Problem.__init__` construct the backend.** When `demand_results` is passed, wrap it in `PyBLPBackend`. When `demand_params` is passed, construct `LogitBackend` or `NestedLogitBackend` as appropriate. Thread the backend through `.solve()` into `_compute_markups` and the demand-adjustment path.
+
+4. **4d — Delete `_compute_analytical_demand_adjustment` and `_compute_demand_adjustment_gradient`.** Replace with a single `solve/demand_adjustment.py` module that takes a `SupportsDemandAdjustment` backend and returns the corrected psi. This is the commit where the two parallel paths finally merge.
+
+5. **4e — Delete `demand_jacobian.py` shim.** Update all internal callers and tests to import from `backends.logit`. Remove the shim file.
+
+6. **4f — Add row-permutation invariance property test.** Random permutation of product rows within a market should leave all outputs invariant; this is a standard invariance of demand estimation + markup computation that any correctly-wired refactor should preserve.
+
+**Critical safety throughout step 4:**
+
+- Snapshots + first-stage-correction tests must pass at machine precision on every sub-commit.
+- Do NOT change numeric behavior. Every sub-commit must produce byte-identical markups/g/Q/TRV/F/MCS_pvalues to the pre-step-4 code.
+- If a sub-commit breaks anything, revert immediately (§10 soft-revert) and investigate.
+- The most likely drift location is in the `xi_gradient` / `jacobian_gradient` implementations on `LogitBackend` / `NestedLogitBackend` — those are re-derivations of DMSS Appendix C eq. 77 from the analytical side, and subtle sign / concentration bugs are exactly what b3b08a3 fixed on the inline path.
 
 ---
 

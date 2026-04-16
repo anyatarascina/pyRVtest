@@ -1,21 +1,29 @@
-"""Analytical demand Jacobian/Hessian for logit and multi-level nested logit.
+"""Analytical demand Jacobian/Hessian for plain logit + shared module-level helpers.
 
-v0.4 step 3c. Consolidates:
+v0.4 step 3c landed the initial version; this file was split post-step-3
+for user-facing clarity (tracebacks + API docs). Contents now:
 
-  - Module-level functions `compute_analytical_jacobian`,
-    `_logit_jacobian`, `_nested_logit_jacobian`,
-    `_nested_logit_jacobian_derivative`, `compute_analytical_hessian`,
-    `_infer_nesting_columns` — moved verbatim from
-    `pyRVtest/demand_jacobian.py`. That module is now a thin shim that
-    re-exports these names for backward compatibility with existing
-    callers (pyRVtest/problem.py, pyRVtest/markups.py, tests).
+  - Module-level functions for logit and nested-logit math
+    (`compute_analytical_jacobian`, `_logit_jacobian`,
+    `_nested_logit_jacobian`, `_nested_logit_jacobian_derivative`,
+    `compute_analytical_hessian`, `_infer_nesting_columns`) — moved
+    verbatim from `pyRVtest/demand_jacobian.py`. That module is now a
+    thin shim that re-exports these names for backward compatibility
+    with existing callers (pyRVtest/problem.py, pyRVtest/markups.py,
+    tests).
 
-  - Class wrappers `LogitBackend` and `NestedLogitBackend` that satisfy
-    the DemandBackend protocol (compute_jacobian, compute_hessian,
-    perturbed, n_parameters, theta_names). Step 3e wires these into
-    `_compute_markups`. SupportsDemandAdjustment is NOT implemented
-    here — that lands in step 4 when we unify the two demand-
-    adjustment paths.
+  - `LogitBackend` class: plain-logit (sigma=[]) DemandBackend wrapper.
+    Parameter count = 1 (just alpha).
+
+`NestedLogitBackend` moved to `pyRVtest/backends/nested_logit.py` and
+subclasses `LogitBackend`. Users who want nested logit do:
+
+    from pyRVtest.backends import NestedLogitBackend
+    # or, for submodule access:
+    from pyRVtest.backends.nested_logit import NestedLogitBackend
+
+SupportsDemandAdjustment is NOT implemented here — that lands in step 4
+when we unify the two demand-adjustment paths.
 
 Based on Berry (1994) for plain logit (sigma=[]) and the general
 L-level nested-logit formulas in AFSSZ equation (6).
@@ -38,9 +46,8 @@ __all__ = [
     '_nested_logit_jacobian',
     '_nested_logit_jacobian_derivative',
     '_infer_nesting_columns',
-    # Class-based backends (step 3c+)
+    # Plain-logit class (NestedLogitBackend now lives in nested_logit.py).
     'LogitBackend',
-    'NestedLogitBackend',
 ]
 
 
@@ -378,82 +385,3 @@ class LogitBackend:
             self._jacobian_cache = saved_cache
 
 
-class NestedLogitBackend(LogitBackend):
-    """Analytical DemandBackend for L-level nested logit.
-
-    Parameters are ordered: theta = [alpha, sigma_1, sigma_2, ..., sigma_L].
-    `perturbed(0, delta)` shifts alpha; `perturbed(1+i, delta)` shifts sigma[i].
-    """
-
-    def __init__(
-            self, alpha: float, sigma: List[float], product_data: Mapping,
-            nesting_ids_columns: Optional[List[str]] = None
-    ) -> None:
-        self._alpha = float(alpha)
-        self._sigma = list(sigma)
-        self._product_data = product_data
-        self._nesting_ids_columns = nesting_ids_columns
-        self._jacobian_cache: Optional[Array] = None
-
-    @property
-    def n_parameters(self) -> int:
-        return 1 + len(self._sigma)
-
-    @property
-    def theta_names(self) -> List[str]:
-        return ['alpha'] + [f'sigma[{i}]' for i in range(len(self._sigma))]
-
-    def compute_jacobian(self, market_id: Any = None) -> Array:
-        if self._jacobian_cache is None:
-            self._jacobian_cache = compute_analytical_jacobian(
-                self._alpha, self._sigma, self._product_data,
-                nesting_ids_columns=self._nesting_ids_columns
-            )
-        full = self._jacobian_cache
-        if market_id is None:
-            return full
-        mids = np.asarray(self._product_data['market_ids']).flatten()
-        idx = np.where(mids == market_id)[0]
-        block = full[idx]
-        block = block[:, ~np.isnan(block).all(axis=0)]
-        return block
-
-    def compute_hessian(self, market_id: Any) -> Array:
-        mids = np.asarray(self._product_data['market_ids']).flatten()
-        idx = np.where(mids == market_id)[0]
-        shares = np.asarray(self._product_data['shares']).flatten()[idx]
-        # Build per-market nesting arrays
-        sigma_active = [s for s in self._sigma if s > 0]
-        nesting_t: List[Array] = []
-        if sigma_active:
-            cols = self._nesting_ids_columns
-            if cols is None:
-                cols = _infer_nesting_columns(self._product_data, len(sigma_active))
-            for col in cols:
-                arr = np.asarray(self._product_data[col]).flatten()
-                nesting_t.append(arr[idx])
-        return compute_analytical_hessian(self._alpha, sigma_active, shares, nesting_t)
-
-    @contextmanager
-    def perturbed(self, theta_index: int, delta: float) -> Iterator['NestedLogitBackend']:
-        n = self.n_parameters
-        if theta_index < 0 or theta_index >= n:
-            raise IndexError(
-                f"NestedLogitBackend has {n} parameters; theta_index must be in [0, {n}), "
-                f"got {theta_index}."
-            )
-        saved_alpha = self._alpha
-        saved_sigma = list(self._sigma)
-        saved_cache = self._jacobian_cache
-        try:
-            if theta_index == 0:
-                self._alpha = saved_alpha + delta
-            else:
-                sigma_index = theta_index - 1
-                self._sigma[sigma_index] = saved_sigma[sigma_index] + delta
-            self._jacobian_cache = None
-            yield self
-        finally:
-            self._alpha = saved_alpha
-            self._sigma = saved_sigma
-            self._jacobian_cache = saved_cache

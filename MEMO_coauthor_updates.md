@@ -9,15 +9,15 @@ This is a running memo of pyRVtest changes that affect methodology, results, or 
 
 ---
 
-## Status right now (2026-04-16 late evening, post step 2)
+## Status right now (2026-04-16 very late, post step 3 + split)
 
 **Branches:**
-- `CClean-fixes` at `e921649` on origin — Step 0 protection (frozen for now)
-- `v0.4-refactor` at `f7da57b` on origin — branched from `CClean-fixes`, steps 1 + 2 landed
+- `CClean-fixes` at `e921649` on origin — Step 0 protection (frozen)
+- `v0.4-refactor` at HEAD on origin — branched from `CClean-fixes`, steps 1 + 2 + 3 landed plus `NestedLogitBackend` split into its own file
 
-**Tag:** `v0.3.3-stable` annotated, pushed at `47b4457` on `CClean-fixes` (baseline anchor for nuclear revert).
-**Tests (on v0.4-refactor):** 121 pass + 3 skipped (DMSS yogurt placeholders pending Lorenzo).
-**Headline:** v0.4 Step 0 protection + steps 1 + 2 landed. `Products` now lives in its own module with mypy-strict-clean type hints. Step 3 (the big one — `DemandBackend` protocol + four backend implementations) is next. Lorenzo's 0d input is still the only Step 0 item outstanding.
+**Tag:** `v0.3.3-stable` annotated, pushed at `47b4457` on `CClean-fixes` (nuclear-revert anchor).
+**Tests (on v0.4-refactor):** 155 pass + 3 skipped (DMSS yogurt placeholders pending Lorenzo).
+**Headline:** v0.4 migration now has the `DemandBackend` protocol and all four backend classes (`PyBLPBackend`, `LogitBackend`, `NestedLogitBackend`, `UserSuppliedBackend`). `_compute_markups` accepts a `demand_backend` parameter and a new equivalence test asserts backend output matches the legacy `pyblp_results` path to `atol=1e-14`. The existing `demand_params` and `pyblp_results` paths remain fully functional — step 3 is **additive-only**. Step 4 (unifying the two demand-adjustment paths, deleting the `demand_jacobian.py` shim, adding `SupportsDemandAdjustment` to the logit backends, threading vertical Hessian through the backend) is the next work item.
 
 **What coauthors need to know right now:**
 
@@ -44,6 +44,56 @@ This is a running memo of pyRVtest changes that affect methodology, results, or 
    Scaffold is ready at `tests/replication/test_dmss_yogurt.py` with a `NEEDED FROM LORENZO` block listing these items. Populating the constants and un-skipping the three tests is sufficient to complete 0d.
 
 6. **Next step on the refactor:** v0.4 migration step 1 — create the module skeleton (empty `backends/`, `models/`, `instruments/`, `solve/`, `results/` subpackages; `__init__.py` re-exports preserve the current public API). No behavior change. Will land on a new `v0.4-refactor` branch off `CClean-fixes`.
+
+---
+
+## 2026-04-16 (very late, post step 3 + split) — v0.4 migration step 3 landed (five sub-commits) + file split
+
+### Step 3: DemandBackend protocol and all four backend classes
+
+Shipped as five sub-commits on `v0.4-refactor`:
+
+| Commit | Sub-step | Contents |
+|---|---|---|
+| `063cfd5` | 3a | `DemandBackend` + `SupportsDemandAdjustment` Protocols (`backends/base.py`) |
+| `f0b61a8` | 3b | `PyBLPBackend` class + 10 unit tests. Wraps a `pyblp.ProblemResults` behind the protocol; encapsulates private-attribute access to `_sigma`, `_pi`, `_beta`, `_rho`, `_delta`. Default weight is `r.W` per DMSS eq. 77 (guards against regression of b3b08a3's Bug 3). |
+| `e1ee8cb` | 3c | `LogitBackend` + `NestedLogitBackend` classes + 11 unit tests. Content of `pyRVtest/demand_jacobian.py` moved verbatim to `pyRVtest/backends/logit.py`; the old file is now a thin shim preserving backward compatibility for existing tests and internal callers. |
+| `ee5e31b` | 3d | `UserSuppliedBackend` escape hatch + 9 unit tests. Wraps a precomputed Jacobian + optional Hessian callable + optional perturb callback. Implements only the core `DemandBackend` protocol, not `SupportsDemandAdjustment` — users supplying a custom demand system provide adjustment inputs separately. |
+| `c87b199` | 3e | Wire `demand_backend` parameter into `_compute_markups`. Additive: legacy `pyblp_results` / `demand_jacobian` paths unchanged. New `test_pyblp_backend_matches_pyblp_results_path` asserts `_compute_markups(pyblp_results=X)` == `_compute_markups(demand_backend=PyBLPBackend(X))` to `atol=1e-14`. |
+
+Post-step-3 polish (pending commit): `NestedLogitBackend` split from `backends/logit.py` into its own `backends/nested_logit.py`. Rationale is user-facing: tracebacks point at the right file, auto-generated API docs get one page per backend class, future additions (RC-logit analytical, BLP analytical) fit naturally without another rename.
+
+### What step 3 deliberately did NOT do (deferred to step 4)
+
+The plan's §5 step 3 and step 4 descriptions were updated to reflect these deferrals accurately. The gap between original plan and actual step 3 ships:
+
+1. **Vertical-integration Hessian** in `_compute_markups` still uses the legacy code — `construct_passthrough_matrix` for the `pyblp_results` path, `compute_analytical_hessian` for the `demand_jacobian` path. Threading `backend.compute_hessian(market_id=t)` through the vertical loop is step 4.
+
+2. **`pyRVtest/demand_jacobian.py` is kept as a backward-compat shim**, not deleted. Its canonical content lives in `backends/logit.py`; the shim re-exports the module-level functions. Deletion + import updates across `problem.py`, `markups.py`, and the two `test_demand_params*.py` files is step 4.
+
+3. **`Problem.__init__` does not yet construct a backend internally.** The `demand_backend` parameter lives on `_compute_markups` only. Users calling `Problem(demand_results=...)` or `Problem(demand_params={...})` still go through the legacy construction paths. Problem-level backend integration is step 4 — doing it requires the vertical path (deferral 1) to also be backend-aware.
+
+4. **`LogitBackend` and `NestedLogitBackend` do NOT implement `SupportsDemandAdjustment`** yet. They have only the core `DemandBackend` methods. Adding `demand_moments`, `xi_gradient`, `jacobian_gradient` to them requires re-deriving the analytical demand-adjustment logic from `_compute_analytical_demand_adjustment` (the code that had Bugs 1 and 2 in b3b08a3). That work happens in step 4 under the first-stage-correction tests' watchful eye.
+
+All four deferrals are aligned with the plan's §5 step 4 description.
+
+### Why additive-only wiring was the right call
+
+Step 3e could have REPLACED the legacy demand-Jacobian fetching logic in `_compute_markups` instead of adding a parallel path. I chose additive because:
+
+- Step 0 snapshots hash the legacy behavior. Any change to the default code path risks snapshot drift.
+- The first-stage-correction equivalence tests (9 tests) currently verify the b3b08a3 bug fixes. Those tests go through the legacy path; any refactor of that path needs to preserve their passing state.
+- Additive wiring lets the next Claude commit to step 4 (which DOES need to change the default path) with the confidence that step 3's six sub-commits can each be reverted independently without disturbing the rest.
+
+### Verification
+
+Full test suite on `v0.4-refactor` after step 3 + split: **155 passed + 3 skipped in 2:47**. All 6 Step 0 snapshots still match at `atol=1e-10`. All 9 first-stage-correction equivalence tests still pass at machine precision. All 31 new backend unit tests pass.
+
+### What coauthors should notice
+
+- **No behavior change yet.** If you pull `v0.4-refactor` and run your existing code, outputs are byte-identical to `CClean-fixes`.
+- **New import paths are available.** `from pyRVtest.backends import PyBLPBackend, LogitBackend, NestedLogitBackend, UserSuppliedBackend` works. Classes are importable and unit-tested but not yet used by `Problem.solve()`.
+- **Step 4 is where the real rewire happens.** That's the risky one — it deletes the two parallel demand-adjustment paths (`_compute_analytical_demand_adjustment` and `_compute_demand_adjustment_gradient` in `problem.py`) and replaces them with a single backend-generic `solve/demand_adjustment.py`. If anything breaks there, Step 0 snapshots + first-stage-correction tests catch it at the commit that introduces the regression.
 
 ---
 

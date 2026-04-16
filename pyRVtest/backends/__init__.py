@@ -11,7 +11,8 @@ for the PyBLPBackend prototype design.
 """
 
 from .base import DemandBackend, SupportsDemandAdjustment
-from .logit import LogitBackend, NestedLogitBackend
+from .logit import LogitBackend
+from .nested_logit import NestedLogitBackend
 from .pyblp import PyBLPBackend
 from .user import UserSuppliedBackend
 

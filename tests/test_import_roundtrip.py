@@ -92,8 +92,10 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
         'compute_analytical_jacobian', 'compute_analytical_hessian',
         '_logit_jacobian', '_nested_logit_jacobian',
         '_nested_logit_jacobian_derivative', '_infer_nesting_columns',
-        'LogitBackend', 'NestedLogitBackend',
+        'LogitBackend',
     ]),
+    # Split out after step 3 for user-facing clarity (tracebacks + API docs).
+    ('pyRVtest.backends.nested_logit', ['NestedLogitBackend']),
     ('pyRVtest.backends.user', ['UserSuppliedBackend']),
     ('pyRVtest.backends.labor', []),
     ('pyRVtest.backends.labor.nested_logit_labor', []),
