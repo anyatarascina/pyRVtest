@@ -23,6 +23,8 @@ build
 
 # testing generated files
 .tox
+.hypothesis/
+.pytest_cache/
 
 # documentation generated files
 docs/Makefile

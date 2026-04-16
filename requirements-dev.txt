@@ -1,0 +1,14 @@
+# Development dependencies for pyRVtest.
+# Install with: pip install -r requirements-dev.txt
+#
+# Runtime dependencies are in requirements.txt and setup.py.
+# This file is for testing and development tooling only.
+
+-r requirements.txt
+
+# Test framework
+pytest>=7.0.0
+
+# Property-based testing (see tests/test_properties.py)
+# Added as part of v0.4 Step 0f baseline protection.
+hypothesis>=6.0.0
