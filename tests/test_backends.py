@@ -20,7 +20,7 @@ import pytest
 import pyRVtest
 from pyRVtest.backends import (
     DemandBackend, LogitBackend, NestedLogitBackend, PyBLPBackend,
-    SupportsDemandAdjustment,
+    SupportsDemandAdjustment, UserSuppliedBackend,
 )
 
 
@@ -298,3 +298,90 @@ class TestNestedLogitBackend:
             assert not np.allclose(during, before, atol=1e-14, equal_nan=True)
         after = backend.compute_jacobian()
         np.testing.assert_allclose(after, before, atol=1e-14, equal_nan=True)
+
+
+# ---------------------------------------------------------------------------
+# UserSuppliedBackend
+# ---------------------------------------------------------------------------
+
+class TestUserSuppliedBackend:
+    """Escape-hatch backend with a precomputed Jacobian."""
+
+    def _build(self, T=5, J=3):
+        market_ids = np.repeat(np.arange(T), J)
+        # NaN-padded (N, J_max) Jacobian. Since all markets have J=3 == J_max
+        # we don't need NaN padding, but the structure must still be (N, J).
+        jacobian = np.random.default_rng(seed=42).normal(size=(T * J, J))
+        return jacobian, market_ids
+
+    def test_satisfies_core_protocol(self):
+        jac, mids = self._build()
+        backend = UserSuppliedBackend(jacobian=jac, market_ids=mids)
+        assert isinstance(backend, DemandBackend)
+
+    def test_does_not_satisfy_demand_adjustment(self):
+        """UserSuppliedBackend deliberately does not implement SupportsDemandAdjustment."""
+        jac, mids = self._build()
+        backend = UserSuppliedBackend(jacobian=jac, market_ids=mids)
+        assert not isinstance(backend, SupportsDemandAdjustment)
+
+    def test_zero_parameters_by_default(self):
+        jac, mids = self._build()
+        backend = UserSuppliedBackend(jacobian=jac, market_ids=mids)
+        assert backend.n_parameters == 0
+        assert backend.theta_names == []
+
+    def test_compute_jacobian_returns_stored_array(self):
+        jac, mids = self._build()
+        backend = UserSuppliedBackend(jacobian=jac, market_ids=mids)
+        np.testing.assert_array_equal(backend.compute_jacobian(), jac)
+
+    def test_compute_hessian_returns_none_by_default(self):
+        jac, mids = self._build()
+        backend = UserSuppliedBackend(jacobian=jac, market_ids=mids)
+        assert backend.compute_hessian(market_id=0) is None
+
+    def test_perturb_raises_when_no_parameters(self):
+        jac, mids = self._build()
+        backend = UserSuppliedBackend(jacobian=jac, market_ids=mids)
+        with pytest.raises(NotImplementedError, match='without theta_names'):
+            with backend.perturbed(0, 0.1):
+                pass
+
+    def test_perturb_raises_when_no_callback(self):
+        jac, mids = self._build()
+        backend = UserSuppliedBackend(
+            jacobian=jac, market_ids=mids, theta_names=['alpha']
+        )
+        with pytest.raises(NotImplementedError, match='perturb_callback'):
+            with backend.perturbed(0, 0.1):
+                pass
+
+    def test_perturb_with_callback_yields_new_backend(self):
+        jac, mids = self._build()
+
+        def callback(idx: int, delta: float) -> UserSuppliedBackend:
+            new_jac = jac * (1.0 + delta)
+            return UserSuppliedBackend(jacobian=new_jac, market_ids=mids, theta_names=['alpha'])
+
+        backend = UserSuppliedBackend(
+            jacobian=jac, market_ids=mids,
+            theta_names=['alpha'], perturb_callback=callback
+        )
+        with backend.perturbed(0, 0.01) as perturbed_backend:
+            # Perturbed backend returns the scaled Jacobian
+            np.testing.assert_allclose(
+                perturbed_backend.compute_jacobian(), jac * 1.01, atol=1e-14
+            )
+        # Original backend is unchanged
+        np.testing.assert_array_equal(backend.compute_jacobian(), jac)
+
+    def test_construction_validates_shapes(self):
+        with pytest.raises(ValueError, match='2-D'):
+            UserSuppliedBackend(
+                jacobian=np.zeros(6), market_ids=np.arange(6),
+            )
+        with pytest.raises(ValueError, match='must match'):
+            UserSuppliedBackend(
+                jacobian=np.zeros((6, 3)), market_ids=np.arange(10),
+            )

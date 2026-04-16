@@ -80,9 +80,11 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     # Updated in step 3a: protocols populated in backends/base.py.
     # Updated in step 3b: PyBLPBackend added.
     # Updated in step 3c: LogitBackend, NestedLogitBackend added.
+    # Updated in step 3d: UserSuppliedBackend added.
     ('pyRVtest.backends', [
         'DemandBackend', 'SupportsDemandAdjustment',
         'PyBLPBackend', 'LogitBackend', 'NestedLogitBackend',
+        'UserSuppliedBackend',
     ]),
     ('pyRVtest.backends.base', ['DemandBackend', 'SupportsDemandAdjustment']),
     ('pyRVtest.backends.pyblp', ['PyBLPBackend']),
@@ -92,7 +94,7 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
         '_nested_logit_jacobian_derivative', '_infer_nesting_columns',
         'LogitBackend', 'NestedLogitBackend',
     ]),
-    ('pyRVtest.backends.user', []),
+    ('pyRVtest.backends.user', ['UserSuppliedBackend']),
     ('pyRVtest.backends.labor', []),
     ('pyRVtest.backends.labor.nested_logit_labor', []),
     ('pyRVtest.models', []),
