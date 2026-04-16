@@ -442,3 +442,305 @@ class TestBackendEquivalenceInComputeMarkups:
             markups_A[0], markups_B[0], atol=1e-14,
             err_msg="PyBLPBackend path diverges from direct pyblp_results path"
         )
+
+    def test_pyblp_backend_vertical_matches_pyblp_results_path(self, pyblp_logit_results):
+        """v0.4 step 4a: vertical (upstream+downstream) markups byte-identical via PyBLPBackend.
+
+        Vertical models require `_compute_markups` to pull a Hessian. Before step 4a the
+        only path was `construct_passthrough_matrix(pyblp_results, t, ...)`; step 4a routes
+        through `demand_backend.compute_hessian(market_id=t)` when a backend is supplied.
+        PyBLPBackend.compute_hessian calls the same `pyblp_results.compute_demand_hessians`
+        internally, so the two paths must be byte-identical.
+        """
+        from pyRVtest.markups import _compute_markups
+        from pyRVtest.problem import Models
+
+        data_dict = {
+            'market_ids': pyblp_logit_results.problem.products.market_ids,
+            'firm_ids': pyblp_logit_results.problem.products.firm_ids,
+            'shares': pyblp_logit_results.problem.products.shares,
+            'prices': pyblp_logit_results.problem.products.prices,
+        }
+        product_data = pd.DataFrame({k: np.asarray(v).flatten() for k, v in data_dict.items()})
+        # Upstream ownership: pretend a single upstream manufacturer serves all products.
+        product_data['upstream_firm_ids'] = np.ones(len(product_data), dtype=int)
+        product_data['vi_col'] = np.zeros(len(product_data), dtype=int)
+
+        models_formulations = (
+            pyRVtest.ModelFormulation(
+                model_downstream='bertrand', ownership_downstream='firm_ids',
+                model_upstream='monopoly', ownership_upstream='upstream_firm_ids',
+                vertical_integration='vi_col',
+            ),
+        )
+        models = Models(models_formulations, product_data)
+
+        # Path A: legacy pyblp_results vertical path
+        markups_A, down_A, up_A = _compute_markups(
+            product_data=product_data, pyblp_results=pyblp_logit_results,
+            model_downstream=models['models_downstream'],
+            ownership_downstream=models['ownership_downstream'],
+            model_upstream=models['models_upstream'],
+            ownership_upstream=models['ownership_upstream'],
+            vertical_integration=models['vertical_integration'],
+        )
+
+        # Path B: new demand_backend vertical path
+        backend = PyBLPBackend(pyblp_logit_results)
+        markups_B, down_B, up_B = _compute_markups(
+            product_data=product_data, pyblp_results=pyblp_logit_results,
+            model_downstream=models['models_downstream'],
+            ownership_downstream=models['ownership_downstream'],
+            model_upstream=models['models_upstream'],
+            ownership_upstream=models['ownership_upstream'],
+            vertical_integration=models['vertical_integration'],
+            demand_backend=backend,
+        )
+
+        np.testing.assert_allclose(
+            markups_A[0], markups_B[0], atol=1e-14,
+            err_msg="Vertical: PyBLPBackend diverges from legacy pyblp_results path"
+        )
+        np.testing.assert_allclose(
+            down_A[0], down_B[0], atol=1e-14,
+            err_msg="Vertical downstream: PyBLPBackend diverges from legacy path"
+        )
+        np.testing.assert_allclose(
+            up_A[0], up_B[0], atol=1e-14,
+            err_msg="Vertical upstream: PyBLPBackend diverges from legacy path"
+        )
+
+    def test_logit_backend_vertical_matches_demand_jacobian_path(self):
+        """v0.4 step 4a: vertical markups byte-identical via LogitBackend vs demand_jacobian.
+
+        The `demand_jacobian` path (demand_params-based analytical) uses
+        `compute_analytical_hessian` inline; LogitBackend.compute_hessian calls the same
+        function. Byte-identical output expected.
+
+        Uses a structured recarray (not a DataFrame) because `_compute_markups`'s inline
+        analytical-Hessian branch calls `shares_t.flatten()` and depends on the recarray
+        contract that `Problem` always supplies in real use.
+        """
+        from pyRVtest.backends.logit import compute_analytical_jacobian
+        from pyRVtest.markups import _compute_markups
+        from pyRVtest.problem import Models
+
+        # Synthetic vertical DGP: 6 markets, 4 products each, 2 downstream firms, 1 upstream.
+        rng = np.random.default_rng(seed=2024)
+        T, J = 6, 4
+        N = T * J
+        market_ids = np.repeat(np.arange(T), J)
+        downstream_firm_ids = np.tile([0, 0, 1, 1], T)
+        upstream_firm_ids = np.ones(N, dtype=int)
+        utilities = rng.normal(size=N)
+        shares = np.zeros(N)
+        for t in range(T):
+            idx = np.where(market_ids == t)[0]
+            exp_u = np.exp(utilities[idx])
+            shares[idx] = exp_u / (1.0 + exp_u.sum())
+        prices = rng.uniform(1.0, 3.0, size=N)
+        df = pd.DataFrame({
+            'market_ids': market_ids,
+            'firm_ids': downstream_firm_ids,
+            'upstream_firm_ids': upstream_firm_ids,
+            'shares': shares,
+            'prices': prices,
+            'vi_col': np.zeros(N, dtype=int),
+        })
+        product_data = df.to_records(index=False)
+
+        alpha = -2.0
+
+        models_formulations = (
+            pyRVtest.ModelFormulation(
+                model_downstream='bertrand', ownership_downstream='firm_ids',
+                model_upstream='monopoly', ownership_upstream='upstream_firm_ids',
+                vertical_integration='vi_col',
+            ),
+        )
+        models = Models(models_formulations, product_data)
+
+        # Path A: legacy demand_jacobian path
+        demand_jacobian = compute_analytical_jacobian(alpha, [], product_data, nesting_ids_columns=None)
+        markups_A, down_A, up_A = _compute_markups(
+            product_data=product_data, pyblp_results=None,
+            model_downstream=models['models_downstream'],
+            ownership_downstream=models['ownership_downstream'],
+            model_upstream=models['models_upstream'],
+            ownership_upstream=models['ownership_upstream'],
+            vertical_integration=models['vertical_integration'],
+            demand_jacobian=demand_jacobian, demand_alpha=alpha, demand_sigma=[],
+        )
+
+        # Path B: new LogitBackend path
+        backend = LogitBackend(alpha=alpha, product_data=product_data)
+        markups_B, down_B, up_B = _compute_markups(
+            product_data=product_data, pyblp_results=None,
+            model_downstream=models['models_downstream'],
+            ownership_downstream=models['ownership_downstream'],
+            model_upstream=models['models_upstream'],
+            ownership_upstream=models['ownership_upstream'],
+            vertical_integration=models['vertical_integration'],
+            demand_backend=backend,
+        )
+
+        np.testing.assert_allclose(
+            markups_A[0], markups_B[0], atol=1e-14,
+            err_msg="Vertical: LogitBackend diverges from demand_jacobian path"
+        )
+        np.testing.assert_allclose(
+            down_A[0], down_B[0], atol=1e-14,
+            err_msg="Vertical downstream: LogitBackend diverges from demand_jacobian path"
+        )
+        np.testing.assert_allclose(
+            up_A[0], up_B[0], atol=1e-14,
+            err_msg="Vertical upstream: LogitBackend diverges from demand_jacobian path"
+        )
+
+    def test_nested_logit_backend_vertical_matches_demand_jacobian_path(self):
+        """v0.4 step 4a: vertical markups byte-identical via NestedLogitBackend vs demand_jacobian."""
+        from pyRVtest.backends.logit import compute_analytical_jacobian
+        from pyRVtest.markups import _compute_markups
+        from pyRVtest.problem import Models
+
+        rng = np.random.default_rng(seed=31415)
+        T, J = 6, 4
+        N = T * J
+        market_ids = np.repeat(np.arange(T), J)
+        downstream_firm_ids = np.tile([0, 0, 1, 1], T)
+        upstream_firm_ids = np.ones(N, dtype=int)
+        nesting_ids = np.tile(['A', 'A', 'B', 'B'], T)
+        utilities = rng.normal(size=N)
+        shares = np.zeros(N)
+        for t in range(T):
+            idx = np.where(market_ids == t)[0]
+            exp_u = np.exp(utilities[idx])
+            shares[idx] = exp_u / (1.0 + exp_u.sum())
+        prices = rng.uniform(1.0, 3.0, size=N)
+        df = pd.DataFrame({
+            'market_ids': market_ids,
+            'firm_ids': downstream_firm_ids,
+            'upstream_firm_ids': upstream_firm_ids,
+            'nesting_ids': nesting_ids,
+            'shares': shares,
+            'prices': prices,
+            'vi_col': np.zeros(N, dtype=int),
+        })
+        product_data = df.to_records(index=False)
+
+        alpha = -2.0
+        sigma = [0.4]
+
+        models_formulations = (
+            pyRVtest.ModelFormulation(
+                model_downstream='bertrand', ownership_downstream='firm_ids',
+                model_upstream='monopoly', ownership_upstream='upstream_firm_ids',
+                vertical_integration='vi_col',
+            ),
+        )
+        models = Models(models_formulations, product_data)
+
+        # Path A: demand_jacobian path needs demand_nesting for the analytical Hessian branch
+        demand_jacobian = compute_analytical_jacobian(alpha, sigma, product_data, nesting_ids_columns=['nesting_ids'])
+        demand_nesting = [np.asarray(product_data['nesting_ids']).flatten()]
+        markups_A, down_A, up_A = _compute_markups(
+            product_data=product_data, pyblp_results=None,
+            model_downstream=models['models_downstream'],
+            ownership_downstream=models['ownership_downstream'],
+            model_upstream=models['models_upstream'],
+            ownership_upstream=models['ownership_upstream'],
+            vertical_integration=models['vertical_integration'],
+            demand_jacobian=demand_jacobian, demand_alpha=alpha,
+            demand_sigma=sigma, demand_nesting=demand_nesting,
+        )
+
+        # Path B: NestedLogitBackend
+        backend = NestedLogitBackend(
+            alpha=alpha, sigma=sigma, product_data=product_data,
+            nesting_ids_columns=['nesting_ids'],
+        )
+        markups_B, down_B, up_B = _compute_markups(
+            product_data=product_data, pyblp_results=None,
+            model_downstream=models['models_downstream'],
+            ownership_downstream=models['ownership_downstream'],
+            model_upstream=models['models_upstream'],
+            ownership_upstream=models['ownership_upstream'],
+            vertical_integration=models['vertical_integration'],
+            demand_backend=backend,
+        )
+
+        np.testing.assert_allclose(
+            markups_A[0], markups_B[0], atol=1e-14,
+            err_msg="Vertical nested: NestedLogitBackend diverges from demand_jacobian path"
+        )
+        np.testing.assert_allclose(
+            down_A[0], down_B[0], atol=1e-14,
+            err_msg="Vertical nested downstream: NestedLogitBackend diverges from demand_jacobian path"
+        )
+        np.testing.assert_allclose(
+            up_A[0], up_B[0], atol=1e-14,
+            err_msg="Vertical nested upstream: NestedLogitBackend diverges from demand_jacobian path"
+        )
+
+    def test_user_supplied_backend_without_hessian_raises_on_vertical(self):
+        """v0.4 step 4a: UserSuppliedBackend without hessian_fn raises on vertical models.
+
+        Vertical (upstream) markups require a Hessian. UserSuppliedBackend.compute_hessian
+        returns None by default. The vertical code path in `_compute_markups` raises a
+        clear error naming the backend and offering the fix.
+        """
+        from pyRVtest.markups import _compute_markups
+        from pyRVtest.problem import Models
+
+        rng = np.random.default_rng(seed=99)
+        T, J = 4, 3
+        N = T * J
+        market_ids = np.repeat(np.arange(T), J)
+        downstream_firm_ids = np.tile([0, 1, 1], T)
+        upstream_firm_ids = np.ones(N, dtype=int)
+        utilities = rng.normal(size=N)
+        shares = np.zeros(N)
+        for t in range(T):
+            idx = np.where(market_ids == t)[0]
+            exp_u = np.exp(utilities[idx])
+            shares[idx] = exp_u / (1.0 + exp_u.sum())
+        prices = rng.uniform(1.0, 3.0, size=N)
+        df = pd.DataFrame({
+            'market_ids': market_ids,
+            'firm_ids': downstream_firm_ids,
+            'upstream_firm_ids': upstream_firm_ids,
+            'shares': shares,
+            'prices': prices,
+            'vi_col': np.zeros(N, dtype=int),
+        })
+        product_data = df.to_records(index=False)
+
+        # Build a stacked NaN-padded Jacobian so UserSuppliedBackend doesn't blow up earlier.
+        jacobian = np.full((N, J), np.nan)
+        for t in range(T):
+            idx = np.where(market_ids == t)[0]
+            s_t = shares[idx]
+            D_t = -2.0 * (np.diag(s_t) - np.outer(s_t, s_t))
+            jacobian[idx[:, None], np.arange(len(idx))[None, :]] = D_t
+
+        backend = UserSuppliedBackend(jacobian=jacobian, market_ids=market_ids)
+
+        models_formulations = (
+            pyRVtest.ModelFormulation(
+                model_downstream='bertrand', ownership_downstream='firm_ids',
+                model_upstream='monopoly', ownership_upstream='upstream_firm_ids',
+                vertical_integration='vi_col',
+            ),
+        )
+        models = Models(models_formulations, product_data)
+
+        with pytest.raises(ValueError, match="returned None"):
+            _compute_markups(
+                product_data=product_data, pyblp_results=None,
+                model_downstream=models['models_downstream'],
+                ownership_downstream=models['ownership_downstream'],
+                model_upstream=models['models_upstream'],
+                ownership_upstream=models['ownership_upstream'],
+                vertical_integration=models['vertical_integration'],
+                demand_backend=backend,
+            )

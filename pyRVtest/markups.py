@@ -228,7 +228,27 @@ def _compute_markups(
 
                     # construct the matrix of derivatives with respect to prices for other manufacturers
                     markups_t = markups_downstream[i][index_t]
-                    if demand_jacobian is not None and pyblp_results is None:
+                    if demand_backend is not None:
+                        # v0.4 step 4a: Hessian from the backend. `PyBLPBackend.compute_hessian`
+                        # calls `pyblp_results.compute_demand_hessians(market_id=t)` (byte-identical
+                        # to what `construct_passthrough_matrix` does internally below).
+                        # `LogitBackend`/`NestedLogitBackend.compute_hessian` returns the analytical
+                        # Hessian (byte-identical to the `compute_analytical_hessian(...)` branch
+                        # below). `UserSuppliedBackend.compute_hessian` returns None unless a
+                        # `hessian_fn` was provided — vertical-integration models require a Hessian,
+                        # so we raise a clear error in that case.
+                        d2s_dp2_t = demand_backend.compute_hessian(market_id=t)
+                        if d2s_dp2_t is None:
+                            raise ValueError(
+                                f"demand_backend.compute_hessian(market_id={t!r}) returned None; "
+                                f"vertical-integration models (model_upstream is not None) require a "
+                                f"demand backend that provides a Hessian. Supply `hessian_fn` to "
+                                f"`UserSuppliedBackend` or use one of the built-in backends."
+                            )
+                        passthrough_matrix = _construct_passthrough_from_hessian(
+                            d2s_dp2_t, retailer_response_matrix, retailer_ownership_matrix, markups_t
+                        )
+                    elif demand_jacobian is not None and pyblp_results is None:
                         # Analytical Hessian for logit/nested logit
                         from .demand_jacobian import compute_analytical_hessian
                         sigma_clean = [s for s in (_demand_sigma or []) if s > 0]
