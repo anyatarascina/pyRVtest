@@ -3,9 +3,9 @@
 **Date:** 2026-04-16 (third session of the day, continuing from `2026-04-16-v0.4-refactor-design.md`)
 **Branches:**
 - `CClean-fixes` at `e921649` on origin — Step 0 protection
-- `v0.4-refactor` at `7e20ccb` on origin — branched from `CClean-fixes`, step 1 skeleton landed
+- `v0.4-refactor` at `f7da57b` on origin — branched from `CClean-fixes`, steps 1 + 2 landed
 **Tag:** `v0.3.3-stable` (annotated, pushed) pointing at `47b4457` on `CClean-fixes`
-**Status:** v0.4 Step 0 protection landed (except 0d real data) AND v0.4 migration step 1 (module skeleton) committed and pushed. 121 tests pass + 3 skipped on `v0.4-refactor`. Step 2 (extract Products → products.py with type hints + mypy clean) is the next work item.
+**Status:** v0.4 Step 0 protection landed (except 0d real data) AND v0.4 migration steps 1 (module skeleton) + 2 (extract Products) committed and pushed. 121 tests pass + 3 skipped on `v0.4-refactor`. Step 3 (DemandBackend protocol + four backend implementations) is the next work item.
 
 ## TL;DR
 
@@ -113,6 +113,8 @@ Tag `v0.3.3-stable` pushed to origin at `47b4457`.
 | Commit | Subject |
 |--------|---------|
 | `7e20ccb` | REFACTOR: v0.4 step 1 module skeleton + __all__ declarations |
+| `e3daa21` | DOC: update handover + memo after step 1 skeleton lands |
+| `f7da57b` | REFACTOR: v0.4 step 2 extract Products -> products.py (+ mypy strict) |
 
 ---
 
@@ -128,29 +130,64 @@ Branched from `CClean-fixes` at `e921649`. Delivered:
 
 Full suite on `v0.4-refactor`: 121 passed + 3 skipped in 2:41 (all 6 Step 0 snapshots still match at atol=1e-10, all 11 property tests still pass — confirms no behavior change from the move).
 
-## What's next — step 2
+## Step 2: DONE (commit `f7da57b` on `v0.4-refactor`)
+
+Extracted `Products` from `pyRVtest/problem.py` (was lines 38-201) into a standalone `pyRVtest/products.py`. The class is behavior-preserving; all Step 0 snapshots still match at `atol=1e-10`.
+
+Deliverables:
+
+- `pyRVtest/products.py` — new file with `Products` class, `__all__ = ['Products']`, mypy-strict clean.
+- `pyRVtest/problem.py` — Products class deleted; `from .products import Products` added.
+- `pyRVtest/__init__.py` — imports Products from the new location; public API unchanged.
+- `pyRVtest/formulation.py` — added `__all__ = ['Absorb', 'Formulation', 'ModelFormulation']` (required for mypy to resolve the `Formulation` import in products.py without a broad `# type: ignore`). Pragmatic widening of step-2 scope consistent with the incremental-`__all__` rule.
+- `mypy.ini` — first mypy config in the project. Default lax; `[mypy-pyRVtest.products]` is strict. Step 17 audits the whole package; future steps append `[mypy-pyRVtest.<module>]` strict sections as they land.
+- `requirements-dev.txt` — adds `mypy>=1.0.0`.
+- `tests/test_import_roundtrip.py` — adds `('pyRVtest.products', ['Products'])` to the coverage list (30 tests, was 29).
+
+Deliberate scope-preservation: `_qr_residualize` stays in `problem.py` (used heavily by `Problem._compute_instrument_results` and `_compute_iv_correction`). Step 8 relocates it to `pyRVtest/solve/orthogonalize.py`.
+
+Verification:
+
+- `mypy --config-file mypy.ini pyRVtest/products.py`: 0 errors.
+- `pytest tests/`: 121 passed + 3 skipped in 2:43.
+
+Uncertainty flagged: the `# type: ignore[attr-defined]` annotations collapsed from two to one in the L=1 Z-building branch. The L>1 branch now uses an `assert f_l is not None`. Runtime-equivalent; flagged for audit at step 17.
+
+## What's next — step 3
 
 Per `.claude/plans/v0.4-refactor.md` §5:
 
-> Step 2 | Extract `Products` → `products.py`. No logic change. Add type hints, `mypy --strict` clean for this file. | All step-0 tests + mypy on products.py
+> Step 3 | Add `DemandBackend` protocol + `SupportsDemandAdjustment` mixin + `PyBLPBackend` + `LogitBackend` + `NestedLogitBackend` + `UserSuppliedBackend`. Wire into `_compute_markups`. Delete `demand_jacobian.py` (merged into `backends/logit.py`). | All step-0 tests including equivalence + backend unit tests + property test: determinism across backends on a shared DGP
 
-**Mechanical tasks:**
+This is the largest single migration step. The PyBLPBackend prototype is already worked out in §3 of the design doc — encapsulation is mechanically straightforward (all five PyBLP private attributes `_sigma`, `_pi`, `_beta`, `_rho`, `_delta` get hidden behind the `perturbed(k, delta)` context manager and five public methods).
 
-1. Create `pyRVtest/products.py` with the `Products` class extracted from `pyRVtest/problem.py` (currently at lines 38-200 approx).
-2. Move `_qr_residualize` helper alongside if it's only used by Products (grep to confirm).
-3. Update all internal imports: `pyRVtest/__init__.py`, `pyRVtest/problem.py`, any other callers.
-4. Add type hints throughout the extracted file. Target `mypy --strict` clean for just this file (PyBLP stubs may be incomplete — fallback is `# type: ignore[attr-defined]` with comments per §7 Open Question 7).
-5. Add a mypy check to the test suite or a separate tox env if convenient; per the plan's incremental-mypy rule each new/moved module should ship clean.
-6. Run full test suite + import-roundtrip + snapshots.
-7. Commit: "REFACTOR: v0.4 step 2 extract Products → products.py with type hints".
+**Sub-tasks (proposed split into multiple commits for easier review):**
 
-**What NOT to do in step 2:**
+1. **3a — Protocol.** Populate `pyRVtest/backends/base.py` with the `DemandBackend` Protocol and the `SupportsDemandAdjustment` optional mixin. Add `__all__ = ['DemandBackend', 'SupportsDemandAdjustment']` to both `base.py` and `backends/__init__.py`. No behavior change — just the Protocol class definition. mypy strict on `base.py`.
 
-- Do not change the `Products` API surface. Existing users of `pyRVtest.Products` must still work.
-- Do not refactor Products internals or touch its `__new__` logic. The plan calls for extraction only; logic lands in later steps.
-- Do not extract anything else from problem.py yet (Models, Problem, etc. come in step 8).
+2. **3b — PyBLPBackend.** Populate `pyRVtest/backends/pyblp.py` with the prototype from §3 of the plan. Does NOT yet wire into `_compute_markups`; just makes the class importable and unit-testable. Add unit tests (isolation test: PyBLPBackend's private-attribute access still works; equivalence test: its `compute_jacobian()` returns what `_compute_markups`'s inline code currently computes).
 
-**Incremental mypy note:** this is the first module to get the strict type pass. The cross-cutting rule from §5 of the plan says "every new module added in a step ships with `mypy --strict` clean on that module" — step 2 is the first instance. If PyBLP gaps force `# type: ignore` lines, each should have a short comment explaining the gap so step 17's audit pass knows what to evaluate.
+3. **3c — LogitBackend + NestedLogitBackend.** Populate `pyRVtest/backends/logit.py` by moving the content of `pyRVtest/demand_jacobian.py` into class-based implementations. Delete `pyRVtest/demand_jacobian.py`. Add unit tests.
+
+4. **3d — UserSuppliedBackend.** Populate `pyRVtest/backends/user.py` with a minimal implementation accepting a user-supplied Jacobian function. Add unit tests.
+
+5. **3e — Wire the backends into `_compute_markups`.** Replace the current `if self.demand_params is not None / else` branch in `markups.py` with a single backend-based code path. This is the commit that actually changes runtime behavior — all Step 0 snapshots and the first-stage-correction equivalence tests must still pass at `atol=1e-10`. Property test for determinism across backends on a shared DGP lands here.
+
+6. **Track progress via the import-roundtrip test.** Each sub-step updates the expected `__all__` for the relevant backend module in `_STEP_1_SKELETON_MODULES`.
+
+**Critical safety:**
+
+- Run the full suite after every sub-commit. If any Step 0 snapshot fails, revert that sub-commit and investigate (per the rollback-trigger criteria in §5 of the plan).
+- The first-stage-correction equivalence test (tests/test_first_stage_correction.py) must keep passing at machine precision — the new backend-generic `compute_demand_adjustment` in sub-step 3e will be what's tested.
+- Do NOT yet delete the old paths in `problem.py` (`_compute_analytical_demand_adjustment`, `_compute_demand_adjustment_gradient`). Those stay as reference implementations until step 4 unifies them.
+
+**What NOT to do in step 3:**
+
+- Do not unify the two demand-adjustment paths (that's step 4).
+- Do not change the public API. `Problem(demand_results=..., ...)` and `Problem(demand_params=..., ...)` must keep working identically.
+- Do not add labor-side backends yet (that's step 14).
+
+**Incremental mypy note:** each new backend module gets a `[mypy-pyRVtest.backends.<name>]` strict section in `mypy.ini`. PyBLP internal types may need `# type: ignore[attr-defined]` on `_sigma`, `_pi`, etc. — each such ignore should have a short comment noting that the attribute is intentionally private (these are the very attributes the backend encapsulates).
 
 ---
 

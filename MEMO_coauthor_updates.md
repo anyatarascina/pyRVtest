@@ -9,15 +9,15 @@ This is a running memo of pyRVtest changes that affect methodology, results, or 
 
 ---
 
-## Status right now (2026-04-16 late evening, post step 1)
+## Status right now (2026-04-16 late evening, post step 2)
 
 **Branches:**
 - `CClean-fixes` at `e921649` on origin — Step 0 protection (frozen for now)
-- `v0.4-refactor` at `7e20ccb` on origin — branched from `CClean-fixes`, step 1 module skeleton landed
+- `v0.4-refactor` at `f7da57b` on origin — branched from `CClean-fixes`, steps 1 + 2 landed
 
 **Tag:** `v0.3.3-stable` annotated, pushed at `47b4457` on `CClean-fixes` (baseline anchor for nuclear revert).
 **Tests (on v0.4-refactor):** 121 pass + 3 skipped (DMSS yogurt placeholders pending Lorenzo).
-**Headline:** v0.4 Step 0 protection + step 1 module skeleton both landed. The refactor now has its safety net and its target directory layout. Step 2 (extract `Products` → products.py with type hints) is next. Lorenzo's 0d input is still the only Step 0 item outstanding.
+**Headline:** v0.4 Step 0 protection + steps 1 + 2 landed. `Products` now lives in its own module with mypy-strict-clean type hints. Step 3 (the big one — `DemandBackend` protocol + four backend implementations) is next. Lorenzo's 0d input is still the only Step 0 item outstanding.
 
 **What coauthors need to know right now:**
 
@@ -44,6 +44,18 @@ This is a running memo of pyRVtest changes that affect methodology, results, or 
    Scaffold is ready at `tests/replication/test_dmss_yogurt.py` with a `NEEDED FROM LORENZO` block listing these items. Populating the constants and un-skipping the three tests is sufficient to complete 0d.
 
 6. **Next step on the refactor:** v0.4 migration step 1 — create the module skeleton (empty `backends/`, `models/`, `instruments/`, `solve/`, `results/` subpackages; `__init__.py` re-exports preserve the current public API). No behavior change. Will land on a new `v0.4-refactor` branch off `CClean-fixes`.
+
+---
+
+## 2026-04-16 (late evening, post step 2) — v0.4 migration step 2 landed
+
+Commit `f7da57b` on `v0.4-refactor`. Extracts the `Products` class from `pyRVtest/problem.py` into a standalone `pyRVtest/products.py` with mypy-strict type hints. No behavior change; all 6 Step 0 snapshots still match at `atol=1e-10` and the full test suite (121 + 3 skipped) passes in 2:43.
+
+Small scope widening: added `__all__` to `pyRVtest/formulation.py` (needed so mypy can resolve the `Formulation` import in products.py without a broad `# type: ignore`). Consistent with the incremental-`__all__` rule in §5 of the plan.
+
+New infrastructure: `mypy.ini` with lax defaults and a `[mypy-pyRVtest.products]` strict section. Future steps append a strict section as each new module lands. `requirements-dev.txt` now pulls `mypy>=1.0.0` alongside `hypothesis`.
+
+`_qr_residualize` deliberately stays in `problem.py`; step 8 relocates it.
 
 ---
 
