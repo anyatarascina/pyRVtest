@@ -1,9 +1,11 @@
-# Handover: v0.4 review + Step 0 landing
+# Handover: v0.4 review + Step 0 landing + step 1 skeleton
 
 **Date:** 2026-04-16 (third session of the day, continuing from `2026-04-16-v0.4-refactor-design.md`)
-**Branch:** `CClean-fixes` at `47b4457` on origin
-**Tag:** `v0.3.3-stable` (annotated, pushed) pointing at `47b4457`
-**Status:** v0.4 Step 0 protection landed except real data for 0d. 92 tests pass + 3 skipped (0d placeholders). v0.4 migration step 1 (module skeleton) is the next work item.
+**Branches:**
+- `CClean-fixes` at `e921649` on origin — Step 0 protection
+- `v0.4-refactor` at `7e20ccb` on origin — branched from `CClean-fixes`, step 1 skeleton landed
+**Tag:** `v0.3.3-stable` (annotated, pushed) pointing at `47b4457` on `CClean-fixes`
+**Status:** v0.4 Step 0 protection landed (except 0d real data) AND v0.4 migration step 1 (module skeleton) committed and pushed. 121 tests pass + 3 skipped on `v0.4-refactor`. Step 2 (extract Products → products.py with type hints + mypy clean) is the next work item.
 
 ## TL;DR
 
@@ -91,7 +93,9 @@ TODO block at end of the file names models that will get property tests when the
 
 ---
 
-## Commits pushed this session (branch `CClean-fixes`)
+## Commits pushed this session
+
+**Branch `CClean-fixes`** (Step 0 protection):
 
 | Commit | Subject |
 |--------|---------|
@@ -100,39 +104,53 @@ TODO block at end of the file names models that will get property tests when the
 | `edcb2e1` | TEST: expand property tests to cover all current conduct models |
 | `7268925` | TEST: v0.4 Step 0b snapshot regression suite |
 | `47b4457` | TEST: v0.4 Step 0d scaffolding (DMSS yogurt golden file) |
+| `e921649` | DOC: session handover + coauthor memo update for Step 0 landing |
 
 Tag `v0.3.3-stable` pushed to origin at `47b4457`.
 
+**Branch `v0.4-refactor`** (branched from `CClean-fixes` at `e921649`):
+
+| Commit | Subject |
+|--------|---------|
+| `7e20ccb` | REFACTOR: v0.4 step 1 module skeleton + __all__ declarations |
+
 ---
 
-## What's next
+## Step 1: DONE (commit `7e20ccb` on `v0.4-refactor`)
 
-Chris said "B" — start v0.4 migration step 1 (module skeleton) per `.claude/plans/v0.4-refactor.md` §5.
+Branched from `CClean-fixes` at `e921649`. Delivered:
 
-**Step 1 acceptance criteria (from the updated plan):**
+- 5 new subpackages (`backends/`, `models/`, `instruments/`, `solve/`, plus `backends/labor/`)
+- 22 empty skeleton `.py` files, each with `__all__ = []` and a docstring naming the step that will populate it
+- `pyRVtest/results.py` → `pyRVtest/results/__init__.py` (verbatim move to resolve the file-vs-directory name collision that would otherwise block step 9)
+- `pyRVtest/__init__.py` preserves the full v0.3 public API (paranoid v0.3.3-stable symbol list enforced by tests) and adds namespace re-exports for the new subpackages
+- `tests/test_import_roundtrip.py` — 29 tests covering public API importability, v0.3 preservation, parameterized step-1 skeleton coverage (every module imports + has `__all__ == []`), and ProblemResults/Progress accessibility after the subpackage move
 
-> Create module skeleton (empty files, `__init__.py` re-exports mirror current public API) + `__all__` declarations everywhere
+Full suite on `v0.4-refactor`: 121 passed + 3 skipped in 2:41 (all 6 Step 0 snapshots still match at atol=1e-10, all 11 property tests still pass — confirms no behavior change from the move).
 
-> All step-0 tests + import-roundtrip test
+## What's next — step 2
+
+Per `.claude/plans/v0.4-refactor.md` §5:
+
+> Step 2 | Extract `Products` → `products.py`. No logic change. Add type hints, `mypy --strict` clean for this file. | All step-0 tests + mypy on products.py
 
 **Mechanical tasks:**
 
-1. Branch off `CClean-fixes` to `v0.4-refactor` (per `§5` line 759 and `§10`).
-2. Create the directory skeleton from `§4.1`:
-   - `pyRVtest/backends/` (empty, `__init__.py` with `__all__ = []`)
-   - `pyRVtest/models/`
-   - `pyRVtest/instruments/`
-   - `pyRVtest/solve/`
-   - `pyRVtest/results/`
-3. Main package `pyRVtest/__init__.py` keeps all current re-exports working: `Problem`, `Formulation`, `ModelFormulation`, `ProblemResults`, `build_markups`, `build_ownership`, `read_pickle`, `options`. Add `__all__` listing them explicitly.
-4. Run the full test suite (including snapshots + property tests) to confirm nothing broke.
-5. Commit: "REFACTOR: v0.4 step 1 module skeleton + __all__ declarations".
+1. Create `pyRVtest/products.py` with the `Products` class extracted from `pyRVtest/problem.py` (currently at lines 38-200 approx).
+2. Move `_qr_residualize` helper alongside if it's only used by Products (grep to confirm).
+3. Update all internal imports: `pyRVtest/__init__.py`, `pyRVtest/problem.py`, any other callers.
+4. Add type hints throughout the extracted file. Target `mypy --strict` clean for just this file (PyBLP stubs may be incomplete — fallback is `# type: ignore[attr-defined]` with comments per §7 Open Question 7).
+5. Add a mypy check to the test suite or a separate tox env if convenient; per the plan's incremental-mypy rule each new/moved module should ship clean.
+6. Run full test suite + import-roundtrip + snapshots.
+7. Commit: "REFACTOR: v0.4 step 2 extract Products → products.py with type hints".
 
-**What NOT to do in step 1:**
+**What NOT to do in step 2:**
 
-- Do not move any real code into the new subdirectories. Step 1 is skeleton only.
-- Do not modify any public API surfaces.
-- Do not start the backend abstraction (that's step 3).
+- Do not change the `Products` API surface. Existing users of `pyRVtest.Products` must still work.
+- Do not refactor Products internals or touch its `__new__` logic. The plan calls for extraction only; logic lands in later steps.
+- Do not extract anything else from problem.py yet (Models, Problem, etc. come in step 8).
+
+**Incremental mypy note:** this is the first module to get the strict type pass. The cross-cutting rule from §5 of the plan says "every new module added in a step ships with `mypy --strict` clean on that module" — step 2 is the first instance. If PyBLP gaps force `# type: ignore` lines, each should have a short comment explaining the gap so step 17's audit pass knows what to evaluate.
 
 ---
 
@@ -157,6 +175,8 @@ Chris said "B" — start v0.4 migration step 1 (module skeleton) per `.claude/pl
 4. **Snapshot files live-diff-friendly but large.** `first_stage_*.json` are ~97KB each. Acceptable now (T=200, J=3 = 600 obs). If a future DGP pushes past T=1000, reconsider format (compressed `.npz`? protobuf?). Today's JSON choice was for diff-review during refactor.
 
 5. **Hypothesis `max_examples=100`** gives coverage but property tests add ~13s to the suite. If the full test suite creeps past 5 minutes during the refactor, drop to 30 examples in a Hypothesis dev profile and keep 100 as a `ci` profile.
+
+6. **Pickle backward compat**: the `pyRVtest.results` move from module → subpackage changes where `ProblemResults` is stored in the pickle header. If any external user has a `.pkl` file created with v0.3.x containing a `ProblemResults`, unpickling under v0.4 may fail with `ModuleNotFoundError: pyRVtest.results` if Python is strict about it. Low-risk (pickled ProblemResults are uncommon, and the class is still reachable at `pyRVtest.results.ProblemResults`), but worth a note in the v0.4 changelog and possibly a compatibility shim in the future.
 
 ---
 

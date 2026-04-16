@@ -9,12 +9,15 @@ This is a running memo of pyRVtest changes that affect methodology, results, or 
 
 ---
 
-## Status right now (2026-04-16 late evening)
+## Status right now (2026-04-16 late evening, post step 1)
 
-**Branch:** `CClean-fixes` at `47b4457` on origin.
-**Tag:** `v0.3.3-stable` annotated, pushed (baseline anchor for the v0.4 refactor).
-**Tests:** 92 pass + 3 skipped (DMSS yogurt placeholders pending Lorenzo).
-**Headline:** v0.4 Step 0 protection landed today (snapshots, property tests, equivalence tests, rollback tooling). The refactor can now safely begin. Lorenzo's input is the only remaining Step 0 item; see below.
+**Branches:**
+- `CClean-fixes` at `e921649` on origin — Step 0 protection (frozen for now)
+- `v0.4-refactor` at `7e20ccb` on origin — branched from `CClean-fixes`, step 1 module skeleton landed
+
+**Tag:** `v0.3.3-stable` annotated, pushed at `47b4457` on `CClean-fixes` (baseline anchor for nuclear revert).
+**Tests (on v0.4-refactor):** 121 pass + 3 skipped (DMSS yogurt placeholders pending Lorenzo).
+**Headline:** v0.4 Step 0 protection + step 1 module skeleton both landed. The refactor now has its safety net and its target directory layout. Step 2 (extract `Products` → products.py with type hints) is next. Lorenzo's 0d input is still the only Step 0 item outstanding.
 
 **What coauthors need to know right now:**
 
@@ -41,6 +44,32 @@ This is a running memo of pyRVtest changes that affect methodology, results, or 
    Scaffold is ready at `tests/replication/test_dmss_yogurt.py` with a `NEEDED FROM LORENZO` block listing these items. Populating the constants and un-skipping the three tests is sufficient to complete 0d.
 
 6. **Next step on the refactor:** v0.4 migration step 1 — create the module skeleton (empty `backends/`, `models/`, `instruments/`, `solve/`, `results/` subpackages; `__init__.py` re-exports preserve the current public API). No behavior change. Will land on a new `v0.4-refactor` branch off `CClean-fixes`.
+
+---
+
+## 2026-04-16 (late evening, post step 1) — v0.4 migration step 1 landed
+
+After the Step 0 protection was pushed, we branched `v0.4-refactor` off `CClean-fixes` at `e921649` and landed migration step 1 in a single commit (`7e20ccb`).
+
+### What step 1 delivered
+
+- 5 new subpackages matching the plan's §4.1 target layout: `backends/` (+ `backends/labor/`), `models/`, `instruments/`, `solve/`, `results/`.
+- 22 empty skeleton `.py` modules, each with `__all__ = []` and a one-paragraph docstring naming the migration step that will populate it. Future populating-step commits just flip `__all__ = []` → `__all__ = [new_names]` within the existing files.
+- `pyRVtest/results.py` verbatim-moved to `pyRVtest/results/__init__.py`. Resolves the file-vs-directory naming collision that the plan's `results/` subpackage needs. No code changed; imports from `pyRVtest.results` (internal and external) still work.
+- `pyRVtest/__init__.py` updated to re-export the new subpackages as namespaces (`pyRVtest.backends`, `pyRVtest.models`, etc.) while preserving every v0.3 public-API symbol.
+- `tests/test_import_roundtrip.py` — 29 tests (public API importability, paranoid v0.3 public-API preservation, parameterized step-1 skeleton coverage, ProblemResults/Progress accessibility after the subpackage move).
+
+### Verification
+
+Full test suite on `v0.4-refactor`: **121 passed + 3 skipped in 2:41**. All 6 Step 0 snapshots still match at `atol=1e-10` — confirming that the results.py → results/ move and the new subpackage re-exports changed nothing behaviorally.
+
+### One small user-visible compat caveat
+
+If any coauthor has an old `.pkl` file produced by v0.3.x containing a `ProblemResults`, unpickling under v0.4 **might** trip a `ModuleNotFoundError: pyRVtest.results` because the module is now a subpackage. Low risk (the class is still reachable at `pyRVtest.results.ProblemResults` and imports resolve correctly at runtime), but worth flagging here so it can be added to the v0.4 release notes.
+
+### What's next
+
+Step 2 — extract `Products` from `pyRVtest/problem.py` into `pyRVtest/products.py` with type hints and `mypy --strict` clean on that single file. Pure extraction; no behavior change.
 
 ---
 
