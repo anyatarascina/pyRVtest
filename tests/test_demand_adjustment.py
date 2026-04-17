@@ -370,3 +370,292 @@ class TestLogitBackendSigmaFiltering:
         assert backend._sigma == [0.3], (
             "NestedLogitBackend should filter sigmas of exactly 0 at construction"
         )
+
+
+# ===========================================================================
+# v0.4 step 4d: compute_demand_adjustment equivalence with inline methods.
+#
+# Tests assert the unified `compute_demand_adjustment` function produces the
+# same output as `Problem._compute_analytical_demand_adjustment` (via
+# LogitBackend / NestedLogitBackend) and `Problem._compute_demand_adjustment_gradient`
+# (via PyBLPBackend) on shared fixtures. Problem.solve() still calls the old
+# inline methods in this commit; 4e will flip the switch.
+# ===========================================================================
+
+def _advalorem_and_scaling(problem):
+    """Match the tax-adjustment factors that Problem.solve computes."""
+    M = problem.M
+    unit_tax = problem.models["unit_tax"]
+    advalorem_tax = problem.models["advalorem_tax"]
+    cost_scaling = problem.models["cost_scaling"]
+    advalorem_tax_adj = []
+    for m in range(M):
+        condition = problem.models["advalorem_payer"][m] == "consumer"
+        advalorem_tax_adj.append(
+            1 / (1 + advalorem_tax[m]) if condition else (1 - advalorem_tax[m])
+        )
+    # unit_tax unused below but kept for parity with solve()'s preparation
+    _ = unit_tax
+    return advalorem_tax_adj, list(cost_scaling)
+
+
+class TestComputeDemandAdjustmentAnalyticalEquivalence:
+    """Unified compute_demand_adjustment vs inline Problem._compute_analytical_demand_adjustment."""
+
+    @pytest.fixture(scope='class')
+    def setup_plain(self):
+        df = _make_logit_fixture(with_nesting=False)
+        alpha = -1.5
+        beta = np.array([0.0, 1.0])
+        demand_params = {
+            'alpha': alpha, 'sigma': [],
+            'beta': beta,
+            'x_columns': ['intercept', 'x1'],
+            'demand_instrument_columns': ['rival_x1', 'rival_x1_sq', 'intercept', 'x1'],
+        }
+        problem = _assemble_problem(df, demand_params)
+        backend = LogitBackend(
+            alpha=alpha, product_data=df, beta=beta,
+            x_columns=['intercept', 'x1'],
+            demand_instrument_columns=['rival_x1', 'rival_x1_sq', 'intercept', 'x1'],
+        )
+        return df, demand_params, problem, backend
+
+    @pytest.fixture(scope='class')
+    def setup_nested(self):
+        df = _make_logit_fixture(with_nesting=True)
+        alpha = -1.5
+        sigma = [0.3]
+        beta = np.array([0.0, 1.0])
+        demand_params = {
+            'alpha': alpha, 'sigma': sigma,
+            'beta': beta,
+            'x_columns': ['intercept', 'x1'],
+            'demand_instrument_columns': ['rival_x1', 'rival_x1_sq', 'intercept', 'x1'],
+            'nesting_ids_columns': ['nesting_ids'],
+        }
+        problem = _assemble_problem(df, demand_params)
+        backend = NestedLogitBackend(
+            alpha=alpha, sigma=sigma, product_data=df,
+            nesting_ids_columns=['nesting_ids'],
+            beta=beta, x_columns=['intercept', 'x1'],
+            demand_instrument_columns=['rival_x1', 'rival_x1_sq', 'intercept', 'x1'],
+        )
+        return df, demand_params, problem, backend
+
+    @staticmethod
+    def _run_both(problem, backend):
+        M, N = problem.M, problem.N
+        markups, _, _ = problem._perturb_and_build_markups()
+        advalorem_tax_adj, cost_scaling = _advalorem_and_scaling(problem)
+        inline = problem._compute_analytical_demand_adjustment(
+            M, N, markups, advalorem_tax_adj, cost_scaling
+        )
+        # inline returns 5-tuple; unified returns 6-tuple
+        from pyRVtest.solve.demand_adjustment import compute_demand_adjustment
+        unified = compute_demand_adjustment(
+            backend, problem, M, N, markups, advalorem_tax_adj, cost_scaling,
+            marginal_cost_base=None,  # no endogenous cost in these fixtures
+        )
+        return inline, unified
+
+    def test_plain_logit_gradient_markups_match(self, setup_plain):
+        _, _, problem, backend = setup_plain
+        inline, unified = self._run_both(problem, backend)
+        np.testing.assert_allclose(
+            unified[0], inline[0], atol=1e-10,
+            err_msg="plain logit: gradient_markups diverges"
+        )
+
+    def test_plain_logit_H_prime_wd_matches(self, setup_plain):
+        _, _, problem, backend = setup_plain
+        inline, unified = self._run_both(problem, backend)
+        np.testing.assert_allclose(unified[1], inline[1], atol=1e-12,
+                                   err_msg="H_prime_wd diverges")
+
+    def test_plain_logit_H_matches(self, setup_plain):
+        _, _, problem, backend = setup_plain
+        inline, unified = self._run_both(problem, backend)
+        np.testing.assert_allclose(unified[2], inline[2], atol=1e-12,
+                                   err_msg="H diverges")
+
+    def test_plain_logit_h_i_matches(self, setup_plain):
+        _, _, problem, backend = setup_plain
+        inline, unified = self._run_both(problem, backend)
+        np.testing.assert_allclose(unified[3], inline[3], atol=1e-12,
+                                   err_msg="h_i diverges")
+
+    def test_plain_logit_h_matches(self, setup_plain):
+        _, _, problem, backend = setup_plain
+        inline, unified = self._run_both(problem, backend)
+        # Inline returns h.reshape(-1, 1) — shape (K_z, 1). Unified same.
+        np.testing.assert_allclose(unified[4], inline[4], atol=1e-12,
+                                   err_msg="h diverges")
+
+    def test_plain_logit_gamma_gradient_is_none(self, setup_plain):
+        """No endogenous_cost_component, so gradient_gamma_per_instrument is None."""
+        _, _, problem, backend = setup_plain
+        _, unified = self._run_both(problem, backend)
+        assert unified[5] is None
+
+    def test_nested_logit_gradient_markups_match(self, setup_nested):
+        _, _, problem, backend = setup_nested
+        inline, unified = self._run_both(problem, backend)
+        np.testing.assert_allclose(
+            unified[0], inline[0], atol=1e-10,
+            err_msg="nested logit: gradient_markups diverges"
+        )
+
+    def test_nested_logit_H_matches(self, setup_nested):
+        _, _, problem, backend = setup_nested
+        inline, unified = self._run_both(problem, backend)
+        np.testing.assert_allclose(unified[2], inline[2], atol=1e-12,
+                                   err_msg="nested logit: H diverges")
+
+
+class TestComputeDemandAdjustmentPyBLPEquivalence:
+    """Unified compute_demand_adjustment vs inline Problem._compute_demand_adjustment_gradient.
+
+    Uses a small pyblp-estimated DGP to exercise the PyBLPBackend path.
+    """
+
+    @pytest.fixture(scope='class')
+    def pyblp_fixture(self):
+        import pyblp
+        pyblp.options.verbose = False
+
+        T, J = 30, 3
+        N = T * J
+        rng = np.random.default_rng(seed=7)
+        market_ids = np.repeat(np.arange(T), J)
+        firm_ids = np.tile(np.arange(J), T)
+        id_data = pd.DataFrame({'market_ids': market_ids, 'firm_ids': firm_ids})
+
+        X1 = pyblp.Formulation('1 + prices + x1')
+        X3 = pyblp.Formulation('1 + z1')
+        simulation = pyblp.Simulation(
+            product_formulations=(X1, None, X3),
+            beta=[0, -2, 1], gamma=[1, 0.5],
+            xi_variance=0.2, omega_variance=0.2, correlation=0.0,
+            product_data=id_data, seed=7,
+        )
+        sim_results = simulation.replace_endogenous()
+        data = pd.DataFrame(pyblp.data_to_dict(sim_results.product_data))
+        for t in range(T):
+            idx = np.where(data['market_ids'] == t)[0]
+            for j in idx:
+                rival = [i for i in idx if i != j]
+                data.loc[j, 'rival_x1'] = data.loc[rival, 'x1'].mean()
+        data['demand_instruments0'] = data['rival_x1']
+
+        problem = pyblp.Problem((X1,), product_data=data)
+        pyblp_results = problem.solve(method='1s')
+
+        pyRVtest.options.verbose = False
+        rv_problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1'),
+            instrument_formulation=pyRVtest.Formulation('0 + rival_x1'),
+            model_formulations=(
+                pyRVtest.ModelFormulation(
+                    model_downstream='bertrand', ownership_downstream='firm_ids',
+                ),
+            ),
+            product_data=data,
+            demand_results=pyblp_results,
+        )
+        from pyRVtest.backends import PyBLPBackend
+        backend = PyBLPBackend(pyblp_results)
+        return rv_problem, backend
+
+    def test_pyblp_gradient_markups_match(self, pyblp_fixture):
+        problem, backend = pyblp_fixture
+        M, N = problem.M, problem.N
+        markups, _, _ = problem._perturb_and_build_markups()
+        advalorem_tax_adj, cost_scaling = _advalorem_and_scaling(problem)
+        inline = problem._compute_demand_adjustment_gradient(
+            N, advalorem_tax_adj, cost_scaling, None
+        )
+        from pyRVtest.solve.demand_adjustment import compute_demand_adjustment
+        unified = compute_demand_adjustment(
+            backend, problem, M, N, markups, advalorem_tax_adj, cost_scaling,
+            marginal_cost_base=None,
+        )
+        # Tolerance: inline uses finite-diff for alpha; unified uses analytical
+        # implicit-differentiation. These differ by O(eps^2) ~ 1e-14. Bertrand
+        # markup itself is O(1) so relative error is ~1e-14.
+        np.testing.assert_allclose(
+            unified[0], inline[0], atol=1e-8,
+            err_msg="PyBLP path: gradient_markups diverges (analytical vs finite-diff)"
+        )
+
+    def test_pyblp_H_matches(self, pyblp_fixture):
+        problem, backend = pyblp_fixture
+        M, N = problem.M, problem.N
+        markups, _, _ = problem._perturb_and_build_markups()
+        advalorem_tax_adj, cost_scaling = _advalorem_and_scaling(problem)
+        inline = problem._compute_demand_adjustment_gradient(
+            N, advalorem_tax_adj, cost_scaling, None
+        )
+        from pyRVtest.solve.demand_adjustment import compute_demand_adjustment
+        unified = compute_demand_adjustment(
+            backend, problem, M, N, markups, advalorem_tax_adj, cost_scaling,
+            marginal_cost_base=None,
+        )
+        # H is exclusively demand-side — no analytical-vs-finite-diff difference.
+        np.testing.assert_allclose(
+            unified[2], inline[2], atol=1e-12,
+            err_msg="PyBLP path: H diverges"
+        )
+
+    def test_pyblp_h_i_matches(self, pyblp_fixture):
+        problem, backend = pyblp_fixture
+        M, N = problem.M, problem.N
+        markups, _, _ = problem._perturb_and_build_markups()
+        advalorem_tax_adj, cost_scaling = _advalorem_and_scaling(problem)
+        inline = problem._compute_demand_adjustment_gradient(
+            N, advalorem_tax_adj, cost_scaling, None
+        )
+        from pyRVtest.solve.demand_adjustment import compute_demand_adjustment
+        unified = compute_demand_adjustment(
+            backend, problem, M, N, markups, advalorem_tax_adj, cost_scaling,
+            marginal_cost_base=None,
+        )
+        np.testing.assert_allclose(
+            unified[3], inline[3], atol=1e-12,
+            err_msg="PyBLP path: h_i diverges"
+        )
+
+
+class TestComputeDemandAdjustmentRejectsNonAdjustmentBackend:
+    """UserSuppliedBackend without adjustment inputs must be rejected with a clear error."""
+
+    def test_user_supplied_backend_raises(self):
+        from pyRVtest.backends import UserSuppliedBackend
+        from pyRVtest.solve.demand_adjustment import compute_demand_adjustment
+        df = _make_logit_fixture(with_nesting=False)
+        N = len(df)
+        J = 3
+        jacobian = np.full((N, J), np.nan)
+        market_ids = df['market_ids'].values
+        for t in np.unique(market_ids):
+            idx = np.where(market_ids == t)[0]
+            s_t = df['shares'].values[idx]
+            D_t = -1.5 * (np.diag(s_t) - np.outer(s_t, s_t))
+            jacobian[idx[:, None], np.arange(len(idx))[None, :]] = D_t
+        backend = UserSuppliedBackend(jacobian=jacobian, market_ids=market_ids)
+        # Dummy problem (won't actually be used)
+        demand_params = {
+            'alpha': -1.5, 'sigma': [],
+            'beta': np.array([0.0, 1.0]),
+            'x_columns': ['intercept', 'x1'],
+            'demand_instrument_columns': ['rival_x1', 'intercept', 'x1'],
+        }
+        problem = _assemble_problem(df, demand_params)
+        M = problem.M
+        markups, _, _ = problem._perturb_and_build_markups()
+        advalorem_tax_adj, cost_scaling = _advalorem_and_scaling(problem)
+        with pytest.raises(TypeError, match="SupportsDemandAdjustment"):
+            compute_demand_adjustment(
+                backend, problem, M, problem.N, markups,
+                advalorem_tax_adj, cost_scaling,
+            )
