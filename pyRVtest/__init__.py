@@ -17,6 +17,11 @@ from .markups import (
     build_ownership, build_markups, construct_passthrough_matrix,
     evaluate_first_order_conditions, read_pickle
 )
+# v0.4 step 5a: class-based ConductModel API re-exported at the package level.
+from .models import (
+    Bertrand, ConductModel, Cournot, CustomConductModel, MixCournotBertrand,
+    Monopoly, PartialCollusion, PerfectCompetition, Vertical,
+)
 from .problem import Problem, Models
 from .products import Products
 from .results import ProblemResults
@@ -29,4 +34,7 @@ __all__ = [
     'Products', 'ProblemResults', '__version__',
     # v0.4 subpackage namespaces (populated in later migration steps)
     'backends', 'instruments', 'models', 'solve',
+    # v0.4 step 5a: class-based ConductModel API.
+    'ConductModel', 'Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition',
+    'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel', 'Vertical',
 ]

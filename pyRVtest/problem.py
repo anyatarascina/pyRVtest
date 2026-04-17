@@ -319,11 +319,25 @@ class Problem(Container, StringRepresentation):
             model_formulations: Sequence[ModelFormulation] = None,
             markup_data: Optional[RecArray] = None,
             endogenous_cost_component: Optional[str] = None,
-            demand_params: Optional[dict] = None) -> None:
+            demand_params: Optional[dict] = None,
+            models: Optional[Sequence[Any]] = None) -> None:
         """Initialize the underlying economy with product and agent data before absorbing fixed effects."""
 
         output("Initializing the problem ...")
         start_time = time.time()
+
+        # v0.4 step 5b: accept the new class-based `models=[...]` kwarg and
+        # translate it to the legacy model_formulations format. Mutually
+        # exclusive with model_formulations=; if both or neither are supplied
+        # (alongside markup_data=None) we raise. markup_data bypasses both.
+        if models is not None and model_formulations is not None:
+            raise TypeError(
+                "Specify either `models=` (new class-based API) or "
+                "`model_formulations=` (legacy string-based API), not both."
+            )
+        if models is not None:
+            from .models._adapter import to_model_formulations
+            model_formulations = tuple(to_model_formulations(models))
 
         # Validate demand_params
         if demand_params is not None and demand_results is not None:
