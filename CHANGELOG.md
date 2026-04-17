@@ -14,9 +14,9 @@ demand-adjustment paths (PyBLP results vs. `demand_params`) into a single
 dispatch, and (c) setting up hooks for labor-side conduct testing.
 See `.claude/plans/v0.4-refactor.md` for the full design document.
 
-Steps 8 (`Problem.solve` split), 14 (labor hooks), and 16 (AFSSZ dogfood)
-are still outstanding and may introduce additional changes before v0.4.0
-is tagged.
+Steps 14 (labor hooks) and 16 (AFSSZ dogfood) are still outstanding and
+may introduce additional changes before v0.4.0 is tagged. Step 16 is
+data-blocked (~1 week lead time on the AFSSZ panel).
 
 ### Migration from v0.3.x
 
@@ -172,6 +172,15 @@ v0.4 modulo one-line deprecation warnings.
   ```
   Internal-invariant failures are prefixed `"pyRVtest internal error:"`
   and kept terse.
+- **`Problem.solve` split into staged pipeline** (step 8). The ~200-line
+  monolithic `solve()` method is now a thin orchestrator that calls
+  staged modules under `pyRVtest/solve/`: `markups.compute`,
+  `orthogonalize.residualize`, `endogenous_cost.iv_correct`,
+  `demand_adjustment.apply`, and `test_engine.compute`. `problem.py`
+  shrank from 1733 to 1328 lines (−23%). Each stage is a pure function
+  with its own logger (`pyRVtest.solve.markups`,
+  `pyRVtest.solve.orthogonalize`, etc.). User-facing behavior is
+  bit-identical: 471 tests + snapshot suite pass unchanged.
 - **Module split of `problem.py`** (internal). `Products` extracted to
   `pyRVtest/products.py` (step 2). `ModelFormulation` bridge lives in
   `pyRVtest/models/_adapter.py`; standard model classes live in
