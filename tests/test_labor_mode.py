@@ -5,10 +5,10 @@ Covers:
 - :class:`pyRVtest.Problem` accepts ``market_side='labor'`` with labor-
   side conduct models; rejects product-side models on a labor Problem.
 - ``column_names`` override path resolves labor column defaults
-  (``'wages'`` / ``'employment'``) to user-chosen names.
-- Sign validation: negative or zero wages / employment on any row
-  raises :class:`pyRVtest.ValidationError` with the expected / received
-  / fix format.
+  (``'wages'`` / ``'employment_share'``) to user-chosen names.
+- Sign validation: negative or zero wages / employment-shares on any
+  row raises :class:`pyRVtest.ValidationError` with the expected /
+  received / fix format.
 - :class:`pyRVtest.ProblemResults` ``__str__`` exposes the labor-side
   terminology (``markdown`` / ``MRP`` / ``wage``) when constructed on a
   labor Problem, keeping product-side output byte-identical.
@@ -45,9 +45,9 @@ from pyRVtest.exceptions import ValidationError
 # ---------------------------------------------------------------------------
 
 def _build_labor_product_data(
-        wage_col='wages', emp_col='employment', zero_wage_row=None,
+        wage_col='wages', emp_col='employment_share', zero_wage_row=None,
 ) -> pd.DataFrame:
-    """Build a 2-firm x T-market labor DGP with positive wages and employment.
+    """Build a 2-firm x T-market labor DGP with positive wages and employment shares.
 
     ``zero_wage_row`` optionally forces one wage entry to zero (for sign-
     validation tests). T is large enough for the collinearity diagnostic to
@@ -62,7 +62,7 @@ def _build_labor_product_data(
     wages = 1.0 + rng.uniform(low=0.1, high=1.5, size=N)
     if zero_wage_row is not None:
         wages[zero_wage_row] = 0.0
-    # Employment in (0, 0.5) per row so within-market shares sum < 1.
+    # Employment share in (0, 0.5) per row so within-market shares sum < 1.
     employment = rng.uniform(low=0.1, high=0.4, size=N)
     # Plausible markdowns/MRPs for user_supplied_markups path; exact values
     # don't matter for the plumbing tests, only that they're well-defined.
@@ -105,7 +105,7 @@ class TestProblemLaborMode:
             market_side='labor',
         )
         assert problem._market_side == 'labor'
-        assert problem._labor_column_names == {'price': 'wages', 'shares': 'employment'}
+        assert problem._labor_column_names == {'price': 'wages', 'shares': 'employment_share'}
 
     def test_labor_mode_rejects_product_models(self):
         """Labor Problem with Bertrand raises ValidationError."""
@@ -167,7 +167,7 @@ class TestProblemLaborMode:
         """column_names passed on a product-side Problem raises ValidationError."""
         df = _build_labor_product_data()
         df['prices'] = df['wages']
-        df['shares'] = df['employment']
+        df['shares'] = df['employment_share']
         with pytest.raises(ValidationError, match=r"market_side='labor'"):
             pyRVtest.Problem(
                 cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
@@ -256,9 +256,10 @@ class TestLaborSignValidation:
 
     def test_zero_employment_row_raises(self):
         df = _build_labor_product_data()
-        df.loc[2, 'employment'] = 0.0
+        df.loc[2, 'employment_share'] = 0.0
         # Products also rejects shares <= 0; ensure we hit the labor-side
-        # validator first so the message names the user's 'employment' column.
+        # validator first so the message names the user's
+        # 'employment_share' column.
         with pytest.raises(ValidationError) as excinfo:
             pyRVtest.Problem(
                 cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
@@ -268,7 +269,7 @@ class TestLaborSignValidation:
                 market_side='labor',
             )
         msg = str(excinfo.value)
-        assert "'employment'" in msg
+        assert "'employment_share'" in msg
         assert 'Fix' in msg
 
     def test_missing_wage_column_raises(self):

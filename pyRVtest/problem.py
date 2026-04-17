@@ -146,15 +146,19 @@ def _apply_conduct_to_fields(
 #
 # ``Problem(market_side='labor')`` accepts a ``column_names`` override
 # following plan Open Question 6: defaults map 'price' -> 'wages' and
-# 'shares' -> 'employment', but a caller can pass
-# ``column_names={'price': 'wages', 'shares': 'employment_share'}`` to
-# rebind. Inside the package we keep the canonical column names ``prices``
+# 'shares' -> 'employment_share', but a caller can pass
+# ``column_names={'price': 'wages', 'shares': 'my_emp_share_col'}`` to
+# rebind. The canonical pyRVtest 'shares' column treats the value as a
+# share (in [0, 1]), so the default column name advertises the units
+# rather than naming a raw quantity; users with raw employment counts
+# must normalize to market-level employment shares before passing data
+# in. Inside the package we keep the canonical column names ``prices``
 # and ``shares`` (so ``Products`` and the solve stages stay untouched);
 # the aliasing step runs at ``Problem.__init__`` only.
 
 _LABOR_COLUMN_DEFAULTS: Dict[str, str] = {
     'price': 'wages',
-    'shares': 'employment',
+    'shares': 'employment_share',
 }
 
 _LABOR_COLUMN_NAMES_KEYS = frozenset(_LABOR_COLUMN_DEFAULTS.keys())
@@ -746,11 +750,14 @@ class Problem(Container, StringRepresentation):
             ``'labor'``. When set to ``'labor'``, the package reinterprets
             the data as a labor-supply problem: the Jacobian is
             upward-sloping, column-name defaults flip (``wages``,
-            ``employment``), labor-side conduct models are required, and
-            result labels branch to ``markdown`` / ``MRP`` / ``wage``.
+            ``employment_share``), labor-side conduct models are required,
+            and result labels branch to ``markdown`` / ``MRP`` / ``wage``.
+            The ``employment_share`` column is treated as a share (values
+            in ``[0, 1]``, summing to at most 1 per market); users with
+            raw employment counts must normalize first.
         column_names : dict, optional
             Override labor-side column-name defaults. Accepts
-            ``{'price': '<wage-col>', 'shares': '<employment-col>'}``.
+            ``{'price': '<wage-col>', 'shares': '<employment-share-col>'}``.
             Only meaningful when ``market_side='labor'``.
         """
 

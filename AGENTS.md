@@ -301,14 +301,14 @@ import pandas as pd
 import pyRVtest
 
 df = pd.DataFrame({
-    'market_ids':  [0, 0, 1, 1],
-    'firm_ids':    [0, 1, 0, 1],
-    'wages':       [12.0, 13.5, 11.0, 14.0],   # strictly positive
-    'employment':  [0.30, 0.25, 0.35, 0.20],   # strictly positive
-    'cost_shifter': [0.5, 1.2, 0.7, 0.9],
-    'iv0': [1.1, 1.0, 0.9, 1.2],
-    'markdown_m1': [0.1, 0.1, 0.12, 0.12],
-    'markdown_m2': [0.0, 0.0, 0.0, 0.0],
+    'market_ids':       [0, 0, 1, 1],
+    'firm_ids':         [0, 1, 0, 1],
+    'wages':            [12.0, 13.5, 11.0, 14.0],   # strictly positive
+    'employment_share': [0.30, 0.25, 0.35, 0.20],   # in [0, 1], sums <= 1 per market
+    'cost_shifter':     [0.5, 1.2, 0.7, 0.9],
+    'iv0':              [1.1, 1.0, 0.9, 1.2],
+    'markdown_m1':      [0.1, 0.1, 0.12, 0.12],
+    'markdown_m2':      [0.0, 0.0, 0.0, 0.0],
 })
 
 problem = pyRVtest.Problem(
@@ -324,12 +324,17 @@ problem = pyRVtest.Problem(
 ```
 
 Column-name defaults for labor-mode are `'wages'` (in place of `'prices'`)
-and `'employment'` (in place of `'shares'`). Override them with
-`column_names={'price': 'my_wage_col', 'shares': 'my_emp_col'}`. Invalid
-keys raise `ValidationError` with the typo surfaced in the message.
+and `'employment_share'` (in place of `'shares'`). The canonical pyRVtest
+`shares` column is always a share (values in `[0, 1]`, summing to at
+most 1 per market); the default name advertises units rather than naming
+a raw quantity, so users with raw employment counts must normalize to a
+market-level employment share before passing data in. Override the
+defaults with `column_names={'price': 'my_wage_col', 'shares':
+'my_emp_share_col'}`. Invalid keys raise `ValidationError` with the
+typo surfaced in the message.
 
-**Sign-convention validation.** `wages > 0` and `employment > 0` are
-checked at `Problem.__init__` on the raw (non-aliased) columns. A
+**Sign-convention validation.** `wages > 0` and `employment_share > 0`
+are checked at `Problem.__init__` on the raw (non-aliased) columns. A
 zero-wage or negative-wage row raises `ValidationError` with the
 expected / received / fix format; the error names the user's original
 column and points at this section. The implied labor-supply Jacobian

@@ -393,7 +393,7 @@ Minimal labor problem:
     problem = pyRVtest.Problem(
         cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
         instrument_formulation=pyRVtest.Formulation('0 + iv0'),
-        product_data=labor_df,          # columns: wages, employment, ...
+        product_data=labor_df,          # columns: wages, employment_share, ...
         models=[
             pyRVtest.Monopsony(user_supplied_markups='markdown_m1'),
             pyRVtest.PerfectCompetition(user_supplied_markups='markdown_m2'),
@@ -402,19 +402,23 @@ Minimal labor problem:
     )
     results = problem.solve()
 
-Column-name defaults for labor mode are ``'wages'`` and ``'employment'``;
-override either via ``column_names``:
+Column-name defaults for labor mode are ``'wages'`` and
+``'employment_share'``; pyRVtest treats the ``shares`` column as a share
+(values in ``[0, 1]``, summing to at most 1 per market), so the default
+name advertises the units rather than naming a raw quantity. Users with
+raw employment counts must normalize to market-level employment shares
+first. Override either default via ``column_names``:
 
 .. code-block:: python
 
     pyRVtest.Problem(
         ...,
         market_side='labor',
-        column_names={'price': 'my_wage_col', 'shares': 'my_emp_col'},
+        column_names={'price': 'my_wage_col', 'shares': 'my_emp_share_col'},
     )
 
 Sign validation at ``Problem.__init__`` requires ``wages > 0`` and
-``employment > 0`` on every row. Violations raise
+``employment_share > 0`` on every row. Violations raise
 :class:`pyRVtest.ValidationError` with the expected / received / fix
 format. A zero-wage row is the most common product-side-sign-convention
 leak into labor-side data and is caught immediately.

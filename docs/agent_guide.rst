@@ -254,13 +254,18 @@ Labor conduct classes (``pyRVtest.models.labor``):
   :class:`NotImplementedError` with a pointer to the plan.
 
 Column-name defaults for labor-mode are ``'wages'`` (in place of
-``'prices'``) and ``'employment'`` (in place of ``'shares'``). Override
-via ``column_names={'price': '<wage_col>', 'shares': '<employment_col>'}``.
+``'prices'``) and ``'employment_share'`` (in place of ``'shares'``).
+The canonical pyRVtest ``shares`` column is treated as a share (values
+in ``[0, 1]``, summing to at most 1 per market), so the default name
+advertises the units rather than naming a raw quantity; users with raw
+employment counts must normalize to market-level employment shares
+before passing data in. Override the defaults via
+``column_names={'price': '<wage_col>', 'shares': '<employment_share_col>'}``.
 Unknown keys in ``column_names`` raise
 :class:`~pyRVtest.exceptions.ValidationError`.
 
 Sign-convention validation (v0.4 step 14c): every row must have
-``wages > 0`` and ``employment > 0``. Violations raise
+``wages > 0`` and ``employment_share > 0``. Violations raise
 :class:`~pyRVtest.exceptions.ValidationError` at init time with the
 expected / received / fix format, naming the user's original column.
 Catches the most common pipeline bug on the labor side — product-side

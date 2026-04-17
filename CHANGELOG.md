@@ -197,12 +197,17 @@ v0.4 modulo one-line deprecation warnings.
   plus `NashBargaining` as a v0.5 stub. Skeleton `LaborSupplyBackend`
   in `pyRVtest.backends.labor.nested_logit_labor` honors the
   `DemandBackend` protocol; real math deferred to v0.5 when labor data
-  arrives. Sign-convention validation rejects non-positive wages or
-  employment with rich error messages. `ProblemResults.__str__` swaps
-  the header banner under labor mode ("markdown / MRP / wage" instead
-  of "markup / MC / price"). Labor-side models cannot be mixed with
-  product-side models; `PerfectCompetition` and `CustomConductModel`
-  are side-neutral. 28 new tests in `tests/test_labor_mode.py`.
+  arrives. Labor-mode column-name defaults are `'wages'` (in place of
+  `'prices'`) and `'employment_share'` (in place of `'shares'`); the
+  default advertises units because the canonical `shares` column is
+  treated as a share in `[0, 1]`, so users with raw employment counts
+  must normalize first. Sign-convention validation rejects non-positive
+  wages or employment shares with rich error messages.
+  `ProblemResults.__str__` swaps the header banner under labor mode
+  ("markdown / MRP / wage" instead of "markup / MC / price"). Labor-
+  side models cannot be mixed with product-side models;
+  `PerfectCompetition` and `CustomConductModel` are side-neutral. 28
+  new tests in `tests/test_labor_mode.py`.
 - **`Problem.solve` split into staged pipeline** (step 8). The ~200-line
   monolithic `solve()` method is now a thin orchestrator that calls
   staged modules under `pyRVtest/solve/`: `markups.compute`,
