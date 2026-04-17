@@ -35,7 +35,8 @@ from collections.abc import Hashable
 from pathlib import Path
 from typing import Dict, Iterator, List, Mapping, Optional, TYPE_CHECKING, Union
 
-from .results import ProblemResults, _dataframe_to_github_markdown
+from ._format import _dataframe_to_github_markdown
+from .results import ProblemResults
 
 if TYPE_CHECKING:
     import pandas as pd

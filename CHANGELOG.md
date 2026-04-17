@@ -14,9 +14,9 @@ demand-adjustment paths (PyBLP results vs. `demand_params`) into a single
 dispatch, and (c) setting up hooks for labor-side conduct testing.
 See `.claude/plans/v0.4-refactor.md` for the full design document.
 
-Steps 14 (labor hooks) and 16 (AFSSZ dogfood) are still outstanding and
-may introduce additional changes before v0.4.0 is tagged. Step 16 is
-data-blocked (~1 week lead time on the AFSSZ panel).
+Step 16 (AFSSZ dogfood on a real 910-market-year panel) is still
+outstanding and may introduce additional changes before v0.4.0 is
+tagged. Step 16 is data-blocked (~1 week lead time on the AFSSZ panel).
 
 ### Migration from v0.3.x
 
@@ -172,6 +172,20 @@ v0.4 modulo one-line deprecation warnings.
   ```
   Internal-invariant failures are prefixed `"pyRVtest internal error:"`
   and kept terse.
+- **Labor-side conduct testing hooks** (step 14). New `market_side`
+  parameter on `Problem` (default `'product'`; set to `'labor'` for
+  monopsony / wage-setting conduct tests). Four new labor conduct model
+  classes in `pyRVtest.models.labor`: `Monopsony`, `BertrandWages`,
+  `CournotEmployment` (all with real sign-flipped markup formulas),
+  plus `NashBargaining` as a v0.5 stub. Skeleton `LaborSupplyBackend`
+  in `pyRVtest.backends.labor.nested_logit_labor` honors the
+  `DemandBackend` protocol; real math deferred to v0.5 when labor data
+  arrives. Sign-convention validation rejects non-positive wages or
+  employment with rich error messages. `ProblemResults.__str__` swaps
+  the header banner under labor mode ("markdown / MRP / wage" instead
+  of "markup / MC / price"). Labor-side models cannot be mixed with
+  product-side models; `PerfectCompetition` and `CustomConductModel`
+  are side-neutral. 28 new tests in `tests/test_labor_mode.py`.
 - **`Problem.solve` split into staged pipeline** (step 8). The ~200-line
   monolithic `solve()` method is now a thin orchestrator that calls
   staged modules under `pyRVtest/solve/`: `markups.compute`,

@@ -24,7 +24,7 @@ import pytest
 from scipy.stats import norm
 
 import pyRVtest
-from pyRVtest.results.results import _dataframe_to_github_markdown
+from pyRVtest.results._format import _dataframe_to_github_markdown
 
 from .test_analytical import _build_base_dgp, _run_pyrvtest_base
 

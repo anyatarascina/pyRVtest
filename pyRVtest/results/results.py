@@ -37,6 +37,7 @@ from scipy.stats import norm
 from pyblp.utilities.basics import Array, StringRepresentation
 
 from ..output import format_table
+from ._format import _dataframe_to_github_markdown
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -535,49 +536,6 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             Path(path).write_text(md)
             return None
         return md
-
-
-def _dataframe_to_github_markdown(frame: 'pd.DataFrame') -> str:
-    """Render a DataFrame as a GitHub-flavored markdown pipe table.
-
-    Local helper used by :meth:`ProblemResults.to_markdown`. Kept
-    out of pandas to avoid the optional ``tabulate`` dependency that
-    :meth:`pandas.DataFrame.to_markdown` pulls in; GitHub-flavored
-    markdown only needs pipes and hyphens with an empty-row guard.
-
-    Parameters
-    ----------
-    frame : pd.DataFrame
-        The frame to render. Values are rendered via ``format(value)``
-        with ``:.6g`` for floats and ``str`` otherwise.
-
-    Returns
-    -------
-    str
-        A multi-line markdown string. Trailing newline included.
-    """
-    columns = [str(c) for c in frame.columns]
-    header = "| " + " | ".join(columns) + " |"
-    sep = "| " + " | ".join(["---"] * len(columns)) + " |"
-    body_lines: List[str] = []
-    if len(frame) == 0:
-        # GitHub renders zero-row tables correctly with just header + sep.
-        return "\n".join([header, sep]) + "\n"
-    for _, row in frame.iterrows():
-        cells: List[str] = []
-        for col in columns:
-            val = row[col]
-            if isinstance(val, float):
-                if np.isnan(val):
-                    cells.append("NaN")
-                else:
-                    cells.append(f"{val:.6g}")
-            elif isinstance(val, (bool, np.bool_)):
-                cells.append("True" if bool(val) else "False")
-            else:
-                cells.append(str(val))
-        body_lines.append("| " + " | ".join(cells) + " |")
-    return "\n".join([header, sep, *body_lines]) + "\n"
 
 
 __all__ = ['Progress', 'ProblemResults']
