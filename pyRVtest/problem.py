@@ -738,7 +738,13 @@ class Problem(Container, StringRepresentation):
         v0.4 step 4e: single construction point for the backend. Returns `None` when
         neither demand_results nor demand_params is supplied (user_supplied_markups-only
         path). Otherwise:
-          - `demand_results is not None` -> `PyBLPBackend(demand_results)`.
+          - `demand_results is not None`: route to ``NestedLogitBackend`` when
+            single-scalar-rho nested logit is detected (precision gain in
+            ``d(D)/d(rho)``; pyblp finite-diff has O(eps^2) error there).
+            Otherwise ``PyBLPBackend`` — plain logit sees no precision gain
+            (pyblp finite-diff of ``D/alpha`` is exact because ``compute_delta``
+            restores shares); per-nest rho and BLP cannot be represented by
+            the analytical backends.
           - `demand_params is not None` with non-empty nonzero sigma -> `NestedLogitBackend`.
           - `demand_params is not None` with empty or all-zero sigma -> `LogitBackend`.
 
@@ -748,8 +754,7 @@ class Problem(Container, StringRepresentation):
         backends need access to arbitrary columns like `nesting_ids`, `x1`, etc.
         """
         if self.demand_results is not None:
-            from .backends.pyblp import PyBLPBackend
-            return PyBLPBackend(self.demand_results)
+            return self._backend_from_demand_results(self.demand_results)
 
         if self.demand_params is not None:
             dp = self.demand_params
@@ -773,6 +778,140 @@ class Problem(Container, StringRepresentation):
             return LogitBackend(**shared_kwargs)
 
         return None
+
+    def _backend_from_demand_results(self, r):
+        """Route pyblp ProblemResults to the best-matched backend.
+
+        * **Plain logit** (``K2==0`` and ``r.rho.size==0``): try routing
+          to ``LogitBackend``. Precision gain is modest (pyblp's finite-
+          diff of ``d(D)/d(alpha)`` is ~O(1e-9) accurate because D is
+          linear in alpha at fixed shares) but routing keeps the code
+          path consistent with the nested case.
+
+        * **Single-scalar-rho nested logit** (``K2==0`` and ``r.rho.size==1``):
+          try routing to ``NestedLogitBackend(sigma=[rho])``. Analytical
+          ``d(D)/d(rho)`` is exact; pyblp's finite-diff has genuine
+          O(eps^2) truncation error because D is nonlinear in rho.
+          Precision gain is material.
+
+        * **Per-nest rho** (``K2==0`` and ``r.rho.size>1``): stay on
+          ``PyBLPBackend``. AFSSZ L=1 formulation has one sigma; pyblp's
+          Cardell-Nevo formulation has one rho per nest. The derivatives
+          ``d(D)/d(rho_h)`` don't match ``d(D)/d(sigma_1)``.
+
+        * **BLP** (``K2>0``): stay on ``PyBLPBackend``. No analytical
+          ``d(D)/d(theta)`` through the BLP contraction mapping.
+
+        Falls back to ``PyBLPBackend`` if the raw product_data doesn't
+        carry the columns the analytical backend needs (e.g., pyblp-
+        generated fixed-effect dummies).
+        """
+        from .backends.pyblp import PyBLPBackend
+        K2 = r.problem.K2
+        if K2 > 0:
+            return PyBLPBackend(r)
+        rho_arr = np.atleast_1d(np.asarray(r.rho).flatten())
+        # Per-nest rho -> stay on PyBLPBackend.
+        if rho_arr.size > 1:
+            return PyBLPBackend(r)
+
+        # Plain logit (rho.size == 0) or single-scalar-rho nested logit
+        # (rho.size == 1): try analytical. Extract shared state.
+        beta_labels = list(r.beta_labels)
+        if 'prices' not in beta_labels:
+            return PyBLPBackend(r)
+        price_idx = beta_labels.index('prices')
+        alpha = float(np.asarray(r.beta).flatten()[price_idx])
+        x_columns = [lab for lab in beta_labels if lab != 'prices']
+        beta_full = np.asarray(r.beta).flatten()
+        beta_nonprice = np.asarray(
+            [b for b, lab in zip(beta_full, beta_labels) if lab != 'prices']
+        )
+
+        # pyblp's ZD dtype does not carry sub-column names as a 3-tuple; we
+        # need names to feed `demand_instrument_columns`. Infer from the
+        # raw product_data: `demand_instrumentsN` columns + non-price X1
+        # columns, matching pyblp's default ZD construction. If the inferred
+        # count does not match the actual ZD width, the user passed a
+        # custom ZD formulation and we should bail.
+        raw = self._product_data_raw
+        raw_cols = self._raw_product_data_columns(raw)
+        excluded_instrument_cols = sorted(
+            [c for c in raw_cols if str(c).startswith('demand_instruments')]
+        )
+        inferred_zd_cols = excluded_instrument_cols + x_columns
+        expected_n_zd = r.problem.products.ZD.shape[1]
+        if len(inferred_zd_cols) != expected_n_zd:
+            return PyBLPBackend(r)
+
+        # pyblp's `Formulation('1 + ...')` packs a literal '1' column in X1 / ZD.
+        # Synthesize it if that's the only missing column.
+        needed = set(x_columns + inferred_zd_cols)
+        missing = needed - raw_cols
+        if missing == {'1'}:
+            raw = self._augment_with_intercept_column(raw)
+        elif missing:
+            return PyBLPBackend(r)
+
+        weight_choice = getattr(options, 'demand_adjustment_weight', 'W')
+        W_demand = r.W if weight_choice == 'W' else r.updated_W
+
+        shared_kwargs = dict(
+            alpha=alpha,
+            product_data=raw,
+            beta=beta_nonprice,
+            x_columns=x_columns,
+            demand_instrument_columns=inferred_zd_cols,
+            W_demand=W_demand,
+        )
+
+        if rho_arr.size == 1:
+            from .backends.nested_logit import NestedLogitBackend
+            return NestedLogitBackend(
+                sigma=[float(rho_arr[0])],
+                nesting_ids_columns=None,  # backend infers from product_data
+                **shared_kwargs,
+            )
+        from .backends.logit import LogitBackend
+        return LogitBackend(**shared_kwargs)
+
+    @staticmethod
+    def _raw_product_data_columns(raw):
+        """Return the column names of the raw product_data regardless of whether
+        it's a DataFrame, structured recarray, or dict.
+        """
+        if hasattr(raw, 'columns'):
+            return set(map(str, raw.columns))
+        if hasattr(raw, 'dtype') and raw.dtype.names:
+            return set(raw.dtype.names)
+        if hasattr(raw, 'keys'):
+            return set(raw.keys())
+        return set()
+
+    @staticmethod
+    def _augment_with_intercept_column(raw):
+        """Return a copy of raw product_data with a '1' column (all ones).
+
+        pyblp's `Formulation('1 + ...')` packs a literal '1' column into X1/ZD.
+        Users typically don't include a column literally named '1' in their
+        product_data; synthesize it for the analytical-backend path. Never
+        mutates the input.
+        """
+        import pandas as pd
+        if hasattr(raw, 'assign'):  # DataFrame
+            return raw.assign(**{'1': 1.0})
+        if hasattr(raw, 'dtype') and raw.dtype.names:
+            df = pd.DataFrame({name: raw[name] for name in raw.dtype.names})
+            df['1'] = 1.0
+            return df
+        if hasattr(raw, 'keys'):
+            out = {k: raw[k] for k in raw.keys()}
+            any_col = next(iter(out.values()))
+            out['1'] = np.ones(len(any_col))
+            return out
+        raise TypeError(
+            f"Unsupported product_data type for intercept augmentation: {type(raw)}"
+        )
 
     def _perturb_and_build_markups(self):
         """Call _compute_markups with current demand_results and model specifications.

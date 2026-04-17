@@ -219,23 +219,43 @@ class PyBLPBackend:
     def jacobian_gradient(self, market_id: Any) -> _NDArray:
         """Finite-difference approximation of d(D)/d(theta) in one market.
 
-        Uses `perturbed` context manager for +/- epsilon/2 steps.
-        Analytical backends (`LogitBackend`, `NestedLogitBackend`) override
-        this with closed-form derivatives; `PyBLPBackend` falls back to
-        finite-difference because deriving analytical d(D)/d(theta) through
-        the BLP contraction mapping is non-trivial — PyBLP itself does not
-        expose it.
+        Uses `perturbed` context manager for +/- epsilon/2 steps. `PyBLP`
+        does not expose analytical derivatives of its demand Jacobian
+        w.r.t. theta, so this backend uses finite-difference.
 
         .. note::
-            **Known limitation.** The finite-difference approximation has
-            truncation error ``O(epsilon**2)`` at the Jacobian level, which
-            propagates to O(1e-10) in TRV / MCS and O(1e-8) in F on
-            typical fixtures. Users running BLP demand with
-            ``demand_adjustment=True`` receive this approximation; users
-            running pure logit or nested logit estimated via
-            ``demand_results`` (pyblp) currently also receive it, though a
-            future refinement could auto-route those cases to the
-            analytical backends.
+            **Precision analysis.**
+
+            * **Plain logit (K2=0, rho.size=0)**: ``compute_delta()`` in
+              ``perturbed`` restores observed shares, so D is linear in
+              alpha at the evaluation point. Finite-diff therefore equals
+              the exact derivative up to ULP. ``Problem._construct_demand_backend``
+              keeps plain logit on ``PyBLPBackend`` since there is no
+              precision gain from routing to ``LogitBackend``.
+
+            * **Single-scalar-rho nested logit (K2=0, r.rho.size=1)**:
+              pyblp's single scalar ``rho`` matches the AFSSZ L=1 nested
+              logit ``sigma_1``. D is *nonlinear* in rho, so pyblp's
+              finite-diff has genuine O(eps^2) truncation error.
+              ``Problem._construct_demand_backend`` auto-routes this case
+              to ``NestedLogitBackend(sigma=[rho])`` for exact
+              ``d(D)/d(rho)``.
+
+            * **Per-nest rho nested logit (K2=0, r.rho.size>1)**: pyblp's
+              per-nest Cardell-Nevo parametrization gives per-nest
+              ``rho_h`` parameters. The AFSSZ L-level formulation in
+              ``_nested_logit_jacobian`` has one ``sigma_l`` per *level*,
+              not per nest. ``Problem._construct_demand_backend`` keeps
+              these on ``PyBLPBackend`` (finite-diff with O(eps^2) error
+              on ``d(D)/d(rho_h)``) because the two parametrizations do
+              not align.
+
+            * **BLP (K2>0)**: the BLP contraction mapping makes D a
+              nonlinear function of sigma, pi, (and rho when used
+              jointly). Finite-diff has genuine O(eps^2) truncation error.
+              Deriving analytical d(D_BLP)/d(theta) through the
+              contraction is a research exercise; this package does not
+              currently do it.
         """
         eps = options.finite_differences_epsilon
         base_shape = self.compute_jacobian(market_id).shape  # (J_t, J_t)

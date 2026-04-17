@@ -1175,3 +1175,190 @@ class TestNestedLogitJacobianDerivative:
             analytical_1, numerical_1, atol=1e-8, rtol=1e-6,
             err_msg=f"d/d(sigma_1) mismatch (2-level, seed={seed})"
         )
+
+
+# ===========================================================================
+# v0.4 step 4e follow-up: demand_results auto-routing to analytical backend.
+#
+# The routing logic in Problem._construct_demand_backend distinguishes four cases:
+#
+#   1. Plain logit (K2=0, rho.size=0): routes to LogitBackend. pyblp's
+#      finite-diff of d(D)/d(alpha) is ~O(1e-9) accurate (D is linear in
+#      alpha at fixed shares, but compute_delta introduces small residuals).
+#      Analytical D/alpha is exact. Precision gain is modest but real.
+#
+#   2. Single-scalar-rho nested logit (K2=0, r.rho.size=1): routes to
+#      NestedLogitBackend(sigma=[rho]). pyblp's scalar rho matches AFSSZ
+#      L=1 sigma. D is NONLINEAR in rho, so finite-diff has O(eps^2)
+#      error; analytical is exact. Material precision gain.
+#
+#   3. Per-nest rho (K2=0, r.rho.size>1): stays on PyBLPBackend. pyblp's
+#      Cardell-Nevo formulation has one rho per nest; AFSSZ L-level has
+#      one sigma per level. The derivatives don't match.
+#
+#   4. BLP (K2>0): stays on PyBLPBackend. No analytical derivative through
+#      the BLP contraction.
+#
+# Fallback: if the user's raw product_data is missing columns the
+# analytical backend needs (e.g., pyblp fixed-effect dummies that aren't
+# in the original DataFrame), routing silently falls back to PyBLPBackend.
+# ===========================================================================
+
+
+def _pyblp_plain_logit_fixture(seed=101, T=20, J=3):
+    """Small pyblp plain-logit estimate for routing tests."""
+    import pyblp
+    pyblp.options.verbose = False
+    market_ids = np.repeat(np.arange(T), J)
+    firm_ids = np.tile(np.arange(J), T)
+    id_data = pd.DataFrame({'market_ids': market_ids, 'firm_ids': firm_ids})
+    X1 = pyblp.Formulation('1 + prices + x1')
+    X3 = pyblp.Formulation('1 + z1')
+    simulation = pyblp.Simulation(
+        product_formulations=(X1, None, X3),
+        beta=[0.0, -2.0, 1.0], gamma=[1.0, 0.5],
+        xi_variance=0.2, omega_variance=0.2, correlation=0.0,
+        product_data=id_data, seed=seed,
+    )
+    sim_results = simulation.replace_endogenous()
+    data = pd.DataFrame(pyblp.data_to_dict(sim_results.product_data))
+    for t in range(T):
+        idx = np.where(data['market_ids'] == t)[0]
+        for j in idx:
+            others = [i for i in idx if i != j]
+            data.loc[j, 'rival_x1'] = data.loc[others, 'x1'].mean()
+    data['demand_instruments0'] = data['rival_x1']
+    data['intercept'] = 1.0
+    data['rival_z1'] = data['rival_x1']  # Reuse for conduct testing
+    problem = pyblp.Problem((X1,), product_data=data)
+    pyblp_results = problem.solve(method='1s')
+    return data, pyblp_results
+
+
+class TestDemandResultsRouting:
+    """Pin the backend-routing behavior per the four cases above."""
+
+    @pytest.fixture(scope='class')
+    def plain_logit_problem(self):
+        data, pyblp_results = _pyblp_plain_logit_fixture()
+        pyRVtest.options.verbose = False
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1'),
+            instrument_formulation=pyRVtest.Formulation('0 + rival_x1'),
+            model_formulations=(
+                pyRVtest.ModelFormulation(
+                    model_downstream='bertrand', ownership_downstream='firm_ids',
+                ),
+            ),
+            product_data=data,
+            demand_results=pyblp_results,
+        )
+        return problem
+
+    def test_plain_logit_routes_to_logit_backend(self, plain_logit_problem):
+        """Plain-logit demand_results auto-routes to LogitBackend (case 1)."""
+        from pyRVtest.backends import LogitBackend
+        assert isinstance(plain_logit_problem._demand_backend, LogitBackend), (
+            f"Expected LogitBackend, got "
+            f"{type(plain_logit_problem._demand_backend).__name__}."
+        )
+
+    def test_routed_plain_logit_holds_correct_alpha(self, plain_logit_problem):
+        """Routed LogitBackend must hold pyblp's estimated alpha."""
+        backend = plain_logit_problem._demand_backend
+        expected_alpha = float(
+            np.asarray(plain_logit_problem.demand_results.beta).flatten()[
+                plain_logit_problem.demand_results.beta_labels.index('prices')
+            ]
+        )
+        assert abs(backend._alpha - expected_alpha) < 1e-14
+
+    @pytest.fixture(scope='class')
+    def nested_logit_problem(self):
+        """Small pyblp nested-logit estimate (single scalar rho)."""
+        import pyblp
+        pyblp.options.verbose = False
+        T, J = 25, 4
+        market_ids = np.repeat(np.arange(T), J)
+        firm_ids = np.tile(np.arange(J), T)
+        # Two nests: products 0, 1 in nest A; products 2, 3 in nest B.
+        nesting_ids = np.tile(['A', 'A', 'B', 'B'], T)
+        id_data = pd.DataFrame({
+            'market_ids': market_ids, 'firm_ids': firm_ids,
+            'nesting_ids': nesting_ids,
+        })
+        X1 = pyblp.Formulation('1 + prices + x1')
+        X3 = pyblp.Formulation('1 + z1')
+        simulation = pyblp.Simulation(
+            product_formulations=(X1, None, X3),
+            beta=[0.0, -2.0, 1.0], gamma=[1.0, 0.5],
+            rho=0.3,  # scalar rho -> pyblp single-scalar nested logit
+            xi_variance=0.1, omega_variance=0.1, correlation=0.0,
+            product_data=id_data, seed=555,
+        )
+        sim_results = simulation.replace_endogenous()
+        data = pd.DataFrame(pyblp.data_to_dict(sim_results.product_data))
+        for t in range(T):
+            idx = np.where(data['market_ids'] == t)[0]
+            for j in idx:
+                others = [i for i in idx if i != j]
+                data.loc[j, 'rival_x1'] = data.loc[others, 'x1'].mean()
+        data['demand_instruments0'] = data['rival_x1']
+        data['rival_z1'] = data['rival_x1']  # reuse for conduct instrument
+
+        nl_problem = pyblp.Problem((X1,), product_data=data)
+        # Pass rho_bounds to allow rho estimation; single scalar bound.
+        nl_results = nl_problem.solve(rho=0.2, method='1s')
+
+        pyRVtest.options.verbose = False
+        rv_problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1'),
+            instrument_formulation=pyRVtest.Formulation('0 + rival_x1'),
+            model_formulations=(
+                pyRVtest.ModelFormulation(
+                    model_downstream='bertrand', ownership_downstream='firm_ids',
+                ),
+            ),
+            product_data=data,
+            demand_results=nl_results,
+        )
+        return rv_problem, nl_results
+
+    def test_single_rho_nested_logit_routes_to_nested_logit_backend(
+            self, nested_logit_problem):
+        """Single-scalar-rho nested logit auto-routes to NestedLogitBackend (case 2)."""
+        rv_problem, nl_results = nested_logit_problem
+        from pyRVtest.backends import NestedLogitBackend, PyBLPBackend
+        backend = rv_problem._demand_backend
+        # If rho vector has exactly 1 entry, we should have routed.
+        rho_arr = np.atleast_1d(np.asarray(nl_results.rho).flatten())
+        if rho_arr.size == 1:
+            assert isinstance(backend, NestedLogitBackend), (
+                f"Single-scalar-rho nested logit should route to "
+                f"NestedLogitBackend, got {type(backend).__name__}."
+            )
+        else:
+            # pyblp may have expanded rho to per-nest for certain inputs; if
+            # so, we expect PyBLPBackend (case 3).
+            assert isinstance(backend, PyBLPBackend), (
+                f"Multi-rho nested logit should stay on PyBLPBackend, got "
+                f"{type(backend).__name__}."
+            )
+
+    def test_routed_nested_logit_holds_correct_alpha_and_sigma(
+            self, nested_logit_problem):
+        """Routed NestedLogitBackend must hold the same alpha and rho as pyblp."""
+        rv_problem, nl_results = nested_logit_problem
+        from pyRVtest.backends import NestedLogitBackend
+        backend = rv_problem._demand_backend
+        rho_arr = np.atleast_1d(np.asarray(nl_results.rho).flatten())
+        if not isinstance(backend, NestedLogitBackend):
+            pytest.skip("Backend is not NestedLogitBackend for this fixture")
+        expected_alpha = float(
+            np.asarray(nl_results.beta).flatten()[
+                nl_results.beta_labels.index('prices')
+            ]
+        )
+        assert abs(backend._alpha - expected_alpha) < 1e-14
+        assert len(backend._sigma) == 1
+        assert abs(backend._sigma[0] - float(rho_arr[0])) < 1e-14
