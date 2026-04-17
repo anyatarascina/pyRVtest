@@ -181,6 +181,12 @@ class Models(object):
     user_supplied_markups_name: `str, optional`
         The name of the column containing user-supplied markups.
 
+    Examples
+    --------
+    >>> import pyRVtest  # doctest: +SKIP
+    >>> # Models is an internal recarray built by Problem.__init__; users
+    >>> # construct it indirectly by passing `models=[Bertrand(...), ...]`
+    >>> # to Problem. See the Problem docstring for the full workflow.
     """
 
     models_downstream: Array
@@ -408,7 +414,22 @@ class Problem(Container, StringRepresentation):
     pyblp_results`: `structured array-like`
         The results object returned by `pyblp.solve`.
 
-   """
+    Examples
+    --------
+    >>> import pyRVtest  # doctest: +SKIP
+    >>> # Requires a fitted pyblp.ProblemResults object or an explicit
+    >>> # demand_params dict. See docs/tutorial.rst for an end-to-end
+    >>> # example. A representative call is:
+    >>> problem = pyRVtest.Problem(  # doctest: +SKIP
+    ...     cost_formulation=pyRVtest.Formulation('0 + w'),
+    ...     instrument_formulation=pyRVtest.Formulation('0 + iv'),
+    ...     product_data=product_data,
+    ...     demand_results=pyblp_results,
+    ...     models=[pyRVtest.Bertrand(ownership='firm_ids'),
+    ...             pyRVtest.PerfectCompetition()],
+    ... )
+    >>> results = problem.solve()  # doctest: +SKIP
+    """
 
     model_formulations: Sequence[Optional[ModelFormulation]]
     cost_formulation: Formulation
@@ -711,6 +732,12 @@ class Problem(Container, StringRepresentation):
         `ProblemResults`
             :class:`ProblemResults` of the solved problem.
 
+        Examples
+        --------
+        >>> import pyRVtest  # doctest: +SKIP
+        >>> # Requires a constructed Problem — see pyRVtest.Problem
+        >>> # for the full setup with a fitted pyblp.ProblemResults.
+        >>> results = problem.solve(demand_adjustment=False)  # doctest: +SKIP
         """
 
         output("Solving the problem ...")

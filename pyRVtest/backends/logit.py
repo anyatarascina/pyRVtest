@@ -85,6 +85,18 @@ def compute_analytical_jacobian(
     -------
     Array
         (N, J_max) NaN-padded stacked Jacobian matching PyBLP format.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest.backends.logit import compute_analytical_jacobian
+    >>> product_data = {
+    ...     'market_ids': np.array([0, 0, 1, 1]),
+    ...     'shares': np.array([0.3, 0.3, 0.4, 0.4]),
+    ... }
+    >>> jac = compute_analytical_jacobian(alpha=-1.0, sigma=[], product_data=product_data)
+    >>> jac.shape
+    (4, 2)
     """
     # Validate alpha and sigma
     if not isinstance(alpha, (int, float)) or alpha >= 0:
@@ -264,6 +276,15 @@ def compute_analytical_hessian(alpha: float, sigma: List[float], s: Array,
 
     where ``D = dS/dp`` is the demand Jacobian and ``dD/ds`` is the
     derivative of that Jacobian w.r.t. the share vector.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest.backends.logit import compute_analytical_hessian
+    >>> s = np.array([0.3, 0.3])
+    >>> h = compute_analytical_hessian(alpha=-1.0, sigma=[], s=s, nesting=[])
+    >>> h.shape
+    (2, 2, 2)
     """
     J = len(s)
 
@@ -486,6 +507,24 @@ class LogitBackend:
     raise a clear error listing the missing fields. ``NestedLogitBackend``
     inherits these methods by overriding ``self._sigma`` and
     ``self._nesting_ids_columns`` in its own ``__init__``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest.backends import LogitBackend
+    >>> product_data = {
+    ...     'market_ids': np.array([0, 0, 1, 1]),
+    ...     'shares': np.array([0.3, 0.3, 0.4, 0.4]),
+    ...     'prices': np.array([1.0, 2.0, 1.5, 2.5]),
+    ... }
+    >>> backend = LogitBackend(alpha=-1.0, product_data=product_data)
+    >>> backend.n_parameters
+    1
+    >>> backend.theta_names
+    ['alpha']
+    >>> J_t = backend.compute_jacobian(market_id=0)
+    >>> J_t.shape
+    (2, 2)
     """
 
     def __init__(

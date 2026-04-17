@@ -36,6 +36,18 @@ def build_ownership(
     `ndarray`
         Stacked :math:`J_t \times J_t` ownership matrices for each market :math:`t`.
 
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> import pyRVtest
+    >>> product_data = pd.DataFrame({
+    ...     'market_ids': [0, 0, 0, 1, 1, 1],
+    ...     'firm_ids':   [1, 1, 2, 1, 2, 2],
+    ... })
+    >>> O = pyRVtest.build_ownership(product_data, 'firm_ids')
+    >>> O.shape
+    (6, 3)
     """
     names = (
         product_data.dtype.names if hasattr(product_data, 'dtype') and product_data.dtype.names
@@ -76,11 +88,15 @@ def build_markups(
 
     Examples
     --------
-    Compute markups for a single Bertrand model::
-
-        model = pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids')
-        markups, markups_down, markups_up = pyRVtest.build_markups([model], product_data, pyblp_results)
-
+    >>> import pyRVtest  # doctest: +SKIP
+    >>> # Requires a fitted pyblp.ProblemResults; see docs/tutorial.rst
+    >>> # for the end-to-end setup. A representative call is:
+    >>> model = pyRVtest.ModelFormulation(  # doctest: +SKIP
+    ...     model_downstream='bertrand', ownership_downstream='firm_ids',
+    ... )
+    >>> markups, markups_down, markups_up = pyRVtest.build_markups(  # doctest: +SKIP
+    ...     [model], product_data, pyblp_results,
+    ... )
     """
     from .problem import Models  # local import avoids circular dependency
     if not hasattr(model_formulations, '__len__'):
@@ -266,7 +282,18 @@ def _compute_markups(
 def construct_passthrough_matrix(
         pyblp_results, market_id, retailer_response_matrix, retailer_ownership_matrix, markups_t):
     """Construct the passthrough matrix using the formula from Villas-Boas (2007). This matrix contains the derivatives
-    of all retail prices with respect to all wholesale prices."""
+    of all retail prices with respect to all wholesale prices.
+
+    Examples
+    --------
+    >>> import pyRVtest  # doctest: +SKIP
+    >>> # Requires a fitted pyblp.ProblemResults so Hessians can be computed.
+    >>> # See docs/tutorial.rst and pyRVtest.build_passthrough for the
+    >>> # backend-routed alternative.
+    >>> pyRVtest.construct_passthrough_matrix(  # doctest: +SKIP
+    ...     pyblp_results, market_id, D_t, O_t, markups_t,
+    ... )
+    """
 
     # compute demand hessians
     with contextlib.redirect_stdout(open(os.devnull, 'w')):
@@ -289,6 +316,21 @@ def evaluate_first_order_conditions(
         markup_type, type_mix_flag=None):
     """Compute markups for some standard models including Bertrand, Cournot, monopoly, and perfect competition using
     the first order conditions corresponding to each model. Allow user to pass in their own markup function as well.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest import evaluate_first_order_conditions
+    >>> index = np.arange(2)
+    >>> O = np.eye(2)
+    >>> D = np.array([[-2.0, 0.5], [0.5, -2.0]])
+    >>> s = np.array([0.3, 0.3])
+    >>> markups = np.zeros((2, 1))
+    >>> result, _ = evaluate_first_order_conditions(
+    ...     index, 'bertrand', O, D, s, markups, None, 'downstream',
+    ... )
+    >>> result.flatten().round(4)
+    array([0.15, 0.15])
     """
     if len(shares.shape) == 1:
         shares = np.expand_dims(shares, axis=1)
@@ -370,6 +412,17 @@ def read_pickle(path: Union[str, Path]) -> object:
     `object`
         The unpickled object.
 
+    Examples
+    --------
+    >>> import pickle, tempfile, os
+    >>> from pyRVtest import read_pickle
+    >>> payload = {'a': 1, 'b': [2, 3]}
+    >>> with tempfile.NamedTemporaryFile(suffix='.pkl', delete=False) as fh:
+    ...     _ = pickle.dump(payload, fh)
+    ...     path = fh.name
+    >>> read_pickle(path)
+    {'a': 1, 'b': [2, 3]}
+    >>> os.remove(path)
     """
     with open(path, 'rb') as handle:
         return pickle.load(handle)

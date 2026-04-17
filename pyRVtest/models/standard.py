@@ -41,6 +41,21 @@ class Bertrand(ConductModel):
     First-order condition: ``(O * D') @ markup + s = 0``, giving
     ``markup = -(O * D')^{-1} s``. Implicit differentiation yields
     ``d(markup)/d(theta) = -(O * D')^{-1} (O * dD'/d(theta)) @ markup``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest import Bertrand
+    >>> model = Bertrand(ownership='firm_ids')
+    >>> model._model_name
+    'bertrand'
+    >>> # Two single-product firms, simple symmetric response matrix.
+    >>> O = np.eye(2)
+    >>> D = np.array([[-2.0, 0.5], [0.5, -2.0]])
+    >>> s = np.array([0.3, 0.3])
+    >>> model._compute_markup(O, D, s).round(4)
+    array([[0.15],
+           [0.15]])
     """
 
     _model_name = 'bertrand'
@@ -64,6 +79,20 @@ class Cournot(ConductModel):
     Markup formula: ``markup = -(O * D^{-1}) @ s``. Using
     ``d(D^{-1})/d(theta) = -D^{-1} (dD/d(theta)) D^{-1}``, the implicit
     derivative is ``d(markup)/d(theta) = -(O * dD^{-1}/d(theta)) @ s``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest import Cournot
+    >>> model = Cournot(ownership='firm_ids')
+    >>> model._model_name
+    'cournot'
+    >>> O = np.eye(2)
+    >>> D = np.array([[-2.0, 0.5], [0.5, -2.0]])
+    >>> s = np.array([0.3, 0.3])
+    >>> model._compute_markup(O, D, s).round(4)
+    array([[0.16],
+           [0.16]])
     """
 
     _model_name = 'cournot'
@@ -88,6 +117,21 @@ class Monopoly(ConductModel):
     Markup formula: ``markup = -D'^{-1} @ s`` (all ownership effectively
     unity). Implicit derivative: ``d(markup)/d(theta) = -D'^{-1}
     (dD'/d(theta)) @ markup``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest import Monopoly
+    >>> model = Monopoly(ownership='firm_ids')
+    >>> model._model_name
+    'monopoly'
+    >>> # Monopoly ignores O; markup solves D @ markup = -s.
+    >>> O = np.eye(2)
+    >>> D = np.array([[-2.0, 0.5], [0.5, -2.0]])
+    >>> s = np.array([0.3, 0.3])
+    >>> model._compute_markup(O, D, s).round(4)
+    array([[0.2],
+           [0.2]])
     """
 
     _model_name = 'monopoly'
@@ -105,7 +149,19 @@ class Monopoly(ConductModel):
 
 
 class PerfectCompetition(ConductModel):
-    """Marginal-cost pricing. Markups and their gradients are zero."""
+    """Marginal-cost pricing. Markups and their gradients are zero.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest import PerfectCompetition
+    >>> model = PerfectCompetition()
+    >>> model._model_name
+    'perfect_competition'
+    >>> model._compute_markup(np.eye(2), np.eye(2), np.array([0.3, 0.3]))
+    array([[0.],
+           [0.]])
+    """
 
     _model_name = 'perfect_competition'
 

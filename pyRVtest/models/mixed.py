@@ -44,6 +44,19 @@ class MixCournotBertrand(ConductModel):
         vs Cournot (False). Required; enforced in ``__init__``.
     ownership, kappa_specification, user_supplied_markups, taxes,
     cost_scaling, vertical_integration : see ``ConductModel``.
+
+    Examples
+    --------
+    >>> from pyRVtest import MixCournotBertrand
+    >>> model = MixCournotBertrand(mix_flag='is_bertrand', ownership='firm_ids')
+    >>> model.mix_flag
+    'is_bertrand'
+    >>> model._model_name
+    'mix_cournot_bertrand'
+    >>> MixCournotBertrand(mix_flag=None)  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: mix_flag is required for MixCournotBertrand: ...
     """
 
     _model_name = 'mix_cournot_bertrand'

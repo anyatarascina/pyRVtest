@@ -76,6 +76,22 @@ class ModelFormulation(object):
         Column name for a boolean vector indicating which products compete in prices (True = Bertrand, False = Cournot)
         within each market. Required when `model_downstream='mix_cournot_bertrand'`.
 
+    Examples
+    --------
+    ``ModelFormulation`` is the legacy (pre-v0.4) string-based API; new
+    code should prefer the class-based :class:`pyRVtest.Bertrand`,
+    :class:`pyRVtest.Cournot`, etc. The legacy form still works and
+    emits a ``DeprecationWarning`` on first construction:
+
+    >>> import warnings
+    >>> from pyRVtest import ModelFormulation
+    >>> with warnings.catch_warnings():
+    ...     warnings.simplefilter('ignore', DeprecationWarning)
+    ...     mf = ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids')
+    >>> mf._model_downstream
+    'bertrand'
+    >>> mf._ownership_downstream
+    'firm_ids'
     """
 
     _model_downstream: Optional[str]

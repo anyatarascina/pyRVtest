@@ -17,6 +17,12 @@ Labor-side (:mod:`pyRVtest.instruments.labor`):
   - :func:`hausman`
   - :func:`bartik`
   - :func:`concentration_hhi`
+
+Examples
+--------
+>>> from pyRVtest import instruments
+>>> sorted(instruments.__all__)
+['bartik', 'blp_instruments', 'concentration_hhi', 'differentiation_ivs', 'hausman', 'rival_sums']
 """
 
 from .labor import bartik, concentration_hhi, hausman

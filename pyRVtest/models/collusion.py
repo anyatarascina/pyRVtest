@@ -39,6 +39,19 @@ class PartialCollusion(Bertrand):
         - ``'collusion_column'`` — column-based.
         - Custom callable ``(firm_id_i, firm_id_j) -> float`` for
           flexible specifications.
+
+    Examples
+    --------
+    >>> from pyRVtest import PartialCollusion
+    >>> model = PartialCollusion(ownership='firm_ids', kappa_specification='collusion_row')
+    >>> model.ownership
+    'firm_ids'
+    >>> model.kappa_specification
+    'collusion_row'
+    >>> PartialCollusion(ownership='firm_ids')  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: kappa_specification is required for PartialCollusion. ...
     """
 
     _model_name = 'bertrand'  # same math; only ownership construction differs

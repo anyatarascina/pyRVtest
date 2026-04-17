@@ -51,6 +51,14 @@ class PyBLPBackend:
     _cache_jacobian : bool
         If True (default), the stacked Jacobian is cached after the
         first call and invalidated on `perturbed(...)`.
+
+    Examples
+    --------
+    >>> from pyRVtest.backends import PyBLPBackend  # doctest: +SKIP
+    >>> # Requires a fitted pyblp.ProblemResults object; see docs/tutorial.rst
+    >>> # for an end-to-end example that builds one. A representative call is:
+    >>> backend = PyBLPBackend(demand_results=pyblp_results)  # doctest: +SKIP
+    >>> backend.n_parameters  # doctest: +SKIP
     """
 
     def __init__(self, demand_results: Any, cache_jacobian: bool = True) -> None:

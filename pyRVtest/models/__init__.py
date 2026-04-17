@@ -34,6 +34,14 @@ labor-side models (``Monopsony``, ``BertrandWages``,
 ``CournotEmployment``, ``NashBargaining``).
 
 See ``.claude/plans/v0.4-refactor.md`` §4.2 for the full API design.
+
+Examples
+--------
+>>> from pyRVtest import models
+>>> 'Bertrand' in models.__all__
+True
+>>> 'Vertical' in models.__all__
+True
 """
 
 from .base import ConductModel

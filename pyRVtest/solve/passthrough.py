@@ -72,6 +72,14 @@ def build_passthrough(
         ``unique_market_ids``; if ``model_index`` is out of range; or
         if the Problem's demand backend does not provide a Hessian
         (e.g., ``UserSuppliedBackend`` without ``hessian_fn``).
+
+    Examples
+    --------
+    >>> from pyRVtest import build_passthrough  # doctest: +SKIP
+    >>> # Requires a constructed ``pyRVtest.Problem`` whose ``models=[...]`` list
+    >>> # contains a ``Vertical(...)`` entry. See docs/tutorial.rst for the
+    >>> # end-to-end setup. A representative call is:
+    >>> G = build_passthrough(problem, model_index=0, market_id=5)  # doctest: +SKIP
     """
     # --- validate model_index ---
     n_models = len(problem._models)

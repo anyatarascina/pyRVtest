@@ -40,6 +40,20 @@ class CustomConductModel(ConductModel):
         usual pyblp ownership construction pipeline.
     name : str, optional
         Label used in results output / repr.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest import CustomConductModel
+    >>> # A trivial markup function: constant 10% markup per product.
+    >>> def fixed_markup(O, D, s):
+    ...     return 0.1 * np.ones((len(s), 1))
+    >>> model = CustomConductModel(markup_fn=fixed_markup, name='flat')
+    >>> model.name
+    'flat'
+    >>> model._compute_markup(np.eye(2), np.eye(2), np.array([0.3, 0.4]))
+    array([[0.1],
+           [0.1]])
     """
 
     _model_name = 'other'
