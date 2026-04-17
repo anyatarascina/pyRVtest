@@ -280,6 +280,50 @@ conduct itself — the math is bypassed when user-supplied markups are set):
         user_supplied_markups='precomputed_markup_col',
     )
 
+``demand_params['rho']`` vs ``demand_params['sigma']``
+------------------------------------------------------
+
+The nested-logit correlation parameter inside ``demand_params`` is now
+canonically named ``rho`` (matching ``pyblp``'s nomenclature).
+``demand_params['sigma']`` continues to work as a deprecated alias with a
+once-per-session ``DeprecationWarning``. Supplying both keys raises a
+``TypeError``.
+
+**Before:**
+
+.. code-block:: python
+
+    problem = pyRVtest.Problem(
+        ...,
+        demand_params={
+            'alpha': alpha_hat,
+            'sigma': [0.3],
+            'beta': beta,
+            'x_columns': ['intercept', 'x1'],
+            'demand_instrument_columns': [...],
+        },
+    )
+
+**After:**
+
+.. code-block:: python
+
+    problem = pyRVtest.Problem(
+        ...,
+        demand_params={
+            'alpha': alpha_hat,
+            'rho': [0.3],
+            'beta': beta,
+            'x_columns': ['intercept', 'x1'],
+            'demand_instrument_columns': [...],
+        },
+    )
+
+The ``NestedLogitBackend`` class (if you construct one directly) still uses
+``sigma=[...]`` as its constructor kwarg, because its internal math follows
+the AFSSZ L-level convention where ``sigma_l`` is a per-level parameter.
+Only the user-facing ``demand_params`` dict changed names.
+
 ``models=`` vs ``model_formulations=``
 --------------------------------------
 

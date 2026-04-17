@@ -6,6 +6,7 @@ import itertools
 import math
 import os
 import time
+import warnings
 from typing import Any, Dict, Hashable, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -23,6 +24,63 @@ from .markups import build_ownership, _compute_markups
 from .data import read_critical_values_tables
 from .products import Products
 from .results import ProblemResults, Progress
+
+
+_DEMAND_PARAMS_SIGMA_DEPRECATION_MSG = (
+    "demand_params['sigma'] is deprecated; use demand_params['rho'] instead. "
+    "The name change aligns pyRVtest with pyblp's nested-logit parameter name. "
+    "'sigma' will be removed in v0.6. See docs/migrating_to_v0.4.rst for "
+    "details."
+)
+
+# v0.4 step 6b: once-per-session flag for the sigma -> rho deprecation warning.
+# Module-level rather than class-level because demand_params is consumed by
+# Problem.__init__ and we only want one warning per Python session regardless
+# of how many Problem() calls trigger it.
+_demand_params_sigma_deprecation_warned = False
+
+
+def _normalize_demand_params_rho(demand_params: dict) -> dict:
+    """Translate the deprecated ``demand_params['sigma']`` alias to the canonical
+    ``demand_params['rho']`` key. Returns a shallow copy; never mutates the
+    caller's dict.
+
+    If both ``rho`` and ``sigma`` are present, raises ``TypeError``.
+    If only ``sigma`` is present, emits a once-per-session
+    ``DeprecationWarning`` and translates to ``rho`` internally.
+    Downstream code then reads ``demand_params['sigma']`` only when the
+    deprecated alias is the one the caller supplied; for robustness the
+    returned dict has both keys pointing to the same value so any code
+    reading either name sees consistent state.
+    """
+    global _demand_params_sigma_deprecation_warned
+
+    has_rho = 'rho' in demand_params
+    has_sigma = 'sigma' in demand_params
+    if has_rho and has_sigma:
+        raise TypeError(
+            "demand_params cannot contain both 'rho' and 'sigma'. 'rho' is "
+            "the canonical key; 'sigma' is a deprecated alias. Pass one or "
+            "the other, not both."
+        )
+    normalized = dict(demand_params)
+    if has_sigma and not has_rho:
+        if not _demand_params_sigma_deprecation_warned:
+            warnings.warn(
+                _DEMAND_PARAMS_SIGMA_DEPRECATION_MSG,
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            _demand_params_sigma_deprecation_warned = True
+        # Keep the internal key as 'sigma' since downstream backend classes
+        # and the NestedLogitBackend constructor use 'sigma' (AFSSZ L-level
+        # convention). Copy the value under 'rho' too so either name works.
+        normalized['rho'] = normalized['sigma']
+    elif has_rho and not has_sigma:
+        # Canonical form supplied. Mirror to 'sigma' for downstream backend
+        # compatibility (NestedLogitBackend, _construct_demand_backend, etc.).
+        normalized['sigma'] = normalized['rho']
+    return normalized
 
 
 def _qr_residualize(Y: Array, X: Array) -> Array:
@@ -417,9 +475,17 @@ class Problem(Container, StringRepresentation):
             alpha = demand_params['alpha']
             if not isinstance(alpha, (int, float)) or alpha >= 0:
                 raise ValueError("demand_params['alpha'] must be a negative number.")
+            # v0.4 step 6b: 'rho' is the canonical nested-logit parameter name
+            # (aligns with pyblp). 'sigma' remains accepted as a deprecated
+            # alias for backwards compatibility; emit a DeprecationWarning once
+            # per session. Mutually exclusive.
+            demand_params = _normalize_demand_params_rho(demand_params)
             sigma = demand_params.get('sigma', [])
             if not isinstance(sigma, (list, tuple)):
-                raise TypeError("demand_params['sigma'] must be a list of nesting parameters.")
+                raise TypeError(
+                    "demand_params['rho'] must be a list of nesting parameters "
+                    "(or demand_params['sigma'], the deprecated alias)."
+                )
             for i, s_val in enumerate(sigma):
                 if s_val < 0 or s_val >= 1:
                     raise ValueError(
