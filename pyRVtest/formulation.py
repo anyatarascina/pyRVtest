@@ -82,7 +82,7 @@ class ModelFormulation(object):
     _model_upstream: Optional[str]
     _ownership_downstream: Optional[str]
     _ownership_upstream: Optional[str]
-    _custom_model_specification: Optional[dict]
+    _custom_model_specification: Optional[Dict[str, Any]]
     _vertical_integration: Optional[str]
     _unit_tax: Optional[str]
     _advalorem_tax: Optional[str]
@@ -102,7 +102,7 @@ class ModelFormulation(object):
     def __init__(
             self, model_downstream: Optional[str] = None, model_upstream: Optional[str] = None,
             ownership_downstream: Optional[str] = None, ownership_upstream: Optional[str] = None,
-            custom_model_specification: Optional[dict] = None, vertical_integration: Optional[str] = None,
+            custom_model_specification: Optional[Dict[str, Any]] = None, vertical_integration: Optional[str] = None,
             unit_tax: Optional[str] = None, advalorem_tax: Optional[str] = None, advalorem_payer: Optional[str] = None,
             cost_scaling: Optional[str] = None,
             kappa_specification_downstream: Optional[Union[str, Callable[[Any, Any], float]]] = None,
@@ -176,7 +176,7 @@ class ModelFormulation(object):
         self._user_supplied_markups = user_supplied_markups
         self._mix_flag = mix_flag
 
-    def __reduce__(self) -> Tuple[Type['ModelFormulation'], Tuple]:
+    def __reduce__(self) -> Tuple[Type['ModelFormulation'], Tuple[Any, ...]]:
         """Handle pickling."""
         return (self.__class__, (
             self._model_downstream, self._model_upstream,
@@ -190,12 +190,17 @@ class ModelFormulation(object):
 
     def __str__(self) -> str:
         """Format the terms as a string."""
-        names: List[str] = [self._model_downstream, self._model_upstream]
+        # NOTE: historically this list is typed ``List[str]`` but the fields are
+        # ``Optional[str]``. Runtime behavior preserved; use ``Any`` element type
+        # so that a downstream-only configuration (``_model_upstream is None``)
+        # matches the original ``' + '.join([s, None])`` path (which raises
+        # TypeError lazily, as before).
+        names: List[Any] = [self._model_downstream, self._model_upstream]
         return ' + '.join(names)
 
-    def _build_matrix(self, data: Mapping) -> Dict:
+    def _build_matrix(self, data: Mapping[str, Any]) -> Dict[str, Any]:
         """Convert a mapping from variable names to arrays into a dictionary of model configuration values."""
-        model_mapping: Dict[Union[str, Array]] = {}
+        model_mapping: Dict[str, Any] = {}
         model_mapping.update({
             'model_downstream': self._model_downstream,
             'model_upstream': self._model_upstream,

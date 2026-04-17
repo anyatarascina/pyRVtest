@@ -1,10 +1,10 @@
 """Output formatting."""
 
-from typing import Container, List, Optional, Sequence
+from typing import Any, Container, List, Optional, Sequence
 
 
 def format_table(
-        header: Sequence, subheader: Sequence, *data: Sequence, title: Optional[str] = None,
+        header: Sequence[Any], subheader: Sequence[Any], *data: Sequence[Any], title: Optional[str] = None,
         include_notes: bool = False, include_border: bool = True, include_header: bool = True,
         include_subheader: bool = True, line_indices: Container[int] = ()) -> str:
     """Format table information as a string, which has fixed widths, vertical lines after any specified indices, and

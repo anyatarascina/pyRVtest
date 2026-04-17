@@ -16,7 +16,7 @@ alias; internally, the alias is always translated to classes via
 
 from __future__ import annotations
 
-from typing import List, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from ..formulation import ModelFormulation
 from .base import ConductModel
@@ -39,6 +39,10 @@ def from_model_formulation(
     single ``ConductModel`` subclass.
     """
     if mf._model_upstream is not None:
+        # ``model_downstream`` is guaranteed non-None in the Vertical branch because
+        # ``ModelFormulation.__init__`` requires either ``model_downstream`` or
+        # ``user_supplied_markups``, and vertical models always set the downstream.
+        assert mf._model_downstream is not None
         down = _conduct_from_string(
             mf._model_downstream,
             ownership=mf._ownership_downstream,
@@ -62,6 +66,13 @@ def from_model_formulation(
             user_supplied_markups=mf._user_supplied_markups,
         )
     # Simple (non-vertical) case: all config lives on the one class.
+    # ``model_downstream`` may be ``None`` here only when the caller relied on
+    # ``user_supplied_markups`` alone (a legacy code path we reject in
+    # ``_conduct_from_string`` with a clear error).
+    assert mf._model_downstream is not None, (
+        "ModelFormulation without model_downstream cannot be translated "
+        "to a ConductModel (use an explicit model_downstream)."
+    )
     return _conduct_from_string(
         mf._model_downstream,
         ownership=mf._ownership_downstream,
@@ -94,11 +105,11 @@ def from_model_formulations(
 
 def _conduct_from_string(
         model_str: str,
-        ownership=None,
-        kappa_specification=None,
-        mix_flag=None,
-        custom_model_specification=None,
-        **extra_config,
+        ownership: Optional[str] = None,
+        kappa_specification: Optional[Any] = None,
+        mix_flag: Optional[str] = None,
+        custom_model_specification: Optional[Dict[str, Any]] = None,
+        **extra_config: Any,
 ) -> ConductModel:
     """Map a conduct-type string to the corresponding class instance.
 

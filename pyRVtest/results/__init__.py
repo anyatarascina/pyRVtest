@@ -10,7 +10,7 @@ will split this into `results.py`, `aggregation.py`, `panel.py`, and
 from dataclasses import dataclass
 from pathlib import Path
 import pickle
-from typing import List, Optional, Union, TYPE_CHECKING
+from typing import Any, List, Optional, Union, TYPE_CHECKING
 
 from pyblp.utilities.basics import Array, StringRepresentation
 
@@ -43,11 +43,11 @@ class Progress:
     F_cv_power_list: Array
     symbols_size_list: Array
     symbols_power_list: Array
-    cost_param: Optional[list] = None
-    tau_list_per_instrument: Optional[list] = None
+    cost_param: Optional[List[Any]] = None
+    tau_list_per_instrument: Optional[List[Any]] = None
 
 
-class ProblemResults(StringRepresentation):
+class ProblemResults(StringRepresentation):  # type: ignore[misc]
     r"""Results of running the firm conduct testing procedures.
 
     Attributes

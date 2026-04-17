@@ -146,7 +146,9 @@ def build_passthrough(
         # Downstream markups for this market.
         markups_t = markups_down[index_t]
 
-        passthrough_t = _construct_passthrough_from_hessian(
+        # ``_construct_passthrough_from_hessian`` lives in legacy ``markups.py``
+        # which is not strict-typed (see mypy.ini); treat as returning _NDArray.
+        passthrough_t: _NDArray = _construct_passthrough_from_hessian(  # type: ignore[no-untyped-call]
             d2s_dp2_t, D_t, ownership_t, markups_t
         )
         results[t] = passthrough_t

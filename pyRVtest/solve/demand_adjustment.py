@@ -24,7 +24,7 @@ demand_adjustment=True` computes the gamma gradient the same way the
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -95,7 +95,8 @@ def _residualize_on_xd(
     XtZW = X_D.T @ Z_D @ W_D
     M_xx = XtZW @ Z_D.T @ X_D
     projection_coeffs = np.linalg.inv(M_xx) @ (XtZW @ Z_D.T @ dxi_dtheta)
-    return dxi_dtheta - X_D @ projection_coeffs
+    residual: _NDArray = dxi_dtheta - X_D @ projection_coeffs
+    return residual
 
 
 def compute_demand_adjustment(
@@ -178,6 +179,12 @@ def compute_demand_adjustment(
             f"adjustment inputs when constructing the backend, or set "
             f"`demand_adjustment=False`."
         )
+    # After the isinstance check, backend is a SupportsDemandAdjustment. The
+    # Protocol only declares `demand_moments`, `xi_gradient`, and `perturbed`;
+    # analytical-path calls (`compute_jacobian`, `jacobian_gradient`) live on
+    # the concrete backend classes and are always present when the model path
+    # exercises them. Cast to Any for the downstream backend calls.
+    backend = cast(Any, backend)
 
     # -----------------------------------------------------------------
     # 1. Demand-side quantities from the backend.
@@ -332,14 +339,17 @@ def _analytical_markup_derivative(
     if model_type == 'bertrand':
         A = O_t * D_t.T
         dA = O_t * dD_k.T
-        return -np.linalg.solve(A, dA @ mu_t)
+        bertrand_result: _NDArray = -np.linalg.solve(A, dA @ mu_t)
+        return bertrand_result
     if model_type == 'cournot':
         D_inv = np.linalg.inv(D_t)
         dD_inv = -D_inv @ dD_k @ D_inv
-        return -(O_t * dD_inv) @ s_t
+        cournot_result: _NDArray = -(O_t * dD_inv) @ s_t
+        return cournot_result
     if model_type == 'monopoly':
         dA = dD_k.T
-        return -np.linalg.solve(D_t.T, dA @ mu_t)
+        monopoly_result: _NDArray = -np.linalg.solve(D_t.T, dA @ mu_t)
+        return monopoly_result
     if model_type == 'mix_cournot_bertrand':
         b_t = mix_flag_m[idx].flatten().astype(bool)
         c_t = ~b_t
@@ -374,13 +384,16 @@ def _analytical_markup_derivative(
     return np.zeros(J_t)
 
 
-def _perturb_and_rebuild_markups(backend, problem, theta_index, delta, compute_markups_fn):
+def _perturb_and_rebuild_markups(
+        backend: Any, problem: Any, theta_index: int, delta: float,
+        compute_markups_fn: Callable[..., Any],
+) -> Tuple[List[_NDArray], List[_NDArray], List[_NDArray]]:
     """Enter ``backend.perturbed(theta_index, delta)`` and call ``_compute_markups``.
 
     Returns the full ``(markups, markups_down, markups_up)`` tuple.
     """
     with backend.perturbed(theta_index, delta) as perturbed_backend:
-        return compute_markups_fn(
+        result: Tuple[List[_NDArray], List[_NDArray], List[_NDArray]] = compute_markups_fn(
             problem.products, None,  # pyblp_results unused when demand_backend supplied
             problem.models["models_downstream"],
             problem.models["ownership_downstream"],
@@ -392,9 +405,12 @@ def _perturb_and_rebuild_markups(backend, problem, theta_index, delta, compute_m
             problem.models["mix_flag"],
             demand_backend=perturbed_backend,
         )
+        return result
 
 
-def _residualize_grad_on_cost_shifters(gradient_markups, problem, M, n_theta):
+def _residualize_grad_on_cost_shifters(
+        gradient_markups: _NDArray, problem: Any, M: int, n_theta: int,
+) -> None:
     """In-place residualization of ``gradient_markups[m][:, k]`` on cost shifters.
 
     Matches the last block of ``Problem._compute_analytical_demand_adjustment``
@@ -434,9 +450,10 @@ def _residualize_grad_on_cost_shifters(gradient_markups, problem, M, n_theta):
 
 
 def _compute_gamma_gradient(
-        backend, problem, M, N, n_theta,
-        advalorem_tax_adj, cost_scaling, compute_markups_fn,
-):
+        backend: Any, problem: Any, M: int, N: int, n_theta: int,
+        advalorem_tax_adj: List[Any], cost_scaling: List[Any],
+        compute_markups_fn: Callable[..., Any],
+) -> List[_NDArray]:
     """Finite-diff of per-instrument gamma w.r.t. each demand parameter.
 
     Matches the inline PyBLP path's `_record_gamma_gradient` helper:

@@ -78,7 +78,8 @@ class Cournot(ConductModel):
     ) -> _NDArray:
         D_inv = np.linalg.inv(D)
         dD_inv = -D_inv @ dD @ D_inv
-        return -(O * dD_inv) @ s
+        result: _NDArray = -(O * dD_inv) @ s
+        return result
 
 
 class Monopoly(ConductModel):
