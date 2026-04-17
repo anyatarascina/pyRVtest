@@ -3,13 +3,197 @@
 **To:** Lorenzo Magnolfi, Marco Duarte
 **From:** Christopher Sullivan
 **Re:** pyRVtest development — cumulative changes since CClean-fixes
-**Last updated:** 2026-04-17 (late)
+**Last updated:** 2026-04-17 (end of day)
 
 This is a running memo of pyRVtest changes that affect methodology, results, or coauthor-visible API. I will keep adding to the top as things change. Read the "Status right now" block for the current state. Each dated section below documents a specific change and its blast radius.
 
 ---
 
-## Status right now (2026-04-17 late, post steps 6 / 7 / 11 / 13 / 15 / 17 / 20 / 22 / 23 / 24.5)
+## Status right now (2026-04-17 end of day — v0.4 effectively feature-complete)
+
+**Branch:** `v0.4-refactor` at `5321a7b` on origin.
+**Tests:** **592 passed + 3 skipped** (was 388+3 at the previous "Status right now" block). mypy `--strict` clean across 43 source files. Snapshot tests at `atol=1e-10` bit-identical throughout.
+**Steps done:** 24 of 25. Only **step 16** (AFSSZ dogfood on real data) remains — data-blocked by ~1 week. **Step 25** (tag v0.4.0) is awaiting Chris's call.
+
+### Bottom line for coauthors
+
+Library-side v0.4 work is complete. The branch is ready to tag v0.4.0 whenever the call is made. All existing v0.3 scripts run unchanged modulo one-line deprecation warnings. No correctness changes vs. the snapshot suite (every refactor was verified bit-identical at `atol=1e-10`); everything landed is additive or renames with aliases.
+
+### New this session (sessions 7 through end of day, 36 commits)
+
+**Architecture / refactor:**
+
+- **Step 8 — `Problem.solve` split into staged pipeline** (5 sub-commits). `solve()` is now a thin orchestrator that calls stages in `pyRVtest/solve/`: `markups.compute`, `orthogonalize.residualize`, `endogenous_cost.iv_correct`, `demand_adjustment.apply`, `test_engine.compute`. `problem.py` shrunk from 1733 → 1328 lines. Per-stage loggers (`pyRVtest.solve.markups`, etc.).
+- **Step 14 — labor-side hooks** (4 sub-commits). `Problem(market_side='labor')` with `Monopsony`, `BertrandWages`, `CournotEmployment` (real sign-flipped math) and `NashBargaining` (v0.5 stub). `LaborSupplyBackend` skeleton wired through the `DemandBackend` protocol; real Jacobian/Hessian math deferred to v0.5.
+
+**Dearing paper integration (step 12):**
+
+The paper `Falsifying_Models_and_Tax_Instruments` (Dearing, Magnolfi, Quint, Sullivan, Waldfogel, 2026) is now folded into the library.
+
+- `RuleOfThumb(phi)` — `p = ϕ·mc` (Example 1). Ergonomic wrapper over the existing `cost_scaling` machinery, which now accepts a numeric scalar in addition to a column name.
+- `Keystone()` — `RuleOfThumb(phi=2.0)` shorthand (Escudero 2018).
+- `ConstantMarkup(markup)` — `∆ⱼₜ = ζⱼ` (Example 7). Accepts a scalar or a column name; introduces a new additive-markup plumbing path.
+- The plan's original `cost_plus` was dropped — mathematically identical to `rule_of_thumb` under a different parameterization.
+- Legacy `PerfectCompetition(cost_scaling='lmbda_col')` still works unchanged.
+
+**Tax specification: model-level → Problem-level (resolves OQ 14):**
+
+Per-model `unit_tax` / `advalorem_tax` / `advalorem_payer` on `ConductModel` / `ModelFormulation` / `Vertical` are **deprecated**. New pattern: specify the tax once on `Problem`, opt individual models out via `unit_tax_salient=False` / `advalorem_tax_salient=False` for salience testing.
+
+```python
+# NEW recommended
+Problem(
+    ...,
+    unit_tax='tax_col',
+    advalorem_tax='vat_col',
+    advalorem_payer='consumer',
+    models=[
+        Bertrand(ownership='firm_id'),                            # all taxes salient
+        Bertrand(ownership='firm_id', unit_tax_salient=False),    # salience test
+    ],
+)
+```
+
+Legacy per-model spec still works with a once-per-session `DeprecationWarning`. **Removal scheduled for v0.7** (one release later than other v0.4 deprecations because of prevalence in user code).
+
+**Known-coefficient cost shifters on `Formulation` (also OQ 14):**
+
+```python
+cost_formulation = Formulation('0 + w', known_coefficients={'input_price': 0.75, 'union_wage': 1.0})
+```
+
+Generalizes the unit-tax idea — shifters with known coefficients (per Dearing et al. 2026) enter `prices_effective` additively without per-model opt-out. Always DGP-level.
+
+**Pass-through diagnostics on `ProblemResults` (resolves OQ 15):**
+
+- `ProblemResults.passthrough_comparison(metric=...)` — DataFrame with pairwise pass-through distances. Three metrics: `frobenius` (default), `offdiag_frobenius` (Dearing Remark 4 distinguishability condition), `max_abs`. Metric recorded on `attrs['metric']`.
+- `ProblemResults.passthrough_matrix(model_index, market_id=None)` — thin wrapper over `build_passthrough`.
+- **Restriction:** v0.4 only supports Vertical candidate models. Non-Vertical candidates raise `NotImplementedError` with a v0.5 pointer. Per-model closed-form pass-through for Bertrand / Cournot / RuleOfThumb / ConstantMarkup / PerfectCompetition is a clean v0.5 follow-up.
+
+**Results-export methods (steps 9 + 10):**
+
+- `ProblemResults.to_dataframe()`, `.summary_df(alpha=0.05)`, `.to_latex()`, `.to_markdown()`. `summary_df` emits a stable `reject` column and records `alpha` on `DataFrame.attrs['alpha']`.
+- `PanelResults` class for multi-problem aggregation (one `ProblemResults` per market-year, subsample, etc.). Mapping-like API plus `to_dataframe`, `rejection_rates`, `summary_df`, `to_latex`, `to_markdown`.
+
+**Developer-experience (steps 18 / 19 / 21):**
+
+- Per-module loggers (`pyRVtest.problem`, `pyRVtest.backends.logit`, etc.) replace the in-house `output()` / `print()` calls. Users silence subsystems via `logging.getLogger("pyRVtest.problem").setLevel(logging.WARNING)`.
+- All 120 `raise` sites rewritten to expected/received/fix format. New `pyRVtest/exceptions.py` hierarchy (`PyRVTestError`, `ValidationError`, `BackendError`, and subclasses). Every class multi-inherits from the appropriate built-in so existing `pytest.raises(ValueError, ...)` callers keep working.
+- 47 runnable doctests across 28 modules; `pytest --doctest-modules` wired into CI.
+
+### Methodology-relevant notes
+
+- **No correctness changes in this session.** All behavior preserved at snapshot `atol=1e-10`. The Dearing simple-markup models, Problem-level taxes, and pass-through diagnostics are additive; the `Problem.solve` split is code relocation, not math changes.
+- **Labor HHI instrument removed before release.** An agent initially shipped `pyRVtest.instruments.labor.concentration_hhi` by false analogy with product-side concentration. Chris caught in review: HHI in labor markets is endogenous in wages (labor concentration depends on the wage being tested). The helper was deleted before anyone could use it.
+- **Labor sign-convention review needed.** `Monopsony`, `BertrandWages`, `CournotEmployment` are implemented with sign-flipped versions of their product-side counterparts (`np.linalg.solve(D, s)` instead of `-np.linalg.solve(D, s)`, etc.). Pairwise consistency is verified (`Bertrand(D)` magnitude ≡ `BertrandWages(-D)` magnitude) but the absolute sign convention against a specific labor-market paper is not — please flag if any of the formulas differ from your preferred convention before we activate the real `LaborSupplyBackend` in v0.5.
+- **OQ 15 `offdiag_frobenius` metric** is implemented as `‖P_i − P_j − diag(diag(P_i − P_j))‖_F` (Frobenius norm of the off-diagonal part of the difference). This matches the literal reading of Dearing Remark 4; worth a cross-check against the paper if an external reviewer looks at the diagnostic.
+
+### New public API surface summary
+
+```python
+# Dearing simple-markup conduct models
+pyRVtest.RuleOfThumb(phi=2.0)
+pyRVtest.Keystone()
+pyRVtest.ConstantMarkup(markup=0.5)    # or column name
+
+# Labor-side conduct
+pyRVtest.Problem(market_side='labor', ...)
+pyRVtest.Monopsony(ownership='firm_id')
+pyRVtest.BertrandWages(ownership='firm_id')
+pyRVtest.CournotEmployment(ownership='firm_id')
+# NashBargaining is importable but raises NotImplementedError — v0.5 work
+
+# Problem-level taxes (replaces per-model spec)
+pyRVtest.Problem(..., unit_tax='tax_col', advalorem_tax='vat_col', advalorem_payer='consumer')
+# Per-model salience opt-out:
+pyRVtest.Bertrand(..., unit_tax_salient=False)
+
+# Known-coefficient cost shifters on Formulation
+pyRVtest.Formulation('0 + w', known_coefficients={'col': 0.75})
+
+# CustomConductModel under labor mode must opt in
+pyRVtest.CustomConductModel(markup_fn=..., side='labor')
+
+# Results exports
+results.to_dataframe()
+results.summary_df(alpha=0.05)
+results.to_latex()
+results.to_markdown()
+results.passthrough_comparison(metric='offdiag_frobenius')
+results.passthrough_matrix(model_index=0, market_id='chicago_2015')
+
+# Panel aggregation
+pyRVtest.PanelResults(results={key: problem_results, ...})
+panel.rejection_rates(alpha=0.05)
+panel.summary_df()
+panel.to_dataframe()
+```
+
+### Deprecation schedule (for reference)
+
+| Deprecation | Still works through | Removed in |
+|-------------|---------------------|------------|
+| `ModelFormulation` / `model_formulations=` | v0.5 | v0.6 |
+| `demand_params=dict(sigma=...)` | v0.5 | v0.6 |
+| `pyRVtest.output.output()` | v0.5 | v0.6 |
+| Per-model `unit_tax` / `advalorem_tax` / `advalorem_payer` | v0.6 | **v0.7** |
+
+Each emits a once-per-session `DeprecationWarning` pointing at `docs/migrating_to_v0.4.rst`.
+
+### What we still need from Lorenzo
+
+- **DMSS yogurt data + pinned TRV/F/MCS values** for step 0d (unchanged since session 3). Scaffold at `tests/replication/test_dmss_yogurt.py`.
+
+### What we still need from Marco / Lorenzo
+
+- **Labor sign-convention sanity check** on `Monopsony`, `BertrandWages`, `CournotEmployment` before v0.5 activates the real `LaborSupplyBackend`. If any signs look wrong per your reading of the labor-market-conduct manuscript, flag now while the code is young.
+
+### What's left before v0.4.0 tag
+
+- **Step 16 — AFSSZ dogfood.** Deploy pyRVtest v0.4 on the real 910-market-year panel (in `scalable-testing-markups`), iterate on the API if anything is painful. Data arrives in ~1 week.
+- **Step 25 — tag v0.4.0.** Trivial mechanics once step 16 is green. Chris has an open decision: tag now vs. wait for step 16. Current lean: tag now and let step-16 findings produce v0.4.1.
+
+### Chris's open design decisions (defaults shipped, nothing breaking)
+
+1. Labor `__str__` style: banner (shipped) vs per-cell labels.
+2. `PerfectCompetition` side-neutrality (shipped: side-neutral).
+3. Labor column naming: `employment_share` (shipped) vs raw `employment`.
+4. Deprecation runway split (shipped: v0.6 / v0.7).
+5. Shared `memory/feedback_python_env.md` rephrasing (coauthor-authored, untouched).
+6. Nested `CustomConductModel` inside `Vertical` side-check (rare; not shipped).
+
+None are blockers for v0.4 tag.
+
+### Test-suite growth in this session
+
+From 388 + 3 to 592 + 3 skipped (+204 tests). Notable additions:
+
+- Step 8 (Problem.solve split) — snapshot suite preserved, no new tests by design.
+- Step 9 (ProblemResults exports) — 28 tests in `tests/test_results_exports.py`.
+- Step 10 (PanelResults) — 27 tests in `tests/test_panel_results.py`.
+- Step 18 (logging) — 6 tests in `tests/test_logging.py`.
+- Step 19 (error messages) — 10 tests in `tests/test_error_messages.py`.
+- Step 21 (doctests) — 47 runnable docstring examples.
+- Step 14 (labor) — 28 tests in `tests/test_labor_mode.py`.
+- Step 12 (Dearing models) — 32 tests in `tests/test_dearing_models.py`.
+- Problem-level taxes — 18 tests in `tests/test_problem_level_taxes.py`.
+- Known_coefficients — 16 tests in `tests/test_known_coefficients.py`.
+- OQ 15 passthrough_comparison — 17 tests in `tests/test_passthrough_comparison.py`.
+- `CustomConductModel` side opt-in — 11 tests added to `tests/test_labor_mode.py`.
+
+Subtracted: 3 tests removed when `concentration_hhi` was dropped.
+
+### Where to read more
+
+- `CHANGELOG.md` — full Unreleased v0.4.0 section with Migration guide and Deprecated section.
+- `docs/migrating_to_v0.4.rst` — user-facing migration guide + explicit deprecation timeline.
+- `docs/agent_guide.rst` + `AGENTS.md` — architecture tour and class-based-API + labor + Dearing pointers.
+- `.claude/plans/v0.4-refactor.md` — design doc with Decisions Log.
+- `.claude/handovers/2026-04-17-session7-v0.4-essentially-complete.md` — full session-by-session narrative including the honest retrospective on what went right and wrong.
+
+---
+
+## Status at 2026-04-17 late, post steps 6 / 7 / 11 / 13 / 15 / 17 / 20 / 22 / 23 / 24.5 (superseded by above)
 
 **Branch:** `v0.4-refactor` at `15e1005` on origin (plus session handover commit).
 **Tests:** **388 passed + 3 skipped** (was 259 + 3 at end of prior session).
