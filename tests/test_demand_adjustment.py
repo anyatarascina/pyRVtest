@@ -945,3 +945,133 @@ class TestDemandResultsRouting:
         assert abs(backend._alpha - expected_alpha) < 1e-14
         assert len(backend._sigma) == 1
         assert abs(backend._sigma[0] - float(rho_arr[0])) < 1e-14
+
+
+# ===========================================================================
+# v0.4 step 4i: gradient_markups gets tax / cost-scaling factor applied.
+#
+# Problem.solve uses markups_effective = tax_factor * markups_raw for the GMM
+# moment. Downstream G_k uses d(markups_effective)/d(theta) which equals
+# tax_factor * d(markups_raw)/d(theta). Pre-v0.4 the inline PyBLP path
+# applied this factor (via apply_tax_adjustment); the inline analytical path
+# didn't. Step 4d initially ported the analytical behavior (no factor),
+# regressing PyBLP users with nontrivial taxes. Step 4i applies the factor
+# uniformly in compute_demand_adjustment.
+# ===========================================================================
+
+
+class TestGradientMarkupsAppliesTaxFactor:
+    """Regression test for the tax / cost-scaling factor on gradient_markups."""
+
+    @staticmethod
+    def _build_tax_dgp(tax_value: float):
+        """Same data as the Option-A-like fixture, with an ``advalorem_tax``
+        column optionally set to ``tax_value`` for all products.
+        """
+        rng = np.random.default_rng(seed=313)
+        T, J = 10, 3
+        N = T * J
+        alpha = -2.0
+        market_ids = np.repeat(np.arange(T), J)
+        firm_ids = np.tile(np.arange(J), T)
+        x1 = rng.normal(size=N)
+        prices = rng.uniform(0.8, 2.0, size=N)
+        u = 0.3 * x1 + rng.normal(scale=0.2, size=N)
+        delta = u + alpha * prices
+        shares = np.zeros(N)
+        for t in range(T):
+            idx = np.where(market_ids == t)[0]
+            e = np.exp(delta[idx])
+            shares[idx] = e / (1.0 + e.sum())
+        rival_x1 = np.zeros(N)
+        for t in range(T):
+            idx = np.where(market_ids == t)[0]
+            for j in idx:
+                others = [i for i in idx if i != j]
+                rival_x1[j] = x1[others].mean()
+        z1 = rng.normal(size=N) + 1.5
+        df = pd.DataFrame({
+            'market_ids': market_ids, 'firm_ids': firm_ids,
+            'prices': prices, 'shares': shares,
+            'x1': x1, 'intercept': np.ones(N),
+            'rival_x1': rival_x1,
+            'z1': z1, 'iv0': rival_x1,
+            'advalorem_tax': np.full(N, tax_value),
+        })
+        return df, alpha
+
+    @staticmethod
+    def _run(df, alpha, with_tax: bool):
+        pyRVtest.options.verbose = False
+        model_kwargs = dict(
+            model_downstream='bertrand', ownership_downstream='firm_ids',
+        )
+        if with_tax:
+            model_kwargs['advalorem_tax'] = 'advalorem_tax'
+            model_kwargs['advalorem_payer'] = 'firm'
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1'),
+            instrument_formulation=pyRVtest.Formulation('0 + iv0'),
+            model_formulations=(pyRVtest.ModelFormulation(**model_kwargs),),
+            product_data=df,
+            demand_params={
+                'alpha': alpha, 'sigma': [],
+                'beta': np.array([0.0, 0.3]),
+                'x_columns': ['intercept', 'x1'],
+                'demand_instrument_columns': ['rival_x1', 'intercept', 'x1'],
+            },
+        )
+        markups, _, _ = problem._perturb_and_build_markups()
+        M, N_obs = problem.M, problem.N
+        advalorem_tax_adj, cost_scaling = _advalorem_and_scaling(problem)
+        from pyRVtest.solve.demand_adjustment import compute_demand_adjustment
+        grad = compute_demand_adjustment(
+            problem._demand_backend, problem, M, N_obs, markups,
+            advalorem_tax_adj, cost_scaling,
+        )[0]
+        return grad, advalorem_tax_adj, cost_scaling
+
+    def test_advalorem_tax_firm_payer_scales_gradient(self):
+        """With tax_value=0.1 and advalorem_payer='firm', the per-product
+        tax_adj factor is (1 - 0.1) = 0.9. gradient_markups must scale by
+        0.9 relative to the no-tax baseline (exactly, since the factor is
+        multiplicative and independent of theta).
+        """
+        df_notax, alpha = self._build_tax_dgp(tax_value=0.0)
+        df_withtax, _ = self._build_tax_dgp(tax_value=0.1)
+
+        grad_notax, adj_notax, cs_notax = self._run(df_notax, alpha, with_tax=False)
+        grad_withtax, adj_withtax, cs_withtax = self._run(
+            df_withtax, alpha, with_tax=True
+        )
+
+        # adj[0] / cs[0] are per-observation arrays (shape (N, 1)) because
+        # advalorem_tax / cost_scaling can vary across products. Build the
+        # expected per-observation factor vector.
+        notax_factor = (
+            np.asarray(adj_notax[0]).reshape(-1, 1)
+            / (1.0 + np.asarray(cs_notax[0]).reshape(-1, 1))
+        )
+        withtax_factor = (
+            np.asarray(adj_withtax[0]).reshape(-1, 1)
+            / (1.0 + np.asarray(cs_withtax[0]).reshape(-1, 1))
+        )
+        # Sanity: the no-tax fixture has factor == 1 everywhere.
+        np.testing.assert_allclose(notax_factor, 1.0, atol=1e-14)
+        # With tax=0.1, advalorem_payer='firm' -> factor = 1 - 0.1 = 0.9.
+        np.testing.assert_allclose(withtax_factor, 0.9, atol=1e-14)
+
+        # The full gradient (after cost-shifter residualization) must scale
+        # by withtax_factor row-by-row. Because factor is constant across all
+        # N rows in this fixture, this is equivalent to a scalar multiplication;
+        # the broadcasting in compute_demand_adjustment covers the general case.
+        np.testing.assert_allclose(
+            grad_withtax[0], withtax_factor * grad_notax[0],
+            atol=1e-12, rtol=1e-10,
+            err_msg=(
+                "gradient_markups did not scale by the advalorem tax factor. "
+                "Pre-4i bug: compute_demand_adjustment returned d(markups_raw)/d(theta) "
+                "instead of d(markups_effective)/d(theta) = tax_factor * "
+                "d(markups_raw)/d(theta)."
+            ),
+        )

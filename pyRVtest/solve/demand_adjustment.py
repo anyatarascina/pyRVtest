@@ -271,6 +271,34 @@ def compute_demand_adjustment(
     _residualize_grad_on_cost_shifters(gradient_markups, problem, M, n_theta)
 
     # -----------------------------------------------------------------
+    # 3b. Apply tax / cost-scaling factor.
+    #
+    # ``Problem.solve`` defines ``markups_effective[m] = (advalorem_tax_adj[m] /
+    # (1 + cost_scaling[m])) * markups[m]`` and the downstream GMM moment uses
+    # ``mc = prices_effective - markups_effective``. So the object that enters
+    # ``G_k = -(1/N) Z' @ gradient_markups[m]`` is ``d(markups_effective)/d(theta)``.
+    # Since the tax factor does not depend on theta:
+    #
+    #     d(markups_effective)/d(theta) = tax_factor[m] * d(markups_raw)/d(theta)
+    #
+    # Pre-v0.4 the inline PyBLP path applied this factor (via
+    # ``apply_tax_adjustment`` to markups_u / markups_dn before finite-diff);
+    # the inline analytical path did not (a pre-existing bug, silent whenever
+    # the fixture had zero taxes). Step 4d initially matched the analytical
+    # behavior — which regressed PyBLP-path users with nontrivial taxes.
+    # Step 4i fixes it by applying the factor uniformly here.
+    for m in range(M):
+        # advalorem_tax_adj[m] and cost_scaling[m] are per-observation arrays
+        # (shape (N, 1)) — tax rates / scale factors can vary across products
+        # within a model. Broadcasting (N, 1) * (N, n_theta) -> (N, n_theta)
+        # scales each row of the gradient by the product-specific factor.
+        factor_col = np.asarray(advalorem_tax_adj[m]).reshape(-1, 1) / (
+            1.0 + np.asarray(cost_scaling[m]).reshape(-1, 1)
+        )
+        if not np.allclose(factor_col, 1.0):
+            gradient_markups[m] = gradient_markups[m] * factor_col
+
+    # -----------------------------------------------------------------
     # 4. Gamma gradient for endogenous cost — finite-diff per demand
     # parameter. Applies tax adjustment per PyBLP convention.
     # -----------------------------------------------------------------
