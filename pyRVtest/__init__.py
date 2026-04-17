@@ -27,6 +27,8 @@ from .products import Products
 from .results import ProblemResults
 # v0.4 step 11: public build_passthrough helper re-exported at the package level.
 from .solve.passthrough import build_passthrough
+# v0.4 step 23: agent-guide exporter for AI assistants and new contributors.
+from ._agent_guide import show_agent_guide
 from .version import __version__
 
 __all__ = [
@@ -41,4 +43,6 @@ __all__ = [
     'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel', 'Vertical',
     # v0.4 step 11: public build_passthrough helper.
     'build_passthrough',
+    # v0.4 step 23: agent-guide exporter.
+    'show_agent_guide',
 ]
