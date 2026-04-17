@@ -25,7 +25,7 @@ This is a running memo of pyRVtest changes that affect methodology, results, or 
 
 ### New public API you can use now
 
-**Conduct instruments** (step 13): `pyRVtest.instruments.product.rival_sums`, `differentiation_ivs`, `blp_instruments`, and `pyRVtest.instruments.labor.hausman`, `bartik`, `concentration_hhi`. Standard BLP / Hausman / Bartik / HHI helpers for building Z matrices. All accept DataFrame / structured recarray / dict-like `product_data`.
+**Conduct instruments** (step 13): `pyRVtest.instruments.product.rival_sums`, `differentiation_ivs`, `blp_instruments`, and `pyRVtest.instruments.labor.hausman`, `bartik`. Standard BLP / Hausman / Bartik helpers for building Z matrices. All accept DataFrame / structured recarray / dict-like `product_data`. (A labor-side `concentration_hhi` was prototyped and removed before release: labor-market HHI is endogenous in wages -- shares respond to the variable being tested -- so it is not a valid wage instrument.)
 
 **Passthrough inspection** (step 11): `pyRVtest.build_passthrough(problem, model_index, market_id=None)`. Returns the Villas-Boas passthrough matrix for a vertical model, either per-market or as a dict across all markets. Diagnostic for the upstream-markup computation.
 

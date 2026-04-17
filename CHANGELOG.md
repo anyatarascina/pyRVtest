@@ -107,9 +107,14 @@ v0.4 modulo one-line deprecation warnings.
 - **Instrument construction helpers** (step 13). New
   `pyRVtest.instruments.product` module with `rival_sums`,
   `differentiation_ivs`, `blp_instruments`. New
-  `pyRVtest.instruments.labor` with `hausman`, `bartik`,
-  `concentration_hhi`. All six accept DataFrame, structured recarray,
-  or dict-like `product_data`.
+  `pyRVtest.instruments.labor` with `hausman` and `bartik`. All five
+  accept DataFrame, structured recarray, or dict-like `product_data`.
+  A labor-side `concentration_hhi` helper was prototyped and then
+  deliberately removed before release: labor-market HHI is endogenous
+  in wages (shares respond to the variable being tested), so it is not
+  a valid wage instrument even though the product-side analogue is
+  sometimes defensible. See `pyRVtest/instruments/labor.py` for the
+  rationale and references.
 - **Worked `UserSuppliedBackend` example** (step 15). New
   `docs/custom_demand.rst` with an end-to-end linear-demand DGP and
   accompanying test.

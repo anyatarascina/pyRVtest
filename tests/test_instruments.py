@@ -14,7 +14,6 @@ import pytest
 from pyRVtest.instruments import (
     bartik,
     blp_instruments,
-    concentration_hhi,
     differentiation_ivs,
     hausman,
     rival_sums,
@@ -254,44 +253,6 @@ def test_bartik_zero_weight_zeroes_output():
 
 
 # ---------------------------------------------------------------------------
-# concentration_hhi
-# ---------------------------------------------------------------------------
-
-def test_concentration_hhi_toy_panel(toy_panel):
-    # Market 0 shares: firm1=0.2+0.3=0.5, firm2=0.5. HHI = 0.25+0.25 = 0.5.
-    # Market 1 shares: firm1=0.1+0.4=0.5, firm2=0.5. HHI = 0.25+0.25 = 0.5.
-    # Market 2 shares: firm1=0.25+0.25=0.5, firm2=0.5. HHI = 0.5.
-    got = concentration_hhi(toy_panel)
-    expected = np.full(9, 0.5)
-    assert np.allclose(got, expected, atol=ATOL)
-
-
-def test_concentration_hhi_asymmetric_market():
-    df = pd.DataFrame({
-        'market_ids': [0, 0, 0, 1, 1],
-        'firm_ids': [1, 1, 2, 1, 2],
-        'shares': [0.3, 0.2, 0.5, 0.6, 0.4],
-    })
-    # Market 0: firm1=0.5, firm2=0.5. HHI = 0.5.
-    # Market 1: firm1=0.6, firm2=0.4. HHI = 0.36 + 0.16 = 0.52.
-    got = concentration_hhi(df)
-    expected = np.array([0.5, 0.5, 0.5, 0.52, 0.52])
-    assert np.allclose(got, expected, atol=ATOL)
-
-
-def test_concentration_hhi_monopoly_market():
-    df = pd.DataFrame({
-        'market_ids': [0, 0, 1],
-        'firm_ids': [1, 1, 2],
-        'shares': [0.4, 0.6, 1.0],
-    })
-    # Market 0: single firm with sum-share = 1.0 -> HHI = 1.
-    # Market 1: single firm with share = 1.0 -> HHI = 1.
-    got = concentration_hhi(df)
-    assert np.allclose(got, np.ones(3), atol=ATOL)
-
-
-# ---------------------------------------------------------------------------
 # Integration: helpers work on structured numpy arrays, not just DataFrames.
 # ---------------------------------------------------------------------------
 
@@ -304,12 +265,13 @@ def test_rival_sums_on_structured_array():
     assert np.allclose(got, np.array([4.0, 4.0, 3.0]), atol=ATOL)
 
 
-def test_concentration_hhi_on_dict():
+def test_hausman_on_dict():
     data = {
         'market_ids': np.array([0, 0, 1, 1]),
-        'firm_ids': np.array([1, 2, 1, 2]),
-        'shares': np.array([0.5, 0.5, 0.7, 0.3]),
+        'x': np.array([1.0, 2.0, 3.0, 4.0]),
     }
-    got = concentration_hhi(data)
-    expected = np.array([0.5, 0.5, 0.58, 0.58])
+    # Market 0: leave-out mean of markets != 0 is mean([3, 4]) = 3.5.
+    # Market 1: leave-out mean of markets != 1 is mean([1, 2]) = 1.5.
+    got = hausman(data, 'x')
+    expected = np.array([3.5, 3.5, 1.5, 1.5])
     assert np.allclose(got, expected, atol=ATOL)

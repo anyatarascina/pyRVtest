@@ -393,9 +393,12 @@ with common constructions:
   differentiation IVs (Gandhi and Houde, 2019), rival-sum instruments, and
   Hausman-style cost-shifter constructions for the product side.
 
-* ``pyRVtest.instruments.labor`` — Bartik instruments,
-  concentration-based HHI instruments, and Hausman-style wage
-  instruments for labor-side applications.
+* ``pyRVtest.instruments.labor`` — Bartik shift-share instruments and
+  Hausman-style leave-one-market-out wage instruments for labor-side
+  applications. Note: a ``concentration_hhi`` helper is deliberately
+  *not* provided on the labor side; labor-market HHI is a function of
+  the endogenous employment shares and is not a valid wage instrument
+  (see :mod:`pyRVtest.instruments.labor` for the full rationale).
 
 These landed in v0.4 step 13 (single commit). Use them as a starting
 point for your own Z matrix; glue them into a

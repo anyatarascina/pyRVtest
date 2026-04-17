@@ -11,8 +11,32 @@ Functions:
     same period).
   - :func:`bartik` -- simple shift-share ``weight_j * leave-one-out-mean(
     shock)``.
-  - :func:`concentration_hhi` -- Herfindahl-Hirschman index broadcast to
-    every product in a market.
+
+Why no HHI helper?
+------------------
+
+Product-side concentration (HHI on market shares) can be treated as
+exogenous under the usual IO demand-estimation assumptions -- shares
+depend on prices, but the *number and identity* of firms and the rough
+scale of each firm are often determined by entry/exit on slower time
+scales than the demand snapshot the test consumes. In that setting, an
+HHI instrument can be defended.
+
+Labor-side HHI is different. Employment shares and the implied HHI are
+endogenous in wages: raising the local wage changes each employer's
+employment, which moves every firm's labor-market share and the HHI of
+the local labor market in lockstep. An HHI built from ``employment_share``
+is therefore a function of the endogenous variable being tested, not a
+valid instrument. Azar, Marinescu, and Steinbaum (2020, 2022) and the
+surrounding literature make this point repeatedly; simulation-based IVs
+(e.g., leave-one-market-out Hausman-style wage shifters, Bartik-style
+shift-share constructions) are the standard workaround.
+
+Shipping a ``concentration_hhi`` helper here would mislead users into
+mechanically porting the product-side pattern onto the labor side. It
+was removed in v0.4 before release. Users with their own identification
+argument can always build an HHI column inline; pyRVtest just won't
+advertise it as a default.
 """
 
 from __future__ import annotations
@@ -22,7 +46,7 @@ from typing import Any, Optional
 import numpy as np
 
 
-__all__ = ['hausman', 'bartik', 'concentration_hhi']
+__all__ = ['hausman', 'bartik']
 
 
 def _column(product_data: Any, name: str) -> np.ndarray:
@@ -179,71 +203,3 @@ def bartik(
     # Leave-one-out mean of s_k for k != j.
     loo_mean = (total - s) / (n - 1)
     return w * loo_mean
-
-
-def concentration_hhi(
-        product_data: Any,
-        share_column: str = 'shares',
-        firm_id_column: str = 'firm_ids',
-        market_id_column: str = 'market_ids') -> np.ndarray:
-    r"""Herfindahl-Hirschman Index, broadcast to each product in a market.
-
-    For each market :math:`t`, compute
-
-    .. math::
-
-        \mathrm{HHI}_t = \sum_f \left( \sum_{j \in t,\; \mathrm{firm}(j) = f}
-        s_j \right)^2
-
-    i.e., the sum over firms of squared firm-level market shares. Every
-    product in market :math:`t` receives the same value ``HHI_t``.
-
-    Shares are taken at face value (no rescaling). If your ``share_column``
-    is in percent rather than in :math:`[0, 1]`, the returned HHI is in
-    percent-squared units accordingly.
-
-    Parameters
-    ----------
-    product_data : structured array-like
-        Row per product.
-    share_column : str, optional
-        Column with product-level shares. Defaults to ``'shares'``.
-    firm_id_column : str, optional
-        Firm ID column name. Defaults to ``'firm_ids'``.
-    market_id_column : str, optional
-        Market ID column name. Defaults to ``'market_ids'``.
-
-    Returns
-    -------
-    ndarray, shape ``(N,)``
-        HHI of each product's market.
-
-    Examples
-    --------
-    >>> import pandas as pd
-    >>> df = pd.DataFrame({
-    ...     'market_ids': [0, 0, 0, 1, 1],
-    ...     'firm_ids':   [1, 1, 2, 1, 2],
-    ...     'shares':     [0.3, 0.2, 0.5, 0.6, 0.4],
-    ... })
-    >>> concentration_hhi(df)
-    array([0.5 , 0.5 , 0.5 , 0.52, 0.52])
-    """
-    shares = _column(product_data, share_column).astype(float, copy=False)
-    firm = _column(product_data, firm_id_column)
-    mkt = _column(product_data, market_id_column)
-    n = shares.shape[0]
-    out = np.zeros(n, dtype=float)
-
-    for t in np.unique(mkt):
-        idx = np.where(mkt == t)[0]
-        if idx.size == 0:
-            continue
-        firms_t = firm[idx]
-        shares_t = shares[idx]
-        hhi_t = 0.0
-        for f in np.unique(firms_t):
-            f_share = float(shares_t[firms_t == f].sum())
-            hhi_t += f_share * f_share
-        out[idx] = hhi_t
-    return out

@@ -16,16 +16,20 @@ Labor-side (:mod:`pyRVtest.instruments.labor`):
 
   - :func:`hausman`
   - :func:`bartik`
-  - :func:`concentration_hhi`
+
+A ``concentration_hhi`` helper is *not* provided on the labor side: labor-
+market HHI is a function of the endogenous employment shares and is not a
+valid instrument for wages. See :mod:`pyRVtest.instruments.labor` for the
+full rationale and references.
 
 Examples
 --------
 >>> from pyRVtest import instruments
 >>> sorted(instruments.__all__)
-['bartik', 'blp_instruments', 'concentration_hhi', 'differentiation_ivs', 'hausman', 'rival_sums']
+['bartik', 'blp_instruments', 'differentiation_ivs', 'hausman', 'rival_sums']
 """
 
-from .labor import bartik, concentration_hhi, hausman
+from .labor import bartik, hausman
 from .product import blp_instruments, differentiation_ivs, rival_sums
 
 
@@ -33,5 +37,5 @@ __all__ = [
     # product-side
     'rival_sums', 'differentiation_ivs', 'blp_instruments',
     # labor-side
-    'hausman', 'bartik', 'concentration_hhi',
+    'hausman', 'bartik',
 ]
