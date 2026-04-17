@@ -14,8 +14,10 @@ from pyblp.utilities.basics import (
 )
 from pyblp.configurations.formulation import ColumnFormulation
 from . import options
+from .exceptions import ValidationError
 from .formulation import Absorb, Formulation, ModelFormulation
 from .markups import build_ownership
+from .models import _LABOR_SIDE_MODEL_NAMES, _PRODUCT_SIDE_MODEL_NAMES
 from .data import read_critical_values_tables
 from .products import Products
 from .results import ProblemResults, Progress
@@ -138,6 +140,223 @@ def _apply_conduct_to_fields(
     # mix_flag lives on the downstream conduct when it's a MixCournotBertrand.
     if tier == 'downstream' and isinstance(conduct, MixCournotBertrand) and conduct.mix_flag is not None:
         mix_flag[m] = extract_matrix(product_data, conduct.mix_flag).flatten().astype(bool)
+
+
+# v0.4 step 14c: labor-side column-name defaults and aliasing helpers.
+#
+# ``Problem(market_side='labor')`` accepts a ``column_names`` override
+# following plan Open Question 6: defaults map 'price' -> 'wages' and
+# 'shares' -> 'employment', but a caller can pass
+# ``column_names={'price': 'wages', 'shares': 'employment_share'}`` to
+# rebind. Inside the package we keep the canonical column names ``prices``
+# and ``shares`` (so ``Products`` and the solve stages stay untouched);
+# the aliasing step runs at ``Problem.__init__`` only.
+
+_LABOR_COLUMN_DEFAULTS: Dict[str, str] = {
+    'price': 'wages',
+    'shares': 'employment',
+}
+
+_LABOR_COLUMN_NAMES_KEYS = frozenset(_LABOR_COLUMN_DEFAULTS.keys())
+
+
+def _resolve_labor_column_names(
+        column_names: Optional[Mapping[str, str]],
+) -> Dict[str, str]:
+    """Resolve user-facing labor column-name overrides against defaults.
+
+    Returns a ``{'price': <col>, 'shares': <col>}`` dict where each value is
+    the name of the column in ``product_data`` that carries the labor-side
+    wage / employment variable. Raises :class:`ValidationError` if the
+    override dict contains unexpected keys (caught at init so the user sees
+    the typo immediately).
+    """
+    resolved = dict(_LABOR_COLUMN_DEFAULTS)
+    if column_names is None:
+        return resolved
+    if not isinstance(column_names, Mapping):
+        raise ValidationError(
+            f"Expected column_names to be a mapping of "
+            f"{{'price': <col>, 'shares': <col>}}. "
+            f"Received {type(column_names).__name__}. "
+            f"Fix: pass column_names={{'price': 'wages', 'shares': 'employment_share'}} "
+            f"or omit the argument to accept labor-side defaults."
+        )
+    extras = set(column_names) - _LABOR_COLUMN_NAMES_KEYS
+    if extras:
+        raise ValidationError(
+            f"Expected column_names keys to be a subset of "
+            f"{sorted(_LABOR_COLUMN_NAMES_KEYS)}. "
+            f"Received unexpected keys: {sorted(extras)}. "
+            f"Fix: use only 'price' and/or 'shares' as override keys, matching "
+            f"the PyBLP formulation-pattern convention."
+        )
+    for k, v in column_names.items():
+        if not isinstance(v, str) or not v:
+            raise ValidationError(
+                f"Expected column_names[{k!r}] to be a non-empty column-name "
+                f"string. "
+                f"Received {v!r}. "
+                f"Fix: pass the name of the column in product_data carrying "
+                f"the labor-side {k} variable."
+            )
+        resolved[k] = v
+    return resolved
+
+
+def _validate_labor_sign_conventions(
+        product_data: Mapping[str, Any], resolved_column_names: Mapping[str, str],
+) -> None:
+    """Enforce labor-side positivity: wages > 0, employment > 0, on every row.
+
+    Fails loudly when a caller encodes wages as negative numbers (product-
+    side sign convention leaking into a labor-side call) or when employment
+    shares are zero / missing. Per plan §4.5.
+
+    The supply-Jacobian sign (``ds/dw > 0`` for upward-sloping supply) is a
+    backend concern; it is validated when :class:`LaborSupplyBackend`
+    populates ``compute_jacobian`` in v0.5 (the skeleton does not produce
+    numeric output so there is nothing to check here).
+    """
+    wage_col = resolved_column_names['price']
+    emp_col = resolved_column_names['shares']
+    wages = extract_matrix(product_data, wage_col)
+    employment = extract_matrix(product_data, emp_col)
+    if wages is None:
+        raise ValidationError(
+            f"Expected product_data to contain the labor-side wage column "
+            f"{wage_col!r} when market_side='labor'. "
+            f"Received product_data without that key. "
+            f"Fix: add the column, or override the default via "
+            f"Problem(..., market_side='labor', "
+            f"column_names={{'price': '<your-wage-col>'}})."
+        )
+    if employment is None:
+        raise ValidationError(
+            f"Expected product_data to contain the labor-side employment "
+            f"column {emp_col!r} when market_side='labor'. "
+            f"Received product_data without that key. "
+            f"Fix: add the column, or override the default via "
+            f"Problem(..., market_side='labor', "
+            f"column_names={{'shares': '<your-employment-col>'}})."
+        )
+    wages_flat = np.asarray(wages).ravel()
+    emp_flat = np.asarray(employment).ravel()
+    if not np.all(wages_flat > 0):
+        n_bad = int((wages_flat <= 0).sum())
+        raise ValidationError(
+            f"Expected every entry of {wage_col!r} to be strictly positive "
+            f"when market_side='labor' (upward-sloping labor supply requires "
+            f"positive wages). "
+            f"Received {n_bad} row(s) with wages <= 0 "
+            f"(min={float(wages_flat.min())}, max={float(wages_flat.max())}). "
+            f"Fix: check the sign convention in your data pipeline — labor-"
+            f"side wages must be encoded as positive real numbers (product-"
+            f"side callers sometimes encode prices as negative when flipping "
+            f"sign by hand; do not do that here). See "
+            f"docs/agent_guide.rst#labor-side-usage."
+        )
+    if not np.all(emp_flat > 0):
+        n_bad = int((emp_flat <= 0).sum())
+        raise ValidationError(
+            f"Expected every entry of {emp_col!r} to be strictly positive "
+            f"when market_side='labor'. "
+            f"Received {n_bad} row(s) with employment <= 0 "
+            f"(min={float(emp_flat.min())}, max={float(emp_flat.max())}). "
+            f"Fix: drop zero-employment rows or check the column. See "
+            f"docs/agent_guide.rst#labor-side-usage."
+        )
+
+
+def _validate_labor_models(models: Sequence[Any]) -> None:
+    """Reject product-side models under market_side='labor' per plan §4.5."""
+    from .models import ConductModel, CustomConductModel, Vertical
+    bad: list[tuple[int, str]] = []
+    for i, m in enumerate(models):
+        if isinstance(m, Vertical):
+            for tier_name, conduct in (('downstream', m.downstream), ('upstream', m.upstream)):
+                if conduct is None:
+                    continue
+                name = getattr(conduct, '_model_name', '')
+                if name in _PRODUCT_SIDE_MODEL_NAMES:
+                    bad.append((i, f"Vertical.{tier_name}={name}"))
+            continue
+        if isinstance(m, CustomConductModel):
+            # Custom models are neither product nor labor; users opt in knowingly.
+            continue
+        if not isinstance(m, ConductModel):
+            continue
+        name = getattr(m, '_model_name', '')
+        if name in _PRODUCT_SIDE_MODEL_NAMES:
+            bad.append((i, name))
+    if bad:
+        offenders = ', '.join(f"models[{i}]={n}" for i, n in bad)
+        raise ValidationError(
+            f"Expected every entry of models to be a labor-side conduct "
+            f"model when market_side='labor'. "
+            f"Received product-side model(s): {offenders}. "
+            f"Fix: replace with the labor-side analogue "
+            f"(Monopsony, BertrandWages, CournotEmployment, NashBargaining), "
+            f"or switch market_side back to 'product' (the default)."
+        )
+
+
+def _apply_labor_column_aliases(
+        product_data: Mapping[str, Any], resolved_column_names: Mapping[str, str],
+) -> Mapping[str, Any]:
+    """Alias the labor-side wage/employment columns into prices/shares.
+
+    Returns a new object suitable for ``Products.__new__`` that carries the
+    user's labor-side data under the canonical names 'prices' and 'shares'.
+    For pandas DataFrames we copy + assign; for dict-like mappings we return
+    a new dict with the aliased keys. The original ``product_data`` is not
+    mutated.
+
+    Called only when ``market_side='labor'``. A no-op if the user already
+    named the columns 'prices' and 'shares' (they get copied back to
+    themselves).
+    """
+    wage_col = resolved_column_names['price']
+    emp_col = resolved_column_names['shares']
+
+    # pandas DataFrame branch (most common caller).
+    try:
+        import pandas as pd
+        if isinstance(product_data, pd.DataFrame):
+            aliased = product_data.copy()
+            aliased['prices'] = aliased[wage_col]
+            aliased['shares'] = aliased[emp_col]
+            return aliased
+    except ImportError:  # pragma: no cover — pandas is a hard dep of pyblp
+        pass
+
+    # Generic mapping branch (dict of arrays).
+    if isinstance(product_data, Mapping):
+        aliased_dict: Dict[str, Any] = dict(product_data)
+        wages = extract_matrix(product_data, wage_col)
+        employment = extract_matrix(product_data, emp_col)
+        aliased_dict['prices'] = wages
+        aliased_dict['shares'] = employment
+        return aliased_dict
+
+    # Structured / recarray fallback: rebuild as a dict. Rare in practice
+    # but keeps the labor path working for NumPy structured arrays.
+    aliased_dict = {}
+    try:
+        field_names = list(product_data.dtype.names)  # type: ignore[union-attr]
+    except AttributeError as exc:  # pragma: no cover
+        raise ValidationError(
+            f"Expected product_data to be a pandas DataFrame, dict-like "
+            f"mapping, or structured ndarray. "
+            f"Received {type(product_data).__name__}. "
+            f"Fix: wrap the data in pd.DataFrame(...) or a dict of arrays "
+            f"before passing it to Problem(..., market_side='labor')."
+        ) from exc
+    for name in field_names:
+        aliased_dict[name] = product_data[name]  # type: ignore[index]
+    aliased_dict['prices'] = extract_matrix(product_data, wage_col)
+    aliased_dict['shares'] = extract_matrix(product_data, emp_col)
+    return aliased_dict
 
 
 class Models(object):
@@ -477,11 +696,61 @@ class Problem(Container, StringRepresentation):
             markup_data: Optional[RecArray] = None,
             endogenous_cost_component: Optional[str] = None,
             demand_params: Optional[dict] = None,
-            models: Optional[Sequence[Any]] = None) -> None:
-        """Initialize the underlying economy with product and agent data before absorbing fixed effects."""
+            models: Optional[Sequence[Any]] = None,
+            market_side: str = 'product',
+            column_names: Optional[Mapping[str, str]] = None) -> None:
+        """Initialize the underlying economy with product and agent data before absorbing fixed effects.
+
+        v0.4 step 14c adds two labor-side keyword arguments:
+
+        market_side : str, optional
+            One of ``'product'`` (default — unchanged behavior) or
+            ``'labor'``. When set to ``'labor'``, the package reinterprets
+            the data as a labor-supply problem: the Jacobian is
+            upward-sloping, column-name defaults flip (``wages``,
+            ``employment``), labor-side conduct models are required, and
+            result labels branch to ``markdown`` / ``MRP`` / ``wage``.
+        column_names : dict, optional
+            Override labor-side column-name defaults. Accepts
+            ``{'price': '<wage-col>', 'shares': '<employment-col>'}``.
+            Only meaningful when ``market_side='labor'``.
+        """
 
         logger.info("Initializing the problem ...")
         start_time = time.time()
+
+        # v0.4 step 14c: resolve market_side + column_names first so every
+        # downstream validation step sees the resolved labor-column mapping.
+        if market_side not in ('product', 'labor'):
+            raise ValidationError(
+                f"Expected market_side to be one of 'product' or 'labor'. "
+                f"Received {market_side!r}. "
+                f"Fix: pass market_side='product' (default) for the classic "
+                f"downstream-markup testing path, or market_side='labor' for "
+                f"the labor-side (monopsony / bargaining) path."
+            )
+        if column_names is not None and market_side != 'labor':
+            raise ValidationError(
+                f"Expected column_names to be paired with market_side='labor'. "
+                f"Received column_names={column_names!r} with "
+                f"market_side={market_side!r}. "
+                f"Fix: drop column_names, or add market_side='labor'."
+            )
+        self._market_side = market_side
+        if market_side == 'labor':
+            self._labor_column_names: Optional[Dict[str, str]] = (
+                _resolve_labor_column_names(column_names)
+            )
+            # Sign validation on the raw labor columns BEFORE aliasing so the
+            # user sees the original column name in the error message.
+            _validate_labor_sign_conventions(product_data, self._labor_column_names)
+            # Alias user-facing wage / employment columns into the canonical
+            # 'prices' / 'shares' names used by Products and the solve stages.
+            # This keeps the rest of the package unchanged; the labor-side
+            # flip is localized to Problem.__init__.
+            product_data = _apply_labor_column_aliases(product_data, self._labor_column_names)
+        else:
+            self._labor_column_names = None
 
         # v0.4 step 5b + 5b': ``models=`` is the new class-based API;
         # ``model_formulations=`` is the legacy alias. Mutually exclusive.
@@ -505,6 +774,13 @@ class Problem(Container, StringRepresentation):
             _legacy_model_formulations = tuple(model_formulations)
         else:
             _legacy_model_formulations = None
+
+        # v0.4 step 14c: reject product-side models on a labor-side problem
+        # (and vice versa). Defensive: ``models`` may be ``None`` if the
+        # caller supplied precomputed markup_data; the check below only
+        # fires when we actually have conduct-model instances to inspect.
+        if market_side == 'labor' and models is not None:
+            _validate_labor_models(models)
 
         # Validate demand_params
         if demand_params is not None and demand_results is not None:
