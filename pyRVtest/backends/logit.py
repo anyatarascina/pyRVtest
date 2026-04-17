@@ -34,14 +34,19 @@ L-level nested-logit formulas in AFSSZ equation (6).
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from typing import Any, Iterator, List, Mapping, Optional, Tuple
 
 import numpy as np
-from pyblp.utilities.basics import Array, output
+from pyblp.utilities.basics import Array
 
 from ..exceptions import DemandBackendError
 from ..solve.demand_adjustment import _residualize_on_xd
+
+# v0.4 step 18: per-module logger. Silence this subsystem specifically with
+# ``logging.getLogger("pyRVtest.backends.logit").setLevel(logging.WARNING)``.
+logger = logging.getLogger(__name__)
 
 
 __all__ = [
@@ -508,7 +513,7 @@ def _infer_nesting_columns(product_data: Mapping, L: int) -> List[str]:
                 )
 
     n_groups = [len(np.unique(np.asarray(product_data[col]).flatten())) for col in ordered]
-    output(
+    logger.info(
         f"Inferred nesting order (finest to coarsest): {ordered}\n"
         f"  Groups per level: {dict(zip(ordered, n_groups))}\n"
         f"  To specify manually, pass nesting_ids_columns in demand_params."
