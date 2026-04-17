@@ -1,8 +1,114 @@
 """Endogenous cost component (scale economies) IV correction.
 
-Placeholder for v0.4 step 8. Will host the IV-correction logic
-currently in `Problem._compute_iv_correction` and its interaction with
-demand adjustment (the DMQSS 2026 Appendix B correction).
+v0.4 step 8c extraction. Hosts :func:`iv_correct`, the per-instrument-
+set stage that runs a 2SLS first stage for the coefficient ``gamma_m``
+on an endogenous cost component (e.g., log market shares, cost scaling
+column). The correction turns ``mc[m] = price - markup[m]`` into
+``mc[m] - gamma_m * endogenous_variable``, and the fitted values
+``endog_hat`` flow into the Appendix B correction in
+:func:`solve.test_engine.compute`.
+
+Moved verbatim from ``Problem._compute_iv_correction``. No math change.
+See §4.1 of ``.claude/plans/v0.4-refactor.md`` for the plan.
 """
 
-__all__: list[str] = []
+from __future__ import annotations
+
+import logging
+from typing import Any, List, Optional, Tuple
+
+import numpy as np
+from numpy.typing import NDArray
+
+
+__all__ = ['iv_correct']
+
+
+_NDArray = NDArray[Any]
+
+
+logger = logging.getLogger(__name__)
+
+
+def iv_correct(
+        problem: Any, instrument: int, M: int, N: int,
+        marginal_cost: List[_NDArray],
+) -> Tuple[List[Optional[_NDArray]], List[Optional[_NDArray]], _NDArray]:
+    """Run per-model 2SLS for the endogenous-cost coefficient ``gamma_m``.
+
+    Moved from ``Problem._compute_iv_correction`` in v0.4 step 8c.
+    Math is unchanged.
+
+    For each model ``m`` the dependent variable is the implied marginal
+    cost (price minus markup). The endogenous cost component
+    (``problem.endogenous_cost_component``) is instrumented using the
+    specified instrument set and the exogenous cost-shifters. The
+    estimated coefficient ``gamma_m`` is used to form a marginal-cost
+    correction ``mc_correction[m] = -gamma_m * endogenous_variable``.
+
+    Parameters
+    ----------
+    problem
+        The :class:`pyRVtest.Problem` instance.
+    instrument
+        Index of the instrument set ``Z_l`` to use for the first stage.
+    M
+        Number of candidate conduct models.
+    N
+        Total number of observations.
+    marginal_cost
+        Per-model ``(N, 1)`` marginal-cost vector (price minus tax-
+        adjusted markup, before the IV correction).
+
+    Returns
+    -------
+    cost_param : list of ndarray
+        Per-model 2SLS parameter vectors. Each vector contains
+        coefficients for the exogenous cost-shifters followed by the
+        coefficient on the endogenous component (``gamma``).
+    mc_correction : list of ndarray
+        Per-model ``(N, 1)`` correction arrays to be added to marginal
+        cost.
+    endog_hat : ndarray
+        First-stage fitted values for the endogenous column, shape
+        ``(N, 1)``. Shared across all models in this instrument set.
+    """
+    # Identify the endogenous column in w
+    endog_col_idx = next(
+        i for i, f in enumerate(problem._w_formulation)
+        if str(f) == problem.endogenous_cost_component
+    )
+    exog_col_indices = [i for i in range(problem.products.w.shape[1]) if i != endog_col_idx]
+    endog_col_raw = problem.products.w[:, [endog_col_idx]]  # (N, 1) — raw, used for mc_correction
+    exog_w = problem.products.w[:, exog_col_indices]     # (N, K_w - 1)
+
+    # Use only the instrument set for this test (keeps each instrument set's correction independent)
+    Z_inst = problem.products["Z{0}".format(instrument)]  # (N, K_l)
+
+    # Absorb cost-side fixed effects before running 2SLS, so that gamma_m is estimated
+    # within-group rather than in levels (consistent with _prepare_orthogonal_variables)
+    endog_col = endog_col_raw
+    if problem._absorb_cost_ids is not None:
+        exog_w, _ = problem._absorb_cost_ids(exog_w)
+        endog_col, _ = problem._absorb_cost_ids(endog_col)
+        Z_inst, _ = problem._absorb_cost_ids(Z_inst)
+
+    # First stage: project endogenous variable on [exog_w, Z_inst]
+    first_stage_X = np.hstack([exog_w, Z_inst])
+    Q_fs, _ = np.linalg.qr(first_stage_X, mode='reduced')
+    endog_hat = (Q_fs @ (Q_fs.T @ endog_col)).reshape(-1, 1)
+
+    # Second stage design matrix: replace endogenous column with its first-stage fitted values
+    X_2sls = np.hstack([exog_w, endog_hat])  # (N, K_w)
+
+    Q_2sls, R_2sls = np.linalg.qr(X_2sls, mode='reduced')
+    cost_param: List[Optional[_NDArray]] = [None] * M
+    mc_correction: List[Optional[_NDArray]] = [None] * M
+    for m in range(M):
+        y_m = marginal_cost[m]  # (N, 1)
+        params = np.linalg.solve(R_2sls, Q_2sls.T @ y_m)
+        gamma_m = params[-1]                    # coefficient on the endogenous component
+        cost_param[m] = params                  # [tau_exog..., gamma]
+        mc_correction[m] = -gamma_m * endog_col_raw  # (N, 1) — uses raw (un-absorbed) endog
+
+    return cost_param, mc_correction, endog_hat

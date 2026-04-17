@@ -25,6 +25,7 @@ from .markups import build_ownership, _compute_markups
 from .data import read_critical_values_tables
 from .products import Products
 from .results import ProblemResults, Progress
+from .solve.endogenous_cost import iv_correct as _iv_correct_stage
 from .solve.markups import compute as _markups_stage
 from .solve.orthogonalize import qr_residualize as _qr_residualize, residualize as _residualize_stage
 
@@ -1582,63 +1583,12 @@ class Problem(Container, StringRepresentation):
     def _compute_iv_correction(self, instrument: int, M: int, N: int, marginal_cost: list):
         """Run per-model 2SLS to estimate the coefficient on the endogenous cost component.
 
-        For each model m the dependent variable is the implied marginal cost (price minus markup). The endogenous
-        cost component (e.g. shares) is instrumented using the specified instrument set and the exogenous
-        cost-shifters. The estimated coefficient gamma_m is used to form a marginal-cost correction:
-        ``mc_correction[m] = -gamma_m * endogenous_variable``.
-
-        Parameters
-        ----------
-        instrument : int
-            Index of the instrument set (Z_l) to use for the first stage.
-
-        Returns
-        -------
-        cost_param : list of ndarray
-            Per-model 2SLS parameter vectors. Each vector contains coefficients for the exogenous cost-shifters
-            followed by the coefficient on the endogenous component (gamma).
-        mc_correction : list of ndarray
-            Per-model (N, 1) correction arrays to be added to marginal cost.
+        Thin delegation to
+        :func:`pyRVtest.solve.endogenous_cost.iv_correct` after the v0.4
+        step 8c extraction. Kept as a method for backward-compatible
+        access from :func:`pyRVtest.solve.demand_adjustment.compute_demand_adjustment`.
         """
-        # Identify the endogenous column in w
-        endog_col_idx = next(
-            i for i, f in enumerate(self._w_formulation)
-            if str(f) == self.endogenous_cost_component
-        )
-        exog_col_indices = [i for i in range(self.products.w.shape[1]) if i != endog_col_idx]
-        endog_col_raw = self.products.w[:, [endog_col_idx]]  # (N, 1) — raw, used for mc_correction
-        exog_w = self.products.w[:, exog_col_indices]     # (N, K_w - 1)
-
-        # Use only the instrument set for this test (keeps each instrument set's correction independent)
-        Z_inst = self.products["Z{0}".format(instrument)]  # (N, K_l)
-
-        # Absorb cost-side fixed effects before running 2SLS, so that gamma_m is estimated
-        # within-group rather than in levels (consistent with _prepare_orthogonal_variables)
-        endog_col = endog_col_raw
-        if self._absorb_cost_ids is not None:
-            exog_w, _ = self._absorb_cost_ids(exog_w)
-            endog_col, _ = self._absorb_cost_ids(endog_col)
-            Z_inst, _ = self._absorb_cost_ids(Z_inst)
-
-        # First stage: project endogenous variable on [exog_w, Z_inst]
-        first_stage_X = np.hstack([exog_w, Z_inst])
-        Q_fs, _ = np.linalg.qr(first_stage_X, mode='reduced')
-        endog_hat = (Q_fs @ (Q_fs.T @ endog_col)).reshape(-1, 1)
-
-        # Second stage design matrix: replace endogenous column with its first-stage fitted values
-        X_2sls = np.hstack([exog_w, endog_hat])  # (N, K_w)
-
-        Q_2sls, R_2sls = np.linalg.qr(X_2sls, mode='reduced')
-        cost_param = [None] * M
-        mc_correction = [None] * M
-        for m in range(M):
-            y_m = marginal_cost[m]  # (N, 1)
-            params = np.linalg.solve(R_2sls, Q_2sls.T @ y_m)
-            gamma_m = params[-1]                    # coefficient on the endogenous component
-            cost_param[m] = params                  # [tau_exog..., gamma]
-            mc_correction[m] = -gamma_m * endog_col_raw  # (N, 1) — uses raw (un-absorbed) endog
-
-        return cost_param, mc_correction, endog_hat
+        return _iv_correct_stage(self, instrument, M, N, marginal_cost)
 
     def _compute_block_gram(self, N: int, clustering_adjustment: bool, var: Array) -> Array:
         """Compute the (M*K, M*K) block Gram matrix for all model pairs at once.
