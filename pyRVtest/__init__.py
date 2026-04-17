@@ -25,6 +25,8 @@ from .models import (
 from .problem import Problem, Models
 from .products import Products
 from .results import ProblemResults
+# v0.4 step 11: public build_passthrough helper re-exported at the package level.
+from .solve.passthrough import build_passthrough
 from .version import __version__
 
 __all__ = [
@@ -37,4 +39,6 @@ __all__ = [
     # v0.4 step 5a: class-based ConductModel API.
     'ConductModel', 'Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition',
     'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel', 'Vertical',
+    # v0.4 step 11: public build_passthrough helper.
+    'build_passthrough',
 ]

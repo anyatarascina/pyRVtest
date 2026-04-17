@@ -118,7 +118,7 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.instruments.labor', []),
     ('pyRVtest.solve', []),
     ('pyRVtest.solve.markups', []),
-    ('pyRVtest.solve.passthrough', []),
+    ('pyRVtest.solve.passthrough', ['build_passthrough']),  # v0.4 step 11
     ('pyRVtest.solve.orthogonalize', []),
     ('pyRVtest.solve.endogenous_cost', []),
     ('pyRVtest.solve.demand_adjustment', ['_residualize_on_xd', 'compute_demand_adjustment']),  # v0.4 4b + 4d
