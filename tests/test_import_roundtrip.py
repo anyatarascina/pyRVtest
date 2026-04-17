@@ -113,9 +113,17 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.models.constant', []),  # step 12
     ('pyRVtest.models.labor', []),  # step 14
     ('pyRVtest.models.custom', ['CustomConductModel']),
-    ('pyRVtest.instruments', []),
-    ('pyRVtest.instruments.product', []),
-    ('pyRVtest.instruments.labor', []),
+    # v0.4 step 13: instrument construction helpers populated.
+    ('pyRVtest.instruments', [
+        'rival_sums', 'differentiation_ivs', 'blp_instruments',
+        'hausman', 'bartik', 'concentration_hhi',
+    ]),
+    ('pyRVtest.instruments.product', [
+        'rival_sums', 'differentiation_ivs', 'blp_instruments',
+    ]),
+    ('pyRVtest.instruments.labor', [
+        'hausman', 'bartik', 'concentration_hhi',
+    ]),
     ('pyRVtest.solve', []),
     ('pyRVtest.solve.markups', []),
     ('pyRVtest.solve.passthrough', ['build_passthrough']),  # v0.4 step 11
