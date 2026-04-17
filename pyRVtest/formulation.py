@@ -1,5 +1,6 @@
 """Formulation of data matrices and absorption of fixed effects."""
 
+import warnings
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Type, Union
 
 from pyblp.utilities.basics import Array
@@ -7,6 +8,19 @@ from pyblp.configurations.formulation import Absorb, Formulation  # noqa: F401
 
 
 __all__ = ['Absorb', 'Formulation', 'ModelFormulation']
+
+
+_MODELFORMULATION_DEPRECATION_MSG = (
+    "ModelFormulation is deprecated and will be removed in v0.6. Migrate to "
+    "the class-based ConductModel API: use pyRVtest.Bertrand, "
+    "pyRVtest.Cournot, pyRVtest.Monopoly, pyRVtest.PerfectCompetition, "
+    "pyRVtest.MixCournotBertrand, pyRVtest.PartialCollusion, or "
+    "pyRVtest.CustomConductModel for single-tier conduct, and "
+    "pyRVtest.Vertical(downstream=..., upstream=..., ...) for bilateral "
+    "oligopoly. Pass the resulting list to Problem via the `models=` "
+    "keyword instead of `model_formulations=`. See "
+    "docs/migrating_to_v0.4.rst for per-case examples."
+)
 
 
 class ModelFormulation(object):
@@ -79,6 +93,12 @@ class ModelFormulation(object):
     _user_supplied_markups: Optional[str]
     _mix_flag: Optional[str]
 
+    # v0.4 step 5c: once-per-session DeprecationWarning. Class-level flag so
+    # the warning fires on the first ModelFormulation construction of the
+    # Python session and not again. Tests that want to verify the warning
+    # directly reset this flag to False before checking.
+    _deprecation_warned: bool = False
+
     def __init__(
             self, model_downstream: Optional[str] = None, model_upstream: Optional[str] = None,
             ownership_downstream: Optional[str] = None, ownership_upstream: Optional[str] = None,
@@ -91,6 +111,17 @@ class ModelFormulation(object):
         """Parse the formula into patsy terms and SymPy expressions. In the process, validate it as much as possible
         without any data.
         """
+
+        # v0.4 step 5c: fire a DeprecationWarning on the first ModelFormulation
+        # construction of the session. Users should migrate to the class-based
+        # ConductModel API (pyRVtest.Bertrand, pyRVtest.Cournot, etc.).
+        if not ModelFormulation._deprecation_warned:
+            warnings.warn(
+                _MODELFORMULATION_DEPRECATION_MSG,
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            ModelFormulation._deprecation_warned = True
 
         # validate the parameters
         model_set = {'monopoly', 'cournot', 'bertrand', 'perfect_competition', 'mix_cournot_bertrand', 'other'}
