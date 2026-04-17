@@ -1,9 +1,20 @@
 """Labor-side demand/supply backends.
 
-Placeholder for v0.4 step 14. Will hold the LaborSupplyBackend skeleton
-and any labor-specific derivations of the DemandBackend protocol. The
-full Almagro-Sood-style labor supply backend is deferred to v0.5+
-pending real labor-project data.
+v0.4 step 14b re-exports the :class:`LaborSupplyBackend` skeleton.
+The full Almagro-Sood-style labor supply backend is deferred to v0.5+
+pending real labor-project data; this module ships the class shape and
+``DemandBackend`` protocol surface so that ``Problem(market_side='labor')``
+wiring, public API pin tests, and migration guides all exercise the
+expected name.
+
+Examples
+--------
+>>> from pyRVtest.backends import labor as labor_backends
+>>> 'LaborSupplyBackend' in labor_backends.__all__
+True
 """
 
-__all__: list[str] = []
+from .nested_logit_labor import LaborSupplyBackend
+
+
+__all__ = ['LaborSupplyBackend']

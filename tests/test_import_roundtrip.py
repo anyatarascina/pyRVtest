@@ -85,6 +85,8 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
         'DemandBackend', 'SupportsDemandAdjustment',
         'PyBLPBackend', 'LogitBackend', 'NestedLogitBackend',
         'UserSuppliedBackend',
+        # v0.4 step 14b: labor-side skeleton; full impl in v0.5.
+        'LaborSupplyBackend',
     ]),
     ('pyRVtest.backends.base', ['DemandBackend', 'SupportsDemandAdjustment']),
     ('pyRVtest.backends.pyblp', ['PyBLPBackend']),
@@ -97,13 +99,16 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     # Split out after step 3 for user-facing clarity (tracebacks + API docs).
     ('pyRVtest.backends.nested_logit', ['NestedLogitBackend']),
     ('pyRVtest.backends.user', ['UserSuppliedBackend']),
-    ('pyRVtest.backends.labor', []),
-    ('pyRVtest.backends.labor.nested_logit_labor', []),
+    # v0.4 step 14b: labor-side backend subpackage populated (skeleton).
+    ('pyRVtest.backends.labor', ['LaborSupplyBackend']),
+    ('pyRVtest.backends.labor.nested_logit_labor', ['LaborSupplyBackend']),
     # v0.4 step 5a: populated __all__ (was empty in step 1 skeleton).
+    # v0.4 step 14a: labor-side conduct models appended.
     ('pyRVtest.models', [
         'ConductModel', 'Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition',
         'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel',
         'Vertical',
+        'Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining',
     ]),
     ('pyRVtest.models.base', ['ConductModel']),  # v0.4 step 5a
     ('pyRVtest.models.standard', ['Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition']),
@@ -111,7 +116,10 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.models.mixed', ['MixCournotBertrand']),
     ('pyRVtest.models.collusion', ['PartialCollusion']),
     ('pyRVtest.models.constant', []),  # step 12
-    ('pyRVtest.models.labor', []),  # step 14
+    # v0.4 step 14a: labor conduct models populated.
+    ('pyRVtest.models.labor', [
+        'Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining',
+    ]),
     ('pyRVtest.models.custom', ['CustomConductModel']),
     # v0.4 step 13: instrument construction helpers populated.
     ('pyRVtest.instruments', [

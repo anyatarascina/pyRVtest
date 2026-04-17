@@ -146,6 +146,7 @@ def test_audit_covers_expected_modules():
         'pyRVtest.backends',
         'pyRVtest.backends.base',
         'pyRVtest.backends.labor',
+        'pyRVtest.backends.labor.nested_logit_labor',  # v0.4 step 14b
         'pyRVtest.backends.logit',
         'pyRVtest.backends.nested_logit',
         'pyRVtest.backends.pyblp',
@@ -157,6 +158,7 @@ def test_audit_covers_expected_modules():
         'pyRVtest.models.base',
         'pyRVtest.models.collusion',
         'pyRVtest.models.custom',
+        'pyRVtest.models.labor',  # v0.4 step 14a
         'pyRVtest.models.mixed',
         'pyRVtest.models.standard',
         'pyRVtest.models.vertical',

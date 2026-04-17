@@ -19,6 +19,7 @@ True
 """
 
 from .base import DemandBackend, SupportsDemandAdjustment
+from .labor.nested_logit_labor import LaborSupplyBackend
 from .logit import LogitBackend
 from .nested_logit import NestedLogitBackend
 from .pyblp import PyBLPBackend
@@ -28,4 +29,6 @@ __all__ = [
     'DemandBackend', 'SupportsDemandAdjustment',
     'PyBLPBackend', 'LogitBackend', 'NestedLogitBackend',
     'UserSuppliedBackend',
+    # v0.4 step 14b: labor-side skeleton; full impl in v0.5.
+    'LaborSupplyBackend',
 ]
