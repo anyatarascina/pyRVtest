@@ -478,7 +478,11 @@ an explicit input/output contract and lives in its own module under
   :func:`~pyRVtest.solve.passthrough.build_passthrough`, the
   Villas-Boas (2007) passthrough matrix construction, surfaced as a
   standalone diagnostic so users can compute it without running
-  ``Problem.solve``.
+  ``Problem.solve``. The same matrices are reachable from a solved
+  :class:`~pyRVtest.ProblemResults` via
+  :meth:`~pyRVtest.ProblemResults.passthrough_matrix` and, pairwise,
+  :meth:`~pyRVtest.ProblemResults.passthrough_comparison`; see the
+  Pass-through diagnostics section below.
 
 * ``solve/markups.py`` — per-model markup stage. Scaffolded in v0.4
   step 1; the actual extraction from ``Problem.solve`` lands in step 8.
@@ -511,6 +515,62 @@ with common constructions:
 These landed in v0.4 step 13 (single commit). Use them as a starting
 point for your own Z matrix; glue them into a
 :class:`pyRVtest.Formulation` via ordinary numpy/pandas manipulation.
+
+Pass-through diagnostics
+------------------------
+
+Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026), Remark 4, show
+that two conduct models are distinguishable under pass-through-based
+instruments iff their pass-through matrices differ in their
+**off-diagonal** structure. A pair with near-identical pass-through is
+weakly identified: the RV test will be underpowered even if the
+underlying models are nominally different. :class:`pyRVtest.ProblemResults`
+exposes two methods for this diagnostic:
+
+* :meth:`~pyRVtest.ProblemResults.passthrough_matrix` — Villas-Boas
+  (2007) pass-through matrix for a single candidate model. Thin wrapper
+  over :func:`pyRVtest.build_passthrough`; returns either an ``(N, J_t,
+  J_t)`` matrix for a given ``market_id`` or a ``{market_id: matrix}``
+  dict across all markets.
+
+* :meth:`~pyRVtest.ProblemResults.passthrough_comparison` — pairwise
+  distance between the pass-through matrices of every unordered pair
+  of candidate models. Returns a long-form pandas DataFrame with
+  columns ``market_id``, ``model_i``, ``model_j``, ``model_i_label``,
+  ``model_j_label``, ``distance``, ``metric``.
+
+  Three metrics are supported:
+
+  - ``'frobenius'`` (default): :math:`\lVert P_m - P_{m'} \rVert_F`.
+  - ``'offdiag_frobenius'``: Frobenius norm of the off-diagonal block.
+    Implements Dearing Remark 4 directly (invariant to diagonal-only
+    differences in pass-through).
+  - ``'max_abs'``: element-wise maximum absolute difference.
+
+Example::
+
+    results = problem.solve(demand_adjustment=True)
+
+    # Pairwise distinguishability diagnostic (Dearing Remark 4).
+    df = results.passthrough_comparison(metric='offdiag_frobenius')
+    # Summarize across markets:
+    df.groupby(['model_i', 'model_j'])['distance'].mean()
+
+    # Or a single market.
+    df_t = results.passthrough_comparison(market_id=2024)
+
+    # Inspect the underlying matrix for one model.
+    P0 = results.passthrough_matrix(model_index=0, market_id=2024)
+
+**Scope limitation.** v0.4 only implements pass-through for
+:class:`pyRVtest.Vertical` candidate models, because the Villas-Boas
+passthrough formula is the only per-model closed form currently in the
+package. If ANY candidate model in the Problem is non-Vertical (e.g.
+:class:`Bertrand`, :class:`Cournot`, :class:`RuleOfThumb`,
+:class:`ConstantMarkup`, :class:`PerfectCompetition`),
+:meth:`passthrough_comparison` raises ``NotImplementedError`` with a
+pointer to v0.5. Workaround: restrict the Problem to Vertical candidate
+models, or skip this diagnostic.
 
 Deprecation plan (detailed)
 ---------------------------

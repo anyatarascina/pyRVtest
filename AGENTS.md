@@ -294,7 +294,9 @@ by purpose:
 - **v0.4 labor-side models (step 14a):** `Monopsony`, `BertrandWages`,
   `CournotEmployment`, `NashBargaining` (raises `NotImplementedError`
   in v0.4; full formula deferred to v0.5).
-- **v0.4 diagnostic helper:** `build_passthrough`.
+- **v0.4 diagnostic helper:** `build_passthrough`; also exposed on
+  `ProblemResults` as `passthrough_matrix` and (pairwise, Dearing
+  Remark 4) `passthrough_comparison`.
 - **v0.4 agent guide exporter:** `show_agent_guide`.
 
 Anything else is internal and may change without notice.

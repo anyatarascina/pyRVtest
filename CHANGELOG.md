@@ -116,6 +116,22 @@ v0.4 modulo one-line deprecation warnings.
   for a single market or as a dict across all markets. Clear errors for
   non-vertical models, invalid `market_id`, and missing `hessian_fn` on
   `UserSuppliedBackend`.
+- **`ProblemResults.passthrough_comparison`** and
+  **`ProblemResults.passthrough_matrix`** (OQ 15). Dearing-style
+  pass-through diagnostics surfaced on `ProblemResults`.
+  `passthrough_comparison` returns a pandas DataFrame with one row per
+  `(market_id, unordered model pair)` and a scalar pairwise distance
+  between pass-through matrices; three metrics are supported —
+  `'frobenius'` (default), `'offdiag_frobenius'` (implements the Dearing
+  et al. (2026) Remark 4 distinguishability condition — invariant to
+  diagonal-only differences in pass-through), and `'max_abs'`. The
+  chosen metric is recorded on `frame.attrs['metric']`.
+  `passthrough_matrix` is a thin ergonomic wrapper over
+  `build_passthrough`. Both methods currently require every candidate
+  model to be `Vertical`; a non-Vertical candidate raises
+  `NotImplementedError` with a pointer to the v0.5 scope item for
+  per-model closed-form pass-through (Bertrand / Cournot / RuleOfThumb /
+  ConstantMarkup / PerfectCompetition).
 - **Instrument construction helpers** (step 13). New
   `pyRVtest.instruments.product` module with `rival_sums`,
   `differentiation_ivs`, `blp_instruments`. New

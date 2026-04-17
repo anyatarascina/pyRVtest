@@ -29,14 +29,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import pickle
-from typing import Any, List, Optional, Sequence, TYPE_CHECKING, Union
+from typing import Any, Dict, Hashable, List, Optional, Sequence, TYPE_CHECKING, Union
 
 import numpy as np
+from numpy.typing import NDArray
 from scipy.stats import norm
 
 from pyblp.utilities.basics import Array, StringRepresentation
 
+from ..exceptions import ValidationError
+from ..models.vertical import Vertical
 from ..output import format_table
+from ..solve.passthrough import build_passthrough
 from ._format import _dataframe_to_github_markdown
 
 if TYPE_CHECKING:
@@ -536,6 +540,254 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             Path(path).write_text(md)
             return None
         return md
+
+    # ------------------------------------------------------------------
+    # v0.4 OQ 15: Dearing pass-through diagnostics
+    # ------------------------------------------------------------------
+
+    # Supported metrics for :meth:`passthrough_comparison`. Centralised
+    # so the error-message and dispatch branches cannot drift.
+    _PASSTHROUGH_METRICS: "tuple[str, ...]" = (
+        'frobenius', 'offdiag_frobenius', 'max_abs',
+    )
+
+    def _passthrough_distance(
+        self,
+        difference: NDArray[Any],
+        metric: str,
+    ) -> float:
+        """Reduce a pairwise pass-through difference matrix to a scalar.
+
+        Centralises the metric dispatch so :meth:`passthrough_comparison`
+        has a single place to look when a new metric is added. The three
+        metrics are Dearing-style distinguishability diagnostics; see the
+        public method docstring for the mapping to the paper's Remark 4.
+        """
+        if metric == 'frobenius':
+            return float(np.linalg.norm(difference, ord='fro'))
+        if metric == 'offdiag_frobenius':
+            off = difference - np.diag(np.diag(difference))
+            return float(np.linalg.norm(off, ord='fro'))
+        if metric == 'max_abs':
+            return float(np.max(np.abs(difference)))
+        # Not reachable: validated in the public entry point.
+        raise ValidationError(  # pragma: no cover - defensive
+            f"Internal: unknown metric {metric!r}."
+        )
+
+    def passthrough_matrix(
+        self,
+        model_index: int,
+        market_id: Optional[Hashable] = None,
+    ) -> Union[NDArray[Any], Dict[Hashable, NDArray[Any]]]:
+        """Return the Villas-Boas pass-through matrix for one candidate model.
+
+        Thin wrapper over :func:`pyRVtest.build_passthrough` exposed on
+        :class:`ProblemResults` so users do not need to remember a
+        separate top-level import. Input validation and the non-vertical
+        error path are delegated to ``build_passthrough``.
+
+        Parameters
+        ----------
+        model_index : int
+            Index into ``self.problem._models``. Must refer to a
+            :class:`pyRVtest.Vertical` entry (build_passthrough raises
+            ``ValueError`` otherwise).
+        market_id : hashable, optional
+            If ``None`` (default), returns ``{market_id: matrix}`` across
+            every market. Otherwise returns the single ``(J_t, J_t)``
+            matrix for that market.
+
+        Returns
+        -------
+        ndarray or dict
+            Pass-through matrix per Villas-Boas (2007). Shape
+            ``(J_t, J_t)`` for a scalar ``market_id``, or
+            ``{market_id: (J_t, J_t)}`` across all markets.
+
+        See Also
+        --------
+        pyRVtest.build_passthrough : standalone helper the method wraps.
+        ProblemResults.passthrough_comparison : pairwise diagnostic.
+        """
+        result = build_passthrough(
+            self.problem, model_index=model_index, market_id=market_id,
+        )
+        return result
+
+    def passthrough_comparison(
+        self,
+        metric: str = 'frobenius',
+        market_id: Optional[Hashable] = None,
+    ) -> 'pd.DataFrame':
+        r"""Pairwise pass-through distances per Dearing et al. (2026) Remark 4.
+
+        For every unordered pair of candidate models :math:`(m, m')` with
+        :math:`m < m'`, computes a scalar distance between the Villas-Boas
+        pass-through matrices :math:`P_m` and :math:`P_{m'}` market by
+        market. Dearing et al. (2026) show that distinguishability with
+        pass-through-based instruments hinges on whether two models have
+        different pass-through matrices (Remark 3) or, more sharply,
+        different off-diagonal structure (Remark 4). Near-zero distances
+        flag a pair that is hard to separate with pass-through
+        instruments; large distances flag a pair that should be
+        identifiable.
+
+        Parameters
+        ----------
+        metric : str, optional
+            Which scalar reduction of :math:`P_m - P_{m'}` to report.
+
+            - ``'frobenius'`` (default): Frobenius norm of the full
+              difference, :math:`\lVert P_m - P_{m'} \rVert_F`.
+            - ``'offdiag_frobenius'``: Frobenius norm restricted to the
+              off-diagonal entries. Implements Remark 4's
+              distinguishability condition, which is invariant to
+              diagonal-only differences.
+            - ``'max_abs'``: element-wise maximum absolute difference.
+        market_id : hashable, optional
+            If ``None`` (default), returns one row per ``(market,
+            model_i, model_j)``. Otherwise filters to that single market;
+            the returned frame has exactly ``M * (M - 1) / 2`` rows
+            (one per unordered model pair).
+
+        Returns
+        -------
+        pd.DataFrame
+            Columns: ``market_id``, ``model_i``, ``model_j``,
+            ``model_i_label``, ``model_j_label``, ``distance``,
+            ``metric``. The chosen ``metric`` is also recorded on
+            ``frame.attrs['metric']`` for parity with the
+            ``summary_df`` ``attrs['alpha']`` convention.
+
+        Raises
+        ------
+        ValidationError
+            If ``metric`` is not one of the three supported strings.
+            (``ValidationError`` subclasses ``ValueError`` — existing
+            ``pytest.raises(ValueError, ...)`` assertions continue to
+            work.)
+        NotImplementedError
+            If ANY candidate model in the problem is not a
+            :class:`pyRVtest.Vertical`. Computing pass-through for
+            Bertrand / Cournot / RuleOfThumb / ConstantMarkup /
+            PerfectCompetition requires per-model derivative formulas
+            that land in v0.5. Workaround: restrict the
+            :class:`pyRVtest.Problem` to Vertical candidates only, or
+            skip this diagnostic.
+
+        Notes
+        -----
+        No aggregation across markets is performed: users can
+        ``df.groupby(['model_i', 'model_j']).mean()`` for a summary
+        across markets, or filter to a specific market via the
+        ``market_id`` argument.
+
+        See Also
+        --------
+        pyRVtest.build_passthrough : the standalone pass-through helper
+            this method composes over.
+        ProblemResults.passthrough_matrix : the per-model counterpart.
+
+        References
+        ----------
+        Dearing, A., L. Magnolfi, D. Quint, C. Sullivan, and J.
+        Waldfogel (2026). "Falsifying Models of Firm Conduct with
+        Tax Instruments." Remark 4.
+        """
+        import pandas as pd
+
+        # --- 1. Validate metric. ---
+        if metric not in self._PASSTHROUGH_METRICS:
+            raise ValidationError(
+                f"Expected metric to be one of "
+                f"{list(self._PASSTHROUGH_METRICS)!r}. "
+                f"Received metric={metric!r}. "
+                f"Fix: pass 'frobenius' for the full-matrix norm, "
+                f"'offdiag_frobenius' for Dearing Remark 4's "
+                f"off-diagonal condition, or 'max_abs' for the "
+                f"element-wise maximum absolute difference."
+            )
+
+        # --- 2. Check every candidate model is Vertical. ---
+        candidate_models: Sequence[Any] = self.problem._models
+        for i, model in enumerate(candidate_models):
+            if not isinstance(model, Vertical):
+                raise NotImplementedError(
+                    "Pass-through comparison currently requires all "
+                    "candidate models to be Vertical. "
+                    f"Received model index {i} of type "
+                    f"{type(model).__name__}, which has no closed-form "
+                    "pass-through in pyRVtest v0.4. Computing "
+                    "pass-through for Bertrand / Cournot / RuleOfThumb / "
+                    "ConstantMarkup is deferred to v0.5. Workaround: "
+                    "restrict the Problem to only Vertical candidate "
+                    "models, or skip this diagnostic."
+                )
+
+        # --- 3. Validate market_id (if provided) up front. ---
+        #   build_passthrough also validates per call; pre-validate here
+        #   so an invalid id surfaces once, not M times. Use an
+        #   element-wise equality check so market ids stored as numpy
+        #   scalars compare correctly against Python scalars.
+        unique_market_ids = np.asarray(self.problem.unique_market_ids)
+        if market_id is not None:
+            if not np.any(unique_market_ids == market_id):
+                raise ValidationError(
+                    f"Expected market_id to appear in "
+                    f"problem.unique_market_ids. Received "
+                    f"market_id={market_id!r}, which is not in "
+                    f"problem.unique_market_ids="
+                    f"{list(unique_market_ids)}. Fix: pass a market id "
+                    f"from problem.unique_market_ids, or omit "
+                    f"market_id to compute pass-through for all markets."
+                )
+            markets_to_iterate: List[Hashable] = [market_id]
+        else:
+            markets_to_iterate = list(unique_market_ids.tolist())
+
+        # --- 4. Compute pass-through per model, caching across pairs. ---
+        model_labels = self._model_labels()
+        n_models = self._number_of_models()
+        # ``build_passthrough`` with ``market_id=None`` returns a dict
+        # {market_id: matrix}; with a scalar it returns an ndarray. We
+        # always use the dict form here and index by market id below so
+        # the pair loop has a single code path.
+        cached: Dict[int, Dict[Hashable, NDArray[Any]]] = {}
+        for m in range(n_models):
+            per_market = build_passthrough(self.problem, m, market_id=None)
+            # ``build_passthrough(..., market_id=None)`` always returns
+            # a dict; narrow the type for mypy.
+            assert isinstance(per_market, dict)
+            cached[m] = per_market
+
+        # --- 5. Build the long-form records. ---
+        records: List[dict[str, Any]] = []
+        for t in markets_to_iterate:
+            for i in range(n_models):
+                for k in range(i + 1, n_models):
+                    P_i = cached[i][t]
+                    P_k = cached[k][t]
+                    difference = np.asarray(P_i) - np.asarray(P_k)
+                    distance = self._passthrough_distance(difference, metric)
+                    records.append({
+                        'market_id': t,
+                        'model_i': i,
+                        'model_j': k,
+                        'model_i_label': model_labels[i],
+                        'model_j_label': model_labels[k],
+                        'distance': distance,
+                        'metric': metric,
+                    })
+
+        columns = [
+            'market_id', 'model_i', 'model_j',
+            'model_i_label', 'model_j_label',
+            'distance', 'metric',
+        ]
+        frame = pd.DataFrame.from_records(records, columns=columns)
+        frame.attrs['metric'] = metric
+        return frame
 
 
 __all__ = ['Progress', 'ProblemResults']
