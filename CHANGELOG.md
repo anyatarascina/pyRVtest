@@ -19,6 +19,17 @@ and may introduce additional changes before v0.4.0 is tagged.
 
 ### Added
 
+- **`ProblemResults` export methods** (step 9). `to_dataframe()`,
+  `summary_df(alpha=0.05)`, `to_latex(...)`, and `to_markdown(...)` on
+  `ProblemResults`. `summary_df` emits a stable `reject` column and
+  records the alpha level on `DataFrame.attrs['alpha']`.
+- **`PanelResults`** (step 10). Multi-problem aggregation class for
+  panels of market-years. Mapping-like API (`keys`, `__getitem__`),
+  plus `to_dataframe()`, `rejection_rates(alpha)`, `summary_df`,
+  `to_latex`, `to_markdown`.
+- **Doctest coverage on public API** (step 21). 47 runnable docstring
+  examples across 28 modules. `pytest --doctest-modules` wired into
+  CI (`tox -e doctest` also available).
 - **`DemandBackend` protocol and implementations** (steps 1–4). Core
   protocol in `backends/base.py` with `PyBLPBackend`, `LogitBackend`,
   `NestedLogitBackend`, and `UserSuppliedBackend` implementations.

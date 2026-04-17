@@ -145,10 +145,16 @@ class TestSummaryDF:
 
     def test_expected_columns_with_default_alpha(self, base_results):
         out = base_results.summary_df()
-        assert 'reject_at_0.05' in out.columns
+        assert 'reject' in out.columns
         for col in ('instrument_set', 'model_i', 'model_j', 'TRV', 'F',
                     'MCS_pvalue_model_i'):
             assert col in out.columns
+
+    def test_alpha_recorded_in_attrs(self, base_results):
+        out = base_results.summary_df(alpha=0.10)
+        assert out.attrs['alpha'] == 0.10
+        default = base_results.summary_df()
+        assert default.attrs['alpha'] == 0.05
 
     def test_one_row_per_unordered_pair(self, base_results):
         # M=2, L=1 -> L * M * (M-1) / 2 = 1 unordered pair per iv set.
@@ -168,13 +174,17 @@ class TestSummaryDF:
         for _, row in out.iterrows():
             trv = float(row['TRV'])
             expected_reject = bool(np.isfinite(trv) and abs(trv) > crit)
-            assert bool(row['reject_at_0.05']) == expected_reject
+            assert bool(row['reject']) == expected_reject
 
-    def test_alpha_column_name_follows_alpha(self, base_results):
-        out = base_results.summary_df(alpha=0.10)
-        assert 'reject_at_0.1' in out.columns
-        # Default-flag column must not also be present.
-        assert 'reject_at_0.05' not in out.columns
+    def test_reject_column_stable_across_alpha(self, base_results):
+        # Column name is stable; alpha only changes the flag values and
+        # the attrs entry.
+        out_05 = base_results.summary_df(alpha=0.05)
+        out_10 = base_results.summary_df(alpha=0.10)
+        assert 'reject' in out_05.columns
+        assert 'reject' in out_10.columns
+        assert out_05.attrs['alpha'] == 0.05
+        assert out_10.attrs['alpha'] == 0.10
 
     def test_invalid_alpha_raises(self, base_results):
         with pytest.raises(ValueError):

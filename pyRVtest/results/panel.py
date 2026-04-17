@@ -201,29 +201,29 @@ class PanelResults:
         """
         import pandas as pd
 
-        alpha_str = f"{alpha:g}"
-        reject_col = f'reject_at_{alpha_str}'
-
         summaries: List[pd.DataFrame] = []
         for pr in self._results.values():
             summaries.append(pr.summary_df(alpha=alpha))
         if not summaries:
             # Unreachable — __init__ rejects empty panels — but keep the
             # branch for mypy and for defensive robustness.
-            return pd.DataFrame(
+            result = pd.DataFrame(
                 columns=['instrument_set', 'model_i', 'model_j',
                          'rejection_rate', 'n_keys']
             )
+            result.attrs['alpha'] = alpha
+            return result
 
         stacked = pd.concat(summaries, ignore_index=True)
         group_cols = ['instrument_set', 'model_i', 'model_j']
         agg = stacked.groupby(group_cols, as_index=False).agg(
-            rejection_rate=(reject_col, 'mean'),
-            n_keys=(reject_col, 'size'),
+            rejection_rate=('reject', 'mean'),
+            n_keys=('reject', 'size'),
         )
         # Promote rejection_rate to plain float and n_keys to int.
         agg['rejection_rate'] = agg['rejection_rate'].astype(float)
         agg['n_keys'] = agg['n_keys'].astype(int)
+        agg.attrs['alpha'] = alpha
         return agg
 
     def summary_df(self, alpha: float = 0.05) -> 'pd.DataFrame':
@@ -267,11 +267,13 @@ class PanelResults:
         merged = rates.merge(
             labels, on=['instrument_set', 'model_i', 'model_j'], how='left'
         )
-        return merged[[
+        result = merged[[
             'instrument_set', 'instrument_set_label',
             'model_i', 'model_j', 'model_i_label', 'model_j_label',
             'rejection_rate', 'n_keys',
         ]]
+        result.attrs['alpha'] = alpha
+        return result
 
     # ------------------------------------------------------------------
     # LaTeX and markdown renderings

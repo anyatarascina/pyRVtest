@@ -363,10 +363,15 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
 
         One row per (instrument set, unordered model pair) with the
         signed RV test statistic, F-statistic, MCS p-value for the
-        lower-index model, and a ``reject_at_{alpha}`` indicator at the
+        lower-index model, and a stable ``reject`` indicator at the
         two-sided ``alpha`` level (default 5 percent). The pair is
         represented with ``model_i < model_j`` so each unordered pair
         appears exactly once per instrument set.
+
+        The alpha level used for the rejection flag is recorded on the
+        returned frame's ``attrs`` dict under the key ``'alpha'``, so
+        downstream aggregators can read it without re-deriving the
+        column name.
 
         Parameters
         ----------
@@ -400,7 +405,6 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         model_labels = self._model_labels()
         # Two-sided critical value.
         crit = float(norm.ppf(1.0 - alpha / 2.0))
-        alpha_str = f"{alpha:g}"
 
         records: List[dict[str, Any]] = []
         for j in range(L):
@@ -421,14 +425,16 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                         'TRV': trv_ik,
                         'F': float(f_mat[i, k]),
                         'MCS_pvalue_model_i': float(mcs_vec[i]),
-                        f'reject_at_{alpha_str}': reject,
+                        'reject': reject,
                     })
         columns = [
             'instrument_set', 'instrument_set_label',
             'model_i', 'model_j', 'model_i_label', 'model_j_label',
-            'TRV', 'F', 'MCS_pvalue_model_i', f'reject_at_{alpha_str}',
+            'TRV', 'F', 'MCS_pvalue_model_i', 'reject',
         ]
-        return pd.DataFrame.from_records(records, columns=columns)
+        frame = pd.DataFrame.from_records(records, columns=columns)
+        frame.attrs['alpha'] = alpha
+        return frame
 
     def to_latex(
         self,
