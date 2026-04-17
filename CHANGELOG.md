@@ -20,8 +20,11 @@ tagged. Step 16 is data-blocked (~1 week lead time on the AFSSZ panel).
 
 ### Migration from v0.3.x
 
-Three user-visible break points. Each deprecation emits a
-`DeprecationWarning` for one release before removal:
+Four user-visible break points. Most emit a `DeprecationWarning` for
+one release (slated for removal in v0.6). The per-model tax kwargs get
+two releases (removed in v0.7) because they appear in user code much
+more frequently. See `docs/migrating_to_v0.4.rst` for the full
+deprecation timeline.
 
 1. **Conduct-model specification.** Prefer the new class-based API over
    `ModelFormulation`:
@@ -62,6 +65,15 @@ Three user-visible break points. Each deprecation emits a
    `compute_jacobian`, `compute_hessian`, and (optionally) the
    `SupportsDemandAdjustment` hooks. See `docs/custom_demand.rst` for a
    worked linear-demand example.
+
+4. **Tax specification: model-level → Problem-level.** Per-model
+   `unit_tax='col'` / `advalorem_tax='col'` / `advalorem_payer=...`
+   kwargs on `ConductModel` / `ModelFormulation` / `Vertical` are
+   deprecated. Specify the tax once on `Problem`; opt individual
+   models out via `unit_tax_salient=False` / `advalorem_tax_salient=False`
+   (salience-testing pattern). Removal scheduled for **v0.7** (one
+   release later than other v0.4 deprecations, since the per-model tax
+   pattern is common in existing user code).
 
 Existing v0.3 scripts without custom demand code should run unchanged on
 v0.4 modulo one-line deprecation warnings.
@@ -286,10 +298,12 @@ v0.4 modulo one-line deprecation warnings.
   `ConductModel`, `Vertical`, and `ModelFormulation` are deprecated in
   favor of the Problem-level kwargs. The model-level fields still work
   (and win by legacy precedence when both are set) but emit a once-
-  per-session `DeprecationWarning`. Will be removed in v0.6. Migrate
-  by moving the tax column to `Problem(..., unit_tax='col', ...)` and
-  using `unit_tax_salient=False` on individual models for
-  salience-test opt-outs.
+  per-session `DeprecationWarning`. **Removal scheduled for v0.7**
+  (one release later than other v0.4 deprecations — the per-model tax
+  pattern is common enough in existing user code to warrant an extra
+  release of runway). Migrate by moving the tax column to
+  `Problem(..., unit_tax='col', ...)` and using `unit_tax_salient=False`
+  on individual models for salience-test opt-outs.
 
 ### Notes for coauthors
 

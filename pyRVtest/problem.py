@@ -64,16 +64,17 @@ _MODEL_UNIT_TAX_DEPRECATION_MSG = (
     "Specifying unit_tax on an individual ConductModel / ModelFormulation / "
     "Vertical is deprecated; pass unit_tax='col' at the Problem level "
     "instead (the DGP defines the tax; models opt out for salience tests via "
-    "unit_tax_salient=False). Model-level unit_tax will be removed in v0.6. "
-    "See docs/migrating_to_v0.4.rst for the migration recipe."
+    "unit_tax_salient=False). Model-level unit_tax continues to work through "
+    "v0.6 and will be removed in v0.7. See docs/migrating_to_v0.4.rst for "
+    "the migration recipe."
 )
 
 _MODEL_ADVALOREM_TAX_DEPRECATION_MSG = (
     "Specifying advalorem_tax / advalorem_payer on an individual ConductModel "
     "/ ModelFormulation / Vertical is deprecated; pass advalorem_tax='col' "
     "and advalorem_payer='firm'|'consumer' at the Problem level instead. "
-    "Model-level advalorem_tax will be removed in v0.6. See "
-    "docs/migrating_to_v0.4.rst."
+    "Model-level advalorem_tax / advalorem_payer continue to work through "
+    "v0.6 and will be removed in v0.7. See docs/migrating_to_v0.4.rst."
 )
 
 _MODEL_TAX_CONFLICT_MSG_TEMPLATE = (

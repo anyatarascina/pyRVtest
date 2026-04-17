@@ -237,7 +237,9 @@ via the new ``unit_tax_salient`` and ``advalorem_tax_salient`` flags
 The legacy per-model ``unit_tax`` / ``advalorem_tax`` /
 ``advalorem_payer`` kwargs continue to work and win by precedence
 when both are set (each emits a ``DeprecationWarning`` pointing here).
-Expect them to be removed in v0.6. ``cost_scaling`` stays on the
+These per-model tax kwargs continue to work through v0.6 (two minor
+releases of migration runway given how widely they are used) and are
+scheduled for removal in v0.7. ``cost_scaling`` stays on the
 conduct model (or on :class:`~pyRVtest.Vertical` for bilateral
 oligopoly) because it is a behavioral primitive.
 
@@ -519,12 +521,25 @@ internal pipeline after a translation step.
 Deprecation timeline
 --------------------
 
+Different deprecations have different runways because they differ in
+how widely they appear in user code. The schedule below is cumulative:
+each release removes what was deprecated at least one release earlier.
+
 * **v0.4 (current):** new class-based API lands. ``ModelFormulation`` emits
   ``DeprecationWarning`` once per Python session on first construction.
-  ``model_formulations=`` still accepted.
-* **v0.5:** same as v0.4; continued migration window.
-* **v0.6:** ``ModelFormulation`` removed. ``model_formulations=`` keyword
-  removed from ``Problem``. Only the class-based API works.
+  ``model_formulations=`` still accepted. ``demand_params=dict(sigma=...)``,
+  ``pyRVtest.output.output()``, and per-model ``unit_tax`` /
+  ``advalorem_tax`` / ``advalorem_payer`` also emit deprecation
+  warnings.
+* **v0.5:** same as v0.4; continued migration window for everything.
+* **v0.6:** ``ModelFormulation``, ``model_formulations=`` keyword,
+  ``demand_params=dict(sigma=...)``, and ``pyRVtest.output.output()``
+  removed. The per-model tax kwargs keep working for one more release
+  because the API shift is more disruptive than the others.
+* **v0.7:** per-model ``unit_tax`` / ``advalorem_tax`` /
+  ``advalorem_payer`` removed. Only the ``Problem``-level tax kwargs
+  with per-model ``unit_tax_salient`` / ``advalorem_tax_salient``
+  opt-outs remain.
 
 Suppressing the warning
 -----------------------
