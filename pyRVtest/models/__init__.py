@@ -47,9 +47,22 @@ True
 from .base import ConductModel
 from .collusion import PartialCollusion
 from .custom import CustomConductModel
+from .labor import BertrandWages, CournotEmployment, Monopsony, NashBargaining
 from .mixed import MixCournotBertrand
 from .standard import Bertrand, Cournot, Monopoly, PerfectCompetition
 from .vertical import Vertical
+
+
+# Frozen sets of model names used by Problem(market_side=...) to reject
+# cross-side specifications at init time. Defined here (next to the class
+# imports they name) so additions stay in lockstep with model registrations.
+_PRODUCT_SIDE_MODEL_NAMES = frozenset({
+    'bertrand', 'cournot', 'monopoly', 'perfect_competition',
+    'mix_cournot_bertrand', 'partial_collusion',
+})
+_LABOR_SIDE_MODEL_NAMES = frozenset({
+    'monopsony', 'bertrand_wages', 'cournot_employment', 'nash_bargaining',
+})
 
 
 __all__ = [
@@ -62,4 +75,9 @@ __all__ = [
     'PartialCollusion',
     'CustomConductModel',
     'Vertical',
+    # v0.4 step 14a: labor-side conduct models.
+    'Monopsony',
+    'BertrandWages',
+    'CournotEmployment',
+    'NashBargaining',
 ]
