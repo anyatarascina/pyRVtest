@@ -32,6 +32,7 @@ import pickle
 from typing import Any, List, Optional, Sequence, TYPE_CHECKING, Union
 
 import numpy as np
+from scipy.stats import norm
 
 from pyblp.utilities.basics import Array, StringRepresentation
 
@@ -408,7 +409,6 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             If ``alpha`` is not in the open interval ``(0, 1)``.
         """
         import pandas as pd
-        from scipy.stats import norm
 
         if not (0.0 < alpha < 1.0):
             raise ValueError(

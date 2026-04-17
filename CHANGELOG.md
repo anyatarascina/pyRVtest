@@ -164,11 +164,11 @@ v0.4 modulo one-line deprecation warnings.
 - **Error messages follow an expected / received / fix structure**
   (step 19). All 120 `raise` sites in `pyRVtest/` rewritten. User-facing
   validation errors now state what was checked, what was actually
-  received, and a concrete fix:
+  received, and a concrete fix. For example, from `Products`:
   ```
-  Expected market_ids column to match shares length. Received
-  len(market_ids)=42, len(shares)=40. Fix: pass arrays of equal length
-  or check for dropped rows in product_data.
+  Expected the 'market_ids' column to be one-dimensional. Received
+  shape (200, 2). Fix: pass a single vector of market identifiers, not
+  a multi-column array.
   ```
   Internal-invariant failures are prefixed `"pyRVtest internal error:"`
   and kept terse.
