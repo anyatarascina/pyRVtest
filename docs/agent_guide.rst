@@ -23,15 +23,15 @@ Given a demand estimate (market shares, own- and cross-price derivatives)
 and a set of candidate *conduct* hypotheses about how firms set prices
 (Bertrand-Nash, Cournot, monopoly, perfect competition, vertical
 integration, partial collusion, custom user-supplied markup formulas),
-pyRVtest runs the :cite:`rivers-vuong` test and related diagnostics to
+pyRVtest runs the Rivers and Vuong (2002) test and related diagnostics to
 statistically compare the models. The output is a table of pairwise RV
 test statistics, scaled F-statistics for weak-instrument diagnostics,
 and Model Confidence Set p-values in the spirit of
-:cite:`hansen-lunde-nason`. Users then read off which conduct models are
+Hansen, Lunde, and Nason (2011). Users then read off which conduct models are
 or are not rejected at their chosen significance level.
 
-The key reference for the econometrics is :cite:`dmss-2024` (DMSS,
-"Testing Firm Conduct"), Appendix C. pyRVtest implements their
+The key reference for the econometrics is Duarte, Magnolfi, Sølvsten,
+and Sullivan (2023) ("Testing Firm Conduct"), Appendix C. pyRVtest implements their
 first-stage-correction eq. 77 for demand-side parameter estimation
 uncertainty, plus a clustered variance option for market-level
 clustering.
@@ -92,7 +92,7 @@ from these submodules. The canonical contents are in
 The DMSS framework in three paragraphs
 --------------------------------------
 
-:cite:`dmss-2024` propose a GMM moment-based framework for testing
+Duarte, Magnolfi, Sølvsten, and Sullivan (2023) propose a GMM moment-based framework for testing
 conduct. For each candidate model :math:`m` you compute implied marginal
 costs :math:`\hat c_m = p - \mu_m(\hat\theta)` where :math:`\mu_m` is the
 model's implied markup and :math:`\hat\theta` are the estimated demand
@@ -113,7 +113,7 @@ parameter uncertainty. The scaled F-statistic reported alongside
 :math:`T_{RV}` is a weak-instrument diagnostic derived from the same
 moment conditions.
 
-The Model Confidence Set (MCS) procedure of :cite:`hansen-lunde-nason`
+The Model Confidence Set (MCS) procedure of Hansen, Lunde, and Nason (2011)
 takes the matrix of pairwise :math:`T_{RV}` values and returns
 per-model p-values indicating whether each model survives elimination
 at the chosen confidence level. A small MCS p-value on model :math:`m`
@@ -284,7 +284,7 @@ project-specific step in a conduct-testing exercise. pyRVtest ships
 with common constructions:
 
 * ``pyRVtest.instruments.product`` — BLP-style instruments,
-  differentiation IVs :cite:`gandhi-houde`, rival-sum instruments, and
+  differentiation IVs (Gandhi and Houde, 2019), rival-sum instruments, and
   Hausman-style cost-shifter constructions for the product side.
 
 * ``pyRVtest.instruments.labor`` — Bartik instruments,
