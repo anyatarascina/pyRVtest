@@ -7,11 +7,15 @@ This code was written to perform the procedure for testing firm conduct develope
 
 The code implements the following features:
 
-* Computes `Rivers and Vuong (2002) <https://onlinelibrary.wiley.com/doi/full/10.1111/1368-423X.t01-1-00071>`_ (RV) test statistics to test a menu of two or more models of firm conduct allowing for the possibility that firms or consumers face per unit or ad-valorem taxes.
-* Implements the RV test using the variance estimator of `Duarte, Magnolfi, Sølvsten, and Sullivan (2023) <https://arxiv.org/abs/2301.06720>`_, including options to adjust for demand estimation error and clustering
-* Computes the effective F-statistic proposed in `Duarte, Magnolfi, Sølvsten, and Sullivan (2023) <https://arxiv.org/abs/2301.06720>`_ to diagnose instrument strength with respect to worst-case size and best-case power of the test, and reports appropriate critical values
-* Reports `Hansen, Lunde, and Nason (2011) <https://www.jstor.org/stable/41057463?seq=1#metadata_info_tab_contents>`_ MCS p-values for testing more than two models
-* Compatible with PyBLP `Conlon and Gortmaker (2020) <https://onlinelibrary.wiley.com/doi/full/10.1111/1756-2171.12352>`_, so that demand can be estimated with PyBLP, and the estimates are an input to the test for conduct
+* Computes `Rivers and Vuong (2002) <https://onlinelibrary.wiley.com/doi/full/10.1111/1368-423X.t01-1-00071>`_ (RV) test statistics to test a menu of two or more models of firm conduct allowing for the possibility that firms or consumers face per-unit or ad-valorem taxes.
+* Implements the RV test using the variance estimator of `Duarte, Magnolfi, Sølvsten, and Sullivan (2023) <https://arxiv.org/abs/2301.06720>`_, including options to adjust for demand estimation error and clustering.
+* Computes the effective F-statistic proposed in `Duarte, Magnolfi, Sølvsten, and Sullivan (2023) <https://arxiv.org/abs/2301.06720>`_ to diagnose instrument strength with respect to worst-case size and best-case power of the test, and reports appropriate critical values.
+* Reports `Hansen, Lunde, and Nason (2011) <https://www.jstor.org/stable/41057463?seq=1#metadata_info_tab_contents>`_ MCS p-values for testing more than two models.
+* Ships a class-based ``ConductModel`` API (``Bertrand``, ``Cournot``, ``Monopoly``, ``PerfectCompetition``, ``MixCournotBertrand``, ``Vertical``) plus Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026) simple-markup models (``RuleOfThumb(phi)``, ``Keystone()``, ``ConstantMarkup(markup)``).
+* Exposes pass-through diagnostics on ``ProblemResults`` (``passthrough_comparison``, ``passthrough_matrix``) implementing the Dearing et al. (2026) distinguishability conditions.
+* Supports labor-side conduct testing via ``Problem(market_side='labor')`` with ``Monopsony``, ``BertrandWages``, and ``CournotEmployment`` model classes (``NashBargaining`` and the full labor supply backend land in v0.5).
+* Provides instrument construction helpers (``pyRVtest.instruments.product``: BLP, differentiation IVs, rival sums; ``pyRVtest.instruments.labor``: Hausman, Bartik).
+* Compatible with PyBLP `Conlon and Gortmaker (2020) <https://onlinelibrary.wiley.com/doi/full/10.1111/1756-2171.12352>`_, so that demand can be estimated with PyBLP, and the estimates are an input to the test for conduct. A ``DemandBackend`` protocol also supports user-supplied demand systems; see ``docs/custom_demand.rst``.
 
 For a full list of references, see the references in `Duarte, Magnolfi, Sølvsten, and Sullivan (2023) <https://arxiv.org/abs/2301.06720>`_.
 
@@ -42,7 +46,9 @@ To update to a newer version of the package use:
 Using the package
 _________________
 
-For a detailed tutorial about how to set up and run the testing procedure, see `Tutorial <https://pyrvtest.readthedocs.io/en/stable/tutorial.html>`_.
+For a detailed tutorial about how to set up and run the testing procedure, see `Tutorial <https://pyrvtest.readthedocs.io/en/stable/tutorial.html>`_. For AI assistants and new contributors, ``AGENTS.md`` at the repo root and ``docs/agent_guide.rst`` give an architecture tour; users can also read it in an interactive session via ``pyRVtest.show_agent_guide()``.
+
+Users migrating from v0.3 should read ``docs/migrating_to_v0.4.rst`` — the class-based ``ConductModel`` API, ``demand_params=dict(rho=...)``, and Problem-level ``unit_tax`` / ``advalorem_tax`` kwargs are all new in v0.4; the legacy per-model ``ModelFormulation``, ``sigma`` alias, and per-model tax kwargs continue to work for one or two releases with ``DeprecationWarning``.
 
 
 Citing the package
