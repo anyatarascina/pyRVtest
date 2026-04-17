@@ -332,7 +332,7 @@ class TestProblemKwargExclusivity:
     def test_invalid_entry_type_raises(self):
         df, alpha = _make_dgp()
         pyRVtest.options.verbose = False
-        with pytest.raises(TypeError, match="ConductModel or Vertical"):
+        with pytest.raises(TypeError, match="ConductModel, Vertical"):
             pyRVtest.Problem(
                 cost_formulation=pyRVtest.Formulation('1 + z1'),
                 instrument_formulation=pyRVtest.Formulation('0 + rival_x1'),

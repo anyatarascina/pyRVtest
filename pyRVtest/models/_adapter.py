@@ -1,123 +1,165 @@
-"""Convert new ConductModel / Vertical instances to legacy ModelFormulation.
+"""Reverse adapter: ModelFormulation -> ConductModel / Vertical (v0.4 step 5b').
 
-v0.4 step 5b. The rest of the pyRVtest pipeline (Models recarray
-construction, _compute_markups, compute_demand_adjustment) still reads
-from the legacy string/column fields. This adapter takes a user-supplied
-list of ``ConductModel`` / ``Vertical`` instances (the new API) and
-returns an equivalent list of ``ModelFormulation`` instances (the
-legacy API). The downstream code doesn't need to know which path the
-user took.
+After step 5b', the internal pipeline (Models recarray construction,
+Problem bookkeeping, _compute_markups) reads from ``ConductModel`` /
+``Vertical`` instances as the canonical intermediate representation.
+Legacy ``ModelFormulation(model_downstream='bertrand', ...)`` inputs
+are converted to the equivalent class-based form via
+``from_model_formulation`` at ``Problem.__init__`` before anything
+downstream runs. The forward direction (``to_model_formulations``) is
+no longer needed and has been removed.
 
-Step 5c goes the other direction: ``ModelFormulation.__init__`` becomes
-a deprecation alias that constructs the corresponding class. The two
-directions keep both APIs fully round-trippable during the deprecation
-window.
+Step 5c keeps ``ModelFormulation`` working as a public user-facing
+alias; internally, the alias is always translated to classes via
+``from_model_formulation``.
 """
 
 from __future__ import annotations
 
-from typing import Any, List, Sequence, Union
+from typing import List, Sequence, Union
 
 from ..formulation import ModelFormulation
 from .base import ConductModel
 from .custom import CustomConductModel
 from .mixed import MixCournotBertrand
+from .standard import Bertrand, Cournot, Monopoly, PerfectCompetition
 from .vertical import Vertical
 
 
-__all__ = ['to_model_formulations']
+__all__ = ['from_model_formulation', 'from_model_formulations']
 
 
-def to_model_formulations(
-        models: Sequence[Union[ConductModel, Vertical]],
-) -> List[ModelFormulation]:
-    """Translate a new-API ``models=[...]`` sequence to legacy formulations."""
-    if not models:
-        raise ValueError("At least one conduct model must be provided.")
-    out: List[ModelFormulation] = []
-    for i, m in enumerate(models):
-        if isinstance(m, Vertical):
-            out.append(_vertical_to_formulation(m, i))
-        elif isinstance(m, ConductModel):
-            out.append(_simple_to_formulation(m, i))
-        else:
+def from_model_formulation(
+        mf: ModelFormulation,
+) -> Union[ConductModel, Vertical]:
+    """Translate a legacy ``ModelFormulation`` to a ``ConductModel`` or ``Vertical``.
+
+    If the formulation has ``model_upstream`` set, the result is
+    ``Vertical(downstream=..., upstream=..., ...)``. Otherwise it's a
+    single ``ConductModel`` subclass.
+    """
+    if mf._model_upstream is not None:
+        down = _conduct_from_string(
+            mf._model_downstream,
+            ownership=mf._ownership_downstream,
+            kappa_specification=mf._kappa_specification_downstream,
+            mix_flag=mf._mix_flag,
+            custom_model_specification=mf._custom_model_specification,
+        )
+        up = _conduct_from_string(
+            mf._model_upstream,
+            ownership=mf._ownership_upstream,
+            kappa_specification=mf._kappa_specification_upstream,
+        )
+        return Vertical(
+            downstream=down,
+            upstream=up,
+            vertical_integration=mf._vertical_integration,
+            unit_tax=mf._unit_tax,
+            advalorem_tax=mf._advalorem_tax,
+            advalorem_payer=mf._advalorem_payer,
+            cost_scaling=mf._cost_scaling,
+            user_supplied_markups=mf._user_supplied_markups,
+        )
+    # Simple (non-vertical) case: all config lives on the one class.
+    return _conduct_from_string(
+        mf._model_downstream,
+        ownership=mf._ownership_downstream,
+        kappa_specification=mf._kappa_specification_downstream,
+        mix_flag=mf._mix_flag,
+        custom_model_specification=mf._custom_model_specification,
+        unit_tax=mf._unit_tax,
+        advalorem_tax=mf._advalorem_tax,
+        advalorem_payer=mf._advalorem_payer,
+        cost_scaling=mf._cost_scaling,
+        vertical_integration=mf._vertical_integration,
+        user_supplied_markups=mf._user_supplied_markups,
+    )
+
+
+def from_model_formulations(
+        mfs: Sequence[ModelFormulation],
+) -> List[Union[ConductModel, Vertical]]:
+    """Translate a list of ModelFormulations. Raises on non-ModelFormulation entries."""
+    out: List[Union[ConductModel, Vertical]] = []
+    for i, mf in enumerate(mfs):
+        if not isinstance(mf, ModelFormulation):
             raise TypeError(
-                f"models[{i}] must be a ConductModel or Vertical instance, "
-                f"got {type(m).__name__}. Use pyRVtest.Bertrand(...), etc., "
-                f"or the Vertical(downstream=..., upstream=...) wrapper."
+                f"model_formulations[{i}] must be a ModelFormulation "
+                f"instance, got {type(mf).__name__}."
             )
+        out.append(from_model_formulation(mf))
     return out
 
 
-def _simple_to_formulation(m: ConductModel, idx: int) -> ModelFormulation:
-    """Single-tier conduct (no upstream) to ModelFormulation."""
-    kwargs = _base_config_kwargs(m)
-    # Conduct-specific fields.
-    if isinstance(m, CustomConductModel):
-        kwargs['model_downstream'] = 'other'
-        kwargs['custom_model_specification'] = {m.name: m.markup_fn}
-    else:
-        kwargs['model_downstream'] = m._model_name
-    if isinstance(m, MixCournotBertrand):
-        # mix_flag already in _base_config_kwargs; no extra work.
-        pass
-    # Ownership / kappa live on the inner class.
-    kwargs['ownership_downstream'] = m.ownership
-    if m.kappa_specification is not None:
-        kwargs['kappa_specification_downstream'] = m.kappa_specification
-    return ModelFormulation(**kwargs)
+def _conduct_from_string(
+        model_str: str,
+        ownership=None,
+        kappa_specification=None,
+        mix_flag=None,
+        custom_model_specification=None,
+        **extra_config,
+) -> ConductModel:
+    """Map a conduct-type string to the corresponding class instance.
 
-
-def _vertical_to_formulation(v: Vertical, idx: int) -> ModelFormulation:
-    """Vertical(downstream=X, upstream=Y, ...) to legacy ModelFormulation."""
-    # Shared config lives on the Vertical wrapper.
-    kwargs: dict = {
-        'vertical_integration': v.vertical_integration,
-        'unit_tax': v.unit_tax,
-        'advalorem_tax': v.advalorem_tax,
-        'advalorem_payer': v.advalorem_payer,
-        'cost_scaling': v.cost_scaling,
-        'user_supplied_markups': v.user_supplied_markups,
-    }
-    # Downstream conduct + ownership + kappa.
-    down = v.downstream
-    if isinstance(down, CustomConductModel):
-        kwargs['model_downstream'] = 'other'
-        kwargs['custom_model_specification'] = {down.name: down.markup_fn}
-    else:
-        kwargs['model_downstream'] = down._model_name
-    kwargs['ownership_downstream'] = down.ownership
-    if down.kappa_specification is not None:
-        kwargs['kappa_specification_downstream'] = down.kappa_specification
-    if isinstance(down, MixCournotBertrand):
-        kwargs['mix_flag'] = down.mix_flag
-    # Upstream conduct + ownership + kappa.
-    up = v.upstream
-    if isinstance(up, CustomConductModel):
-        raise NotImplementedError(
-            "CustomConductModel on the upstream side of Vertical is not "
-            "currently supported by the legacy ModelFormulation bridge. "
-            "Use a built-in conduct class for the upstream tier, or wait "
-            "for a future refactor that consumes ConductModel instances "
-            "directly."
+    ``extra_config`` holds the tax / vertical_integration / user-supplied
+    fields that live on the simple (non-vertical) class; for the
+    downstream/upstream tiers of a ``Vertical`` these must be left off
+    (``Vertical`` owns them). Callers enforce this via which fields they
+    pass.
+    """
+    if model_str == 'bertrand':
+        return Bertrand(
+            ownership=ownership,
+            kappa_specification=kappa_specification,
+            **extra_config,
         )
-    kwargs['model_upstream'] = up._model_name
-    kwargs['ownership_upstream'] = up.ownership
-    if up.kappa_specification is not None:
-        kwargs['kappa_specification_upstream'] = up.kappa_specification
-    return ModelFormulation(**kwargs)
-
-
-def _base_config_kwargs(m: ConductModel) -> dict:
-    """Pull shared (non-conduct-specific) config off a bare ConductModel."""
-    kwargs: dict = {
-        'unit_tax': m.unit_tax,
-        'advalorem_tax': m.advalorem_tax,
-        'advalorem_payer': m.advalorem_payer,
-        'cost_scaling': m.cost_scaling,
-        'vertical_integration': m.vertical_integration,
-        'user_supplied_markups': m.user_supplied_markups,
-    }
-    if m.mix_flag is not None:
-        kwargs['mix_flag'] = m.mix_flag
-    return kwargs
+    if model_str == 'cournot':
+        return Cournot(
+            ownership=ownership,
+            kappa_specification=kappa_specification,
+            **extra_config,
+        )
+    if model_str == 'monopoly':
+        return Monopoly(
+            ownership=ownership,
+            kappa_specification=kappa_specification,
+            **extra_config,
+        )
+    if model_str == 'perfect_competition':
+        # PerfectCompetition has no ownership / kappa concept. Still passes
+        # through the config fields (taxes, vi, user_supplied) for consistency.
+        return PerfectCompetition(**extra_config)
+    if model_str == 'mix_cournot_bertrand':
+        return MixCournotBertrand(
+            mix_flag=mix_flag,
+            ownership=ownership,
+            kappa_specification=kappa_specification,
+            **extra_config,
+        )
+    if model_str == 'other':
+        if custom_model_specification is None:
+            raise TypeError(
+                "ModelFormulation with model_downstream='other' must have "
+                "custom_model_specification set."
+            )
+        if not isinstance(custom_model_specification, dict) or not custom_model_specification:
+            raise TypeError(
+                "custom_model_specification must be a non-empty "
+                "{name: callable} dict."
+            )
+        name, fn = next(iter(custom_model_specification.items()))
+        return CustomConductModel(
+            markup_fn=fn,
+            ownership=ownership,
+            name=name,
+            **extra_config,
+        )
+    if model_str is None:
+        raise TypeError(
+            "ModelFormulation without model_downstream cannot be translated "
+            "to a ConductModel. (This case previously relied on "
+            "user_supplied_markups alone; specify an explicit "
+            "model_downstream if you need this path post-v0.4.)"
+        )
+    raise TypeError(f"Unknown model_downstream string: {model_str!r}")

@@ -36,6 +36,48 @@ def _qr_residualize(Y: Array, X: Array) -> Array:
     return Y - Q @ (Q.T @ Y)
 
 
+def _apply_conduct_to_fields(
+        m, conduct, product_data, tier,
+        models_downstream, models_upstream, firm_ids_downstream, firm_ids_upstream,
+        ownership_matrices_downstream, ownership_matrices_upstream,
+        custom_model, mix_flag,
+):
+    """Fill per-tier (downstream / upstream) fields of the Models recarray from
+    a ConductModel / CustomConductModel / MixCournotBertrand instance.
+
+    Helper for ``Models.__new__`` (v0.4 step 5b'). Keeps the per-tier logic
+    in one place so downstream and upstream paths share the same ownership,
+    kappa, and custom-model dispatch.
+    """
+    from .models import CustomConductModel, MixCournotBertrand
+    model_name = conduct._model_name
+    if isinstance(conduct, CustomConductModel):
+        model_name = 'other'
+        custom_model[m] = {conduct.name: conduct.markup_fn}
+    if tier == 'downstream':
+        models_downstream[m] = model_name
+        firm_ids_list = firm_ids_downstream
+        ownership_list = ownership_matrices_downstream
+    else:
+        models_upstream[m] = model_name
+        firm_ids_list = firm_ids_upstream
+        ownership_list = ownership_matrices_upstream
+
+    # Ownership matrix construction: matches legacy Models.__new__ behavior.
+    if model_name == 'monopoly':
+        ownership_list[m] = build_ownership(product_data, conduct.ownership, 'monopoly')
+        firm_ids_list[m] = 'monopoly'
+    elif conduct.ownership is not None:
+        ownership_list[m] = build_ownership(
+            product_data, conduct.ownership, conduct.kappa_specification,
+        )
+        firm_ids_list[m] = conduct.ownership
+
+    # mix_flag lives on the downstream conduct when it's a MixCournotBertrand.
+    if tier == 'downstream' and isinstance(conduct, MixCournotBertrand) and conduct.mix_flag is not None:
+        mix_flag[m] = extract_matrix(product_data, conduct.mix_flag).flatten().astype(bool)
+
+
 class Models(object):
     r"""Models data structured as a dictionary.
 
@@ -103,18 +145,45 @@ class Models(object):
     user_supplied_markups_name: Array
 
     def __new__(
-            cls, model_formulations: Sequence[Optional[ModelFormulation]], product_data: Mapping) -> RecArray:
-        """Structure model data. Data structures may be empty."""
+            cls,
+            models: Sequence[Any],
+            product_data: Mapping,
+    ) -> RecArray:
+        """Structure model data for the pipeline.
 
-        # validate the model formulations
-        if not all(isinstance(f, ModelFormulation) or f is None for f in model_formulations):
-            raise TypeError("Each formulation in model_formulations must be a ModelFormulation instance or None.")
-        M = len(model_formulations)
+        v0.4 step 5b': ``models`` is a sequence of
+        ``pyRVtest.models.ConductModel`` or ``pyRVtest.models.Vertical``
+        instances (the canonical intermediate form). ``Problem.__init__``
+        converts ``ModelFormulation`` inputs to this form via
+        ``from_model_formulation`` before calling here. Legacy
+        ``ModelFormulation`` instances passed directly are accepted for
+        backward compatibility (translated inline).
+        """
+        from .models import ConductModel, Vertical
+        from .models._adapter import from_model_formulation
+
+        # Allow legacy ModelFormulation instances for backward compat; translate
+        # them to ConductModel/Vertical on the fly.
+        normalized: list = []
+        for i, entry in enumerate(models):
+            if isinstance(entry, (ConductModel, Vertical)):
+                normalized.append(entry)
+            elif isinstance(entry, ModelFormulation):
+                normalized.append(from_model_formulation(entry))
+            elif entry is None:
+                raise TypeError(f"models[{i}] is None; all entries must be ConductModel, Vertical, or ModelFormulation.")
+            else:
+                raise TypeError(
+                    f"models[{i}] must be a ConductModel, Vertical, or ModelFormulation instance; "
+                    f"got {type(entry).__name__}."
+                )
+
+        M = len(normalized)
         if M < 1:
-            raise ValueError("At least one model formulation must be specified.")
+            raise ValueError("At least one model must be specified.")
         N = product_data.shape[0]
 
-        # initialize model components
+        # initialize per-model fields
         models_downstream = [None] * M
         models_upstream = [None] * M
         firm_ids_downstream = [None] * M
@@ -135,74 +204,55 @@ class Models(object):
         user_supplied_markups_name = [None] * M
         mix_flag = [None] * M
 
-        # extract data for each model
-        for m in range(M):
-            model = model_formulations[m]._build_matrix(product_data)
-            models_downstream[m] = model['model_downstream']
-            if model['model_upstream'] is not None:
-                models_upstream[m] = model['model_upstream']
+        for m, entry in enumerate(normalized):
+            if isinstance(entry, Vertical):
+                down_conduct = entry.downstream
+                up_conduct = entry.upstream
+                config = entry  # shared config lives on Vertical
+            else:
+                down_conduct = entry
+                up_conduct = None
+                config = entry  # shared config lives on the simple class
 
-            # define ownership matrices for downstream model
-            model['firm_ids'] = model['ownership_downstream']
-            if model['model_downstream'] == 'monopoly':
-                ownership_matrices_downstream[m] = build_ownership(
-                    product_data, model['ownership_downstream'], 'monopoly'
+            # Downstream conduct + ownership + mix_flag + custom_model.
+            _apply_conduct_to_fields(
+                m, down_conduct, product_data, 'downstream',
+                models_downstream, models_upstream, firm_ids_downstream, firm_ids_upstream,
+                ownership_matrices_downstream, ownership_matrices_upstream,
+                custom_model, mix_flag,
+            )
+            # Upstream conduct + ownership.
+            if up_conduct is not None:
+                _apply_conduct_to_fields(
+                    m, up_conduct, product_data, 'upstream',
+                    models_downstream, models_upstream, firm_ids_downstream, firm_ids_upstream,
+                    ownership_matrices_downstream, ownership_matrices_upstream,
+                    custom_model, mix_flag,
                 )
-                firm_ids_downstream[m] = 'monopoly'
-            elif model['ownership_downstream'] is not None:
-                ownership_matrices_downstream[m] = build_ownership(
-                    product_data, model['ownership_downstream'], model['kappa_specification_downstream']
-                )
-                firm_ids_downstream[m] = model['ownership_downstream']
-
-            # define ownership matrices for upstream model
-            model['firm_ids'] = model['ownership_upstream']
-            if model['model_upstream'] == 'monopoly':
-                ownership_matrices_upstream[m] = build_ownership(product_data, model['ownership_upstream'], 'monopoly')
-                firm_ids_upstream[m] = 'monopoly'
-            elif model['ownership_upstream'] is not None:
-                ownership_matrices_upstream[m] = build_ownership(
-                    product_data, model['ownership_upstream'], model['kappa_specification_upstream']
-                )
-                firm_ids_upstream[m] = model['ownership_upstream']
-
-            # define vertical integration related variables
-            if model["vertical_integration"] is not None:
-                vertical_integration[m] = extract_matrix(product_data, model["vertical_integration"])
-                vertical_integration_index[m] = model["vertical_integration"]
-
-            # define unit tax
-            if model['unit_tax'] is not None:
-                unit_tax[m] = extract_matrix(product_data, model['unit_tax'])
-                unit_tax_name[m] = model['unit_tax']
-            elif model['unit_tax'] is None:
+            # Shared config (vertical_integration, taxes, cost_scaling, user_supplied).
+            if config.vertical_integration is not None:
+                vertical_integration[m] = extract_matrix(product_data, config.vertical_integration)
+                vertical_integration_index[m] = config.vertical_integration
+            if config.unit_tax is not None:
+                unit_tax[m] = extract_matrix(product_data, config.unit_tax)
+                unit_tax_name[m] = config.unit_tax
+            else:
                 unit_tax[m] = np.zeros((N, 1))
-
-            # define ad valorem tax
-            if model['advalorem_tax'] is not None:
-                advalorem_tax[m] = extract_matrix(product_data, model['advalorem_tax'])
-                advalorem_tax_name[m] = model['advalorem_tax']
-                advalorem_payer[m] = model['advalorem_payer']
-                advalorem_payer[m] = advalorem_payer[m].replace('consumers', 'consumer').replace('firms', 'firm')
-            elif model['advalorem_tax'] is None:
+            if config.advalorem_tax is not None:
+                advalorem_tax[m] = extract_matrix(product_data, config.advalorem_tax)
+                advalorem_tax_name[m] = config.advalorem_tax
+                payer = config.advalorem_payer.replace('consumers', 'consumer').replace('firms', 'firm')
+                advalorem_payer[m] = payer
+            else:
                 advalorem_tax[m] = np.zeros((N, 1))
-
-            # define cost scaling
-            if model['cost_scaling'] is not None:
-                cost_scaling_column[m] = model['cost_scaling']
-                cost_scaling[m] = extract_matrix(product_data, model['cost_scaling'])
-            elif model['cost_scaling'] is None:
+            if config.cost_scaling is not None:
+                cost_scaling_column[m] = config.cost_scaling
+                cost_scaling[m] = extract_matrix(product_data, config.cost_scaling)
+            else:
                 cost_scaling[m] = np.zeros((N, 1))
-
-            # define custom markup model or user supplied markups
-            custom_model[m] = model['custom_model_specification']
-            if model["user_supplied_markups"] is not None:
-                user_supplied_markups[m] = extract_matrix(product_data, model["user_supplied_markups"])
-                user_supplied_markups_name[m] = model["user_supplied_markups"]
-
-            # define mix_flag for mix_cournot_bertrand model
-            if model.get("mix_flag") is not None:
-                mix_flag[m] = extract_matrix(product_data, model["mix_flag"]).flatten().astype(bool)
+            if config.user_supplied_markups is not None:
+                user_supplied_markups[m] = extract_matrix(product_data, config.user_supplied_markups)
+                user_supplied_markups_name[m] = config.user_supplied_markups
 
         # structure product fields as a mapping
         models_mapping: Dict[Union[str, tuple], Optional[Array]] = {}
@@ -326,18 +376,26 @@ class Problem(Container, StringRepresentation):
         output("Initializing the problem ...")
         start_time = time.time()
 
-        # v0.4 step 5b: accept the new class-based `models=[...]` kwarg and
-        # translate it to the legacy model_formulations format. Mutually
-        # exclusive with model_formulations=; if both or neither are supplied
-        # (alongside markup_data=None) we raise. markup_data bypasses both.
+        # v0.4 step 5b + 5b': ``models=`` is the new class-based API;
+        # ``model_formulations=`` is the legacy alias. Mutually exclusive.
+        # Internally everything is ConductModel / Vertical: we translate
+        # model_formulations to that form here, so the downstream pipeline
+        # (Models.__new__, _compute_markups, etc.) sees a single canonical
+        # type.
         if models is not None and model_formulations is not None:
             raise TypeError(
                 "Specify either `models=` (new class-based API) or "
                 "`model_formulations=` (legacy string-based API), not both."
             )
-        if models is not None:
-            from .models._adapter import to_model_formulations
-            model_formulations = tuple(to_model_formulations(models))
+        if models is None and model_formulations is not None:
+            from .models._adapter import from_model_formulations
+            models = from_model_formulations(model_formulations)
+            # Preserve the public attribute `self.model_formulations` below
+            # for backwards compat in repr / serialization; set it to the
+            # original legacy tuple.
+            _legacy_model_formulations = tuple(model_formulations)
+        else:
+            _legacy_model_formulations = None
 
         # Validate demand_params
         if demand_params is not None and demand_results is not None:
@@ -359,7 +417,12 @@ class Problem(Container, StringRepresentation):
                     )
 
         if markup_data is None:
-            M = len(model_formulations)
+            if models is None:
+                raise TypeError(
+                    "Either `models=` (class-based) or `model_formulations=` "
+                    "(legacy) must be provided when markup_data is None."
+                )
+            M = len(models)
         else:
             M = np.shape(markup_data)[0]
 
@@ -398,17 +461,22 @@ class Problem(Container, StringRepresentation):
             cost_formulation=cost_formulation, instrument_formulation=instrument_formulation, product_data=product_data
         )
         if markup_data is None:
-            models = Models(model_formulations=model_formulations, product_data=product_data)
+            models_recarray = Models(models=models, product_data=product_data)
             markups = [None] * M
         else:
-            models = None
+            models_recarray = None
             markups = markup_data
 
-        super().__init__(products, models)
+        super().__init__(products, models_recarray)
 
         self.cost_formulation = cost_formulation
         self.instrument_formulation = instrument_formulation
-        self.model_formulations = model_formulations
+        # Public attribute `model_formulations` kept for backward-compat callers
+        # that inspect it; holds the legacy tuple when the user supplied one,
+        # else None. The canonical internal representation is the ConductModel
+        # / Vertical list stored as `self._models` (set below).
+        self.model_formulations = _legacy_model_formulations
+        self._models = models
         self.demand_results = demand_results
         self.demand_params = demand_params
         self._product_data_raw = product_data  # kept for demand_params path to access arbitrary columns
@@ -431,7 +499,7 @@ class Problem(Container, StringRepresentation):
         self.L = len(self.instrument_formulation) if hasattr(self.instrument_formulation, '__len__') else 1
         for instrument in range(self.L):
             self.Dict_K.update({"K{0}".format(instrument): self.products["Z{0}".format(instrument)].shape[1]})
-        self.M = len(self.model_formulations) if self.markups[0] is None else np.shape(self.markups)[0]
+        self.M = len(self._models) if self.markups[0] is None else np.shape(self.markups)[0]
         self.EC = self.products.cost_ids.shape[1]
         self.H = self.unique_nesting_ids.size
 
@@ -739,7 +807,7 @@ class Problem(Container, StringRepresentation):
                     f"These are only needed for demand adjustment; omit them if demand_adjustment=False."
                 )
         for m in range(self.M):
-            if self.model_formulations[m]._user_supplied_markups is not None:
+            if self._models[m].user_supplied_markups is not None:
                 if demand_adjustment:
                     raise ValueError(
                         "demand_adjustment is not supported with user-supplied markups, because the "
