@@ -380,6 +380,70 @@ without explicit coordination:
    and ``tests/test_demand_params_rho_alias.py`` lock the warning
    emission logic.
 
+Logging layout
+--------------
+
+v0.4 step 18 switched pyRVtest from the legacy pyblp ``output()`` helper
+to the standard :mod:`logging` module. Every module that emits
+progress/diagnostic messages defines its own logger at the top:
+``logger = logging.getLogger(__name__)``. This gives users per-subsystem
+control over verbosity without any pyRVtest-specific configuration.
+
+Loggers currently in use:
+
+* ``pyRVtest.problem`` — ``Problem.__init__`` and ``Problem.solve``
+  progress ("Initializing the problem ...", "Solving the problem ...",
+  "Computing Markups ...", "Absorbing cost-side fixed effects ...",
+  plus the rendered dimension / formulation / results tables).
+* ``pyRVtest.backends.logit`` — nested-logit column inference ("Inferred
+  nesting order ...") when the user relies on auto-detection rather than
+  passing ``nesting_ids_columns`` explicitly.
+* ``pyRVtest.output`` — the legacy ``output()`` compatibility shim
+  (deprecated in v0.4; removed in v0.6). Both its deprecation warnings
+  and its forwarded message go through this logger.
+
+Typical user recipes::
+
+    import logging
+
+    # See all pyRVtest progress messages on stderr:
+    logging.basicConfig(level=logging.INFO)
+
+    # Keep the general info stream on, but silence just ``Problem.solve``:
+    logging.getLogger("pyRVtest.problem").setLevel(logging.WARNING)
+
+    # Only see warnings (fallbacks, unusual recoveries) and above:
+    logging.getLogger("pyRVtest").setLevel(logging.WARNING)
+
+    # Route pyRVtest output into a file, separate from stdout:
+    fh = logging.FileHandler("pyrvtest.log")
+    fh.setLevel(logging.DEBUG)
+    logging.getLogger("pyRVtest").addHandler(fh)
+
+pyRVtest does not install its own handlers — following the standard
+library guidance, the package only emits records and leaves the handler
+configuration to the application. A library with no handler attached
+behaves as if :class:`logging.NullHandler` were installed (messages are
+silently dropped). Call :func:`logging.basicConfig` in your script or
+notebook to actually see the records.
+
+Level assignments in pyRVtest:
+
+* ``logger.info(...)`` — normal progress messages (most call sites).
+* ``logger.debug(...)`` — reserved for verbose per-iteration
+  diagnostics.
+* ``logger.warning(...)`` — unusual but recoverable behaviour (e.g.
+  fallback paths).
+* ``logger.error(...)`` — reserved for error-context logging before
+  raising an exception; in practice the exception message itself is
+  sufficient.
+
+Two call sites remain on bare ``print()`` by design:
+``pyRVtest.show_agent_guide()`` and its fallback path in
+``pyRVtest._agent_guide``, because the whole contract of that helper is
+to dump the guide onto stdout for a human/LLM user to read, and the
+test suite captures stdout to assert on the content.
+
 Workflows for common tasks
 --------------------------
 

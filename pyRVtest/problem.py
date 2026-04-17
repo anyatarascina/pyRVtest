@@ -3,6 +3,7 @@
 import abc
 import contextlib
 import itertools
+import logging
 import math
 import os
 import time
@@ -13,7 +14,7 @@ import numpy as np
 from pyblp.utilities.algebra import precisely_identify_collinearity
 from pyblp.utilities.basics import (
     Array, Data, Groups, RecArray, StringRepresentation, extract_matrix, format_seconds, format_table,
-    get_indices, output, structure_matrices
+    get_indices, structure_matrices
 )
 from pyblp.configurations.formulation import ColumnFormulation
 from scipy.linalg import inv
@@ -24,6 +25,12 @@ from .markups import build_ownership, _compute_markups
 from .data import read_critical_values_tables
 from .products import Products
 from .results import ProblemResults, Progress
+
+# v0.4 step 18: per-module logger. Emits INFO-level progress messages that
+# previously went through pyblp's ``output()`` helper. Users can silence this
+# subsystem specifically with
+# ``logging.getLogger("pyRVtest.problem").setLevel(logging.WARNING)``.
+logger = logging.getLogger(__name__)
 
 
 _DEMAND_PARAMS_SIGMA_DEPRECATION_MSG = (
@@ -463,7 +470,7 @@ class Problem(Container, StringRepresentation):
             models: Optional[Sequence[Any]] = None) -> None:
         """Initialize the underlying economy with product and agent data before absorbing fixed effects."""
 
-        output("Initializing the problem ...")
+        logger.info("Initializing the problem ...")
         start_time = time.time()
 
         # v0.4 step 5b + 5b': ``models=`` is the new class-based API;
@@ -644,9 +651,9 @@ class Problem(Container, StringRepresentation):
                         f"{common_message}"
                     )
 
-        output(f"Initialized the problem after {format_seconds(time.time() - start_time)}.")
-        output("")
-        output(self)
+        logger.info(f"Initialized the problem after {format_seconds(time.time() - start_time)}.")
+        logger.info("")
+        logger.info(str(self))
 
     def __str__(self) -> str:
         """Format economy information as a string."""
@@ -740,7 +747,7 @@ class Problem(Container, StringRepresentation):
         >>> results = problem.solve(demand_adjustment=False)  # doctest: +SKIP
         """
 
-        output("Solving the problem ...")
+        logger.info("Solving the problem ...")
         step_start_time = time.time()
 
         M = self.M
@@ -758,7 +765,7 @@ class Problem(Container, StringRepresentation):
         markups_effective = [None] * M
 
         if markups[0] is None:
-            output('Computing Markups ...')
+            logger.info('Computing Markups ...')
             markups, markups_downstream, markups_upstream = self._perturb_and_build_markups()
 
         marginal_cost = self.products.prices - markups
@@ -788,7 +795,7 @@ class Problem(Container, StringRepresentation):
         cost_param = None
 
         if self.endogenous_cost_component is not None:
-            output('Computing IV correction for endogenous cost component ...')
+            logger.info('Computing IV correction for endogenous cost component ...')
             marginal_cost_base = marginal_cost.copy()
             cost_param = [None] * L
             omega_per_instrument = [None] * L
@@ -884,9 +891,9 @@ class Problem(Container, StringRepresentation):
             F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list, cost_param,
             tau_list_per_instrument
         ))
-        output(f"Solved the problem after {format_seconds(time.time() - step_start_time)}.")
-        output("")
-        output(results)
+        logger.info(f"Solved the problem after {format_seconds(time.time() - step_start_time)}.")
+        logger.info("")
+        logger.info(str(results))
         return results
 
     def _validate_solve_args(self, demand_adjustment: bool, clustering_adjustment: bool) -> None:
@@ -1146,7 +1153,7 @@ class Problem(Container, StringRepresentation):
         omega = np.zeros((M, N), dtype=options.dtype)
 
         if self._absorb_cost_ids is not None:
-            output("Absorbing cost-side fixed effects ...")
+            logger.info("Absorbing cost-side fixed effects ...")
             w_for_ols, _ = self._absorb_cost_ids(w_for_ols)
             for m in range(M):
                 value, _ = self._absorb_cost_ids(markups_effective[m])

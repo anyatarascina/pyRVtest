@@ -83,6 +83,13 @@ def show_agent_guide() -> None:
     # AGENTS.md
     ...
     """
+    # v0.4 step 18: these ``print`` calls are intentionally stdout-bound.
+    # ``show_agent_guide`` is a user-facing REPL helper whose whole contract
+    # is "dump the guide onto stdout so the user (or the AI assistant
+    # consuming the REPL output) can read it." Routing through ``logging``
+    # would require users to configure a handler to see the guide at all,
+    # and ``tests/test_agent_guide.py`` captures stdout via
+    # ``contextlib.redirect_stdout`` to assert on content. Do not convert.
     path = _locate_agents_md()
     if path is None:
         print(_FALLBACK)
