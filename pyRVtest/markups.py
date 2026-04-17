@@ -109,9 +109,7 @@ def _compute_markups(
         ownership_downstream: Optional[Array], model_upstream: Optional[Array] = None,
         ownership_upstream: Optional[Array] = None, vertical_integration: Optional[Array] = None,
         custom_model_specification: Optional[dict] = None, user_supplied_markups: Optional[Array] = None,
-        mix_flag: Optional[Array] = None, demand_jacobian: Optional[Array] = None,
-        demand_alpha: Optional[float] = None, demand_sigma: Optional[list] = None,
-        demand_nesting: Optional[list] = None, demand_backend: Optional[object] = None) -> Array:
+        mix_flag: Optional[Array] = None, demand_backend: Optional[object] = None) -> Array:
     r"""Compute markups given pre-processed model arrays.
 
     Internal function called by :func:`build_markups` and :meth:`Problem.solve`. Accepts the raw arrays produced by
@@ -183,24 +181,12 @@ def _compute_markups(
     if mix_flag is None:
         mix_flag = [None] * number_models
 
-    # Store demand params for analytical Hessian path in upstream computation
-    _demand_alpha = demand_alpha
-    _demand_sigma = demand_sigma
-    _demand_nesting = demand_nesting
-
-    # Precompute nesting arrays from product_data if needed for Hessian
-    if _demand_nesting is None and _demand_sigma and any(s > 0 for s in _demand_sigma):
-        if hasattr(product_data, 'nesting_ids'):
-            _demand_nesting = [np.asarray(product_data.nesting_ids).flatten()]
-
-    # precompute demand jacobians. Resolution priority:
-    #   1. demand_backend (v0.4 step 3e — wraps pyblp or analytical logit)
-    #   2. demand_jacobian (precomputed array, demand_params legacy path)
-    #   3. pyblp_results (PyBLP legacy path, original code)
+    # v0.4 step 4g: demand Jacobian comes from the backend when provided,
+    # or from pyblp_results for the legacy no-backend path (used only by
+    # build_markups() public API when the user passes a pyblp results
+    # object directly).
     if demand_backend is not None:
         ds_dp = demand_backend.compute_jacobian()
-    elif demand_jacobian is not None:
-        ds_dp = demand_jacobian
     elif pyblp_results is not None:
         with contextlib.redirect_stdout(open(os.devnull, 'w')):
             ds_dp = pyblp_results.compute_demand_jacobians()
@@ -213,7 +199,12 @@ def _compute_markups(
         else:
             for t in markets:
                 index_t = np.where(product_data.market_ids == t)[0]
-                shares_t = product_data.shares[index_t]
+                # np.asarray coerces pandas Series (from DataFrame product_data)
+                # to ndarray so downstream `.flatten()` / `.reshape()` calls work.
+                # Problem always passes a structured recarray so this is a no-op
+                # for the in-package call path; matters only for direct users of
+                # _compute_markups with a DataFrame.
+                shares_t = np.asarray(product_data.shares[index_t])
                 retailer_response_matrix = ds_dp[index_t]
                 retailer_response_matrix = retailer_response_matrix[:, ~np.isnan(retailer_response_matrix).all(axis=0)]
 
@@ -229,14 +220,11 @@ def _compute_markups(
                     # construct the matrix of derivatives with respect to prices for other manufacturers
                     markups_t = markups_downstream[i][index_t]
                     if demand_backend is not None:
-                        # v0.4 step 4a: Hessian from the backend. `PyBLPBackend.compute_hessian`
-                        # calls `pyblp_results.compute_demand_hessians(market_id=t)` (byte-identical
-                        # to what `construct_passthrough_matrix` does internally below).
-                        # `LogitBackend`/`NestedLogitBackend.compute_hessian` returns the analytical
-                        # Hessian (byte-identical to the `compute_analytical_hessian(...)` branch
-                        # below). `UserSuppliedBackend.compute_hessian` returns None unless a
-                        # `hessian_fn` was provided — vertical-integration models require a Hessian,
-                        # so we raise a clear error in that case.
+                        # Hessian from the backend. PyBLPBackend delegates to
+                        # pyblp_results.compute_demand_hessians; Logit/NestedLogit
+                        # backends use the analytical Hessian. UserSuppliedBackend
+                        # without hessian_fn returns None — raise a clear error
+                        # since vertical models require a Hessian.
                         d2s_dp2_t = demand_backend.compute_hessian(market_id=t)
                         if d2s_dp2_t is None:
                             raise ValueError(
@@ -245,17 +233,6 @@ def _compute_markups(
                                 f"demand backend that provides a Hessian. Supply `hessian_fn` to "
                                 f"`UserSuppliedBackend` or use one of the built-in backends."
                             )
-                        passthrough_matrix = _construct_passthrough_from_hessian(
-                            d2s_dp2_t, retailer_response_matrix, retailer_ownership_matrix, markups_t
-                        )
-                    elif demand_jacobian is not None and pyblp_results is None:
-                        # Analytical Hessian for logit/nested logit
-                        from .demand_jacobian import compute_analytical_hessian
-                        sigma_clean = [s for s in (_demand_sigma or []) if s > 0]
-                        nesting_t = [arr[index_t] for arr in _demand_nesting] if sigma_clean else []
-                        d2s_dp2_t = compute_analytical_hessian(
-                            _demand_alpha, sigma_clean, shares_t.flatten(), nesting_t
-                        )
                         passthrough_matrix = _construct_passthrough_from_hessian(
                             d2s_dp2_t, retailer_response_matrix, retailer_ownership_matrix, markups_t
                         )

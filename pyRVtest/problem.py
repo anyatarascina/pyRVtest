@@ -914,35 +914,24 @@ class Problem(Container, StringRepresentation):
         )
 
     def _perturb_and_build_markups(self):
-        """Call _compute_markups with current demand_results and model specifications.
+        """Call _compute_markups with this Problem's constructed backend.
 
-        v0.4 step 4e note: kept unchanged (NOT routed through `self._demand_backend`)
-        so that inline ``_compute_demand_adjustment_gradient`` — which mutates
-        ``self.demand_results._sigma`` / ``._pi`` / ``._beta`` / ``._rho`` directly
-        and then calls this method — sees the perturbed state. If this method
-        were to use the cached backend Jacobian, the inline finite-diff loop
-        would return the cached (pre-mutation) value. The unified
-        ``compute_demand_adjustment`` function has its own backend-aware
-        ``_perturb_and_rebuild_markups`` that uses ``backend.perturbed(...)``
-        context manager, which invalidates the cache safely.
+        v0.4 step 4g: after step 4f deleted the inline demand-adjustment
+        methods that mutated ``self.demand_results._sigma`` / ``._pi`` /
+        ``._beta`` / ``._rho`` directly, nothing mutates demand state behind
+        the backend's cache. Routing through ``self._demand_backend`` is
+        therefore safe: the cache is invalidated correctly by
+        ``backend.perturbed(...)`` everywhere it's used. Legacy
+        ``demand_jacobian`` / ``demand_alpha`` / ``demand_sigma`` kwargs on
+        ``_compute_markups`` are gone; ``compute_jacobian`` / ``compute_hessian``
+        on the backend subsume them.
         """
-        demand_jacobian = None
-        if self.demand_params is not None:
-            from .demand_jacobian import compute_analytical_jacobian
-            demand_jacobian = compute_analytical_jacobian(
-                self.demand_params['alpha'],
-                self.demand_params.get('sigma', []),
-                self.products,
-                self.demand_params.get('nesting_ids_columns', None)
-            )
-        dp = self.demand_params or {}
         return _compute_markups(
             self.products, self.demand_results, self.models["models_downstream"],
             self.models["ownership_downstream"], self.models["models_upstream"],
             self.models["ownership_upstream"], self.models["vertical_integration"],
             self.models["custom_model_specification"], self.models["user_supplied_markups"],
-            self.models["mix_flag"], demand_jacobian=demand_jacobian,
-            demand_alpha=dp.get('alpha'), demand_sigma=dp.get('sigma'),
+            self.models["mix_flag"], demand_backend=self._demand_backend,
         )
 
     def _prepare_orthogonal_variables(self, M: int, N: int, markups_effective: list, marginal_cost: Array):

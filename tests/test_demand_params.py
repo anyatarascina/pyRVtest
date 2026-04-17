@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import pyRVtest
-from pyRVtest.demand_jacobian import (
+from pyRVtest.backends.logit import (
     compute_analytical_jacobian, _logit_jacobian, _nested_logit_jacobian
 )
 

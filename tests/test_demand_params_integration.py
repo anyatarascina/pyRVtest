@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import pyRVtest
-from pyRVtest.demand_jacobian import _logit_jacobian, _nested_logit_jacobian
+from pyRVtest.backends.logit import _logit_jacobian, _nested_logit_jacobian
 
 
 # ---------------------------------------------------------------------------

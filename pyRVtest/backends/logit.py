@@ -6,11 +6,9 @@ for user-facing clarity (tracebacks + API docs). Contents now:
   - Module-level functions for logit and nested-logit math
     (`compute_analytical_jacobian`, `_logit_jacobian`,
     `_nested_logit_jacobian`, `_nested_logit_jacobian_derivative`,
-    `compute_analytical_hessian`, `_infer_nesting_columns`) — moved
-    verbatim from `pyRVtest/demand_jacobian.py`. That module is now a
-    thin shim that re-exports these names for backward compatibility
-    with existing callers (pyRVtest/problem.py, pyRVtest/markups.py,
-    tests).
+    `compute_analytical_hessian`, `_infer_nesting_columns`). Originally
+    lived in `pyRVtest/demand_jacobian.py`, moved here in v0.4 step 3c;
+    the shim module was removed in v0.4 step 4g.
 
   - `LogitBackend` class: plain-logit (sigma=[]) DemandBackend wrapper
     that also implements `SupportsDemandAdjustment`. Parameter count
@@ -46,7 +44,7 @@ from ..solve.demand_adjustment import _residualize_on_xd
 
 
 __all__ = [
-    # Module-level functions (re-exported by pyRVtest.demand_jacobian shim)
+    # Module-level analytical-jacobian functions.
     'compute_analytical_jacobian',
     'compute_analytical_hessian',
     '_logit_jacobian',
@@ -59,7 +57,8 @@ __all__ = [
 
 
 # ===========================================================================
-# Module-level functions (moved verbatim from pyRVtest/demand_jacobian.py).
+# Module-level analytical-jacobian helpers (originally in
+# pyRVtest/demand_jacobian.py before v0.4 step 3c moved them here).
 # ===========================================================================
 
 
