@@ -434,7 +434,18 @@ class TestMarkupGradientEquivalence:
             },
         )
 
-        # Compute markups first (required input for both adjustment methods)
+        # v0.4 step 4f: two-path comparison now goes through the unified
+        # compute_demand_adjustment function via each Problem's _demand_backend.
+        # Prior to 4f this compared the inline _compute_demand_adjustment_gradient
+        # (demand_results) against _compute_analytical_demand_adjustment
+        # (demand_params). Those inline methods were deleted in 4f. The unified
+        # function with appropriate backend (PyBLPBackend vs LogitBackend) gives
+        # the same equivalence check — with a subtlety: after auto-routing
+        # (v0.4 step 4e follow-up) the demand_results path for plain logit
+        # also uses LogitBackend, so both problems wrap the SAME backend type
+        # and the agreement is near machine precision (not just atol=1e-4).
+        from pyRVtest.solve.demand_adjustment import compute_demand_adjustment
+
         markups_pyblp, _, _ = problem_pyblp._perturb_and_build_markups()
         markups_dp, _, _ = problem_dp._perturb_and_build_markups()
 
@@ -443,29 +454,28 @@ class TestMarkupGradientEquivalence:
         advalorem_tax_adj = [np.ones((N, 1)) for _ in range(M)]
         cost_scaling = [np.zeros((N, 1)) for _ in range(M)]
 
-        # Call the two gradient methods directly
-        grad_pyblp, *_ = problem_pyblp._compute_demand_adjustment_gradient(
-            N, advalorem_tax_adj, cost_scaling, marginal_cost_base=None
+        grad_pyblp, *_ = compute_demand_adjustment(
+            problem_pyblp._demand_backend, problem_pyblp, M, N, markups_pyblp,
+            advalorem_tax_adj, cost_scaling, None,
         )
-        grad_dp, *_ = problem_dp._compute_analytical_demand_adjustment(
-            M, N, markups_dp, advalorem_tax_adj, cost_scaling
+        grad_dp, *_ = compute_demand_adjustment(
+            problem_dp._demand_backend, problem_dp, M, N, markups_dp,
+            advalorem_tax_adj, cost_scaling, None,
         )
 
         pyRVtest.options.verbose = True
 
-        # Both paths should have same theta ordering in this logit DGP
-        # (no sigma, no pi, no rho; just alpha → single parameter)
         assert grad_pyblp.shape == grad_dp.shape, (
             f"gradient_markups shape mismatch: {grad_pyblp.shape} vs {grad_dp.shape}"
         )
 
-        # Compare per-model gradients. Tolerance: O(eps) finite-diff error.
         for m in range(M):
             np.testing.assert_allclose(
                 grad_pyblp[m], grad_dp[m], atol=1e-4,
                 err_msg=(
                     f"d(markup)/d(theta) disagrees for model {m}. "
-                    f"PyBLP finite-diff vs demand_params analytical diverged. "
-                    f"DMSS Appendix C requires both to compute nabla_theta Delta_hat_m."
+                    f"Unified compute_demand_adjustment should give identical "
+                    f"output for the same DGP across demand_results and demand_params "
+                    f"paths — both now resolve to LogitBackend after auto-routing."
                 )
             )
