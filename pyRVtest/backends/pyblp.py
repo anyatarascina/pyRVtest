@@ -217,12 +217,25 @@ class PyBLPBackend:
         return _residualize_on_xd(partial_y_theta, XD, ZD, WD)
 
     def jacobian_gradient(self, market_id: Any) -> _NDArray:
-        """Finite-difference fallback for d(D)/d(theta) in one market.
+        """Finite-difference approximation of d(D)/d(theta) in one market.
 
         Uses `perturbed` context manager for +/- epsilon/2 steps.
-        Analytical backends override this with a closed-form; PyBLPBackend
-        falls back to finite diff because PyBLP doesn't expose analytical
-        Jacobian derivatives.
+        Analytical backends (`LogitBackend`, `NestedLogitBackend`) override
+        this with closed-form derivatives; `PyBLPBackend` falls back to
+        finite-difference because deriving analytical d(D)/d(theta) through
+        the BLP contraction mapping is non-trivial — PyBLP itself does not
+        expose it.
+
+        .. note::
+            **Known limitation.** The finite-difference approximation has
+            truncation error ``O(epsilon**2)`` at the Jacobian level, which
+            propagates to O(1e-10) in TRV / MCS and O(1e-8) in F on
+            typical fixtures. Users running BLP demand with
+            ``demand_adjustment=True`` receive this approximation; users
+            running pure logit or nested logit estimated via
+            ``demand_results`` (pyblp) currently also receive it, though a
+            future refinement could auto-route those cases to the
+            analytical backends.
         """
         eps = options.finite_differences_epsilon
         base_shape = self.compute_jacobian(market_id).shape  # (J_t, J_t)

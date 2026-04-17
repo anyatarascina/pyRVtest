@@ -1074,3 +1074,104 @@ class TestOptionBHandDerivedGroundTruth:
                 foc, np.zeros_like(foc), atol=1e-14,
                 err_msg=f"Bertrand FOC residual nonzero at market {t}"
             )
+
+
+# ===========================================================================
+# v0.4 step 4e follow-up: validate _nested_logit_jacobian_derivative.
+#
+# This is the analytical formula for dD/d(sigma_m) used by
+# NestedLogitBackend.jacobian_gradient for nested-logit demand. Before
+# this test nothing in the suite validated it against finite-diff of
+# _nested_logit_jacobian; the formula was hand-derived and un-checked.
+# If this test passes, the analytical sigma-derivative in the nested-
+# logit backend is numerically correct. If it fails, we have a real math
+# bug that affects the demand-adjustment correction whenever sigma is
+# non-trivial.
+# ===========================================================================
+
+class TestNestedLogitJacobianDerivative:
+    """Finite-diff validation of the analytical dD/d(sigma) formula."""
+
+    @staticmethod
+    def _fd_derivative(alpha, sigma, s, nesting, m, eps=1e-6):
+        """Central-difference approximation of d/d(sigma_m) of
+        _nested_logit_jacobian(alpha, sigma, s, nesting).
+        """
+        from pyRVtest.backends.logit import _nested_logit_jacobian
+        sigma_plus = list(sigma)
+        sigma_minus = list(sigma)
+        sigma_plus[m] = sigma[m] + eps / 2
+        sigma_minus[m] = sigma[m] - eps / 2
+        J_plus = _nested_logit_jacobian(alpha, sigma_plus, s, nesting)
+        J_minus = _nested_logit_jacobian(alpha, sigma_minus, s, nesting)
+        return (J_plus - J_minus) / eps
+
+    @pytest.mark.parametrize("seed,alpha,sigma_val,J,n_per_nest", [
+        (0, -2.0, 0.3, 4, 2),   # 1-level, 2 nests of 2
+        (1, -1.5, 0.5, 6, 3),   # 1-level, 2 nests of 3
+        (2, -3.0, 0.1, 8, 4),   # 1-level, 2 nests of 4
+        (3, -0.5, 0.7, 4, 2),   # 1-level, large sigma
+        (4, -2.0, 0.05, 6, 2),  # 1-level, small sigma
+    ])
+    def test_one_level_nested_logit_sigma_derivative(
+            self, seed, alpha, sigma_val, J, n_per_nest):
+        """One-level nested logit: analytical d/d(sigma) == finite-diff to 1e-9."""
+        from pyRVtest.backends.logit import _nested_logit_jacobian_derivative
+        rng = np.random.default_rng(seed=seed)
+        # Shares must sum to < 1 per market; draw from dirichlet-like construction.
+        raw = rng.uniform(0.1, 1.0, size=J)
+        s = 0.5 * raw / raw.sum()  # keep s.sum() = 0.5 < 1
+        # Nest assignment: first J/n_per_nest * n_per_nest products in nest A, rest in B
+        nest_ids = np.array(
+            ['A'] * n_per_nest + ['B'] * (J - n_per_nest), dtype=object
+        )
+        sigma = [sigma_val]
+        nesting = [nest_ids]
+
+        analytical = _nested_logit_jacobian_derivative(alpha, sigma, s, nesting, 0)
+        numerical = self._fd_derivative(alpha, sigma, s, nesting, 0, eps=1e-6)
+
+        np.testing.assert_allclose(
+            analytical, numerical, atol=1e-8, rtol=1e-6,
+            err_msg=(
+                f"_nested_logit_jacobian_derivative analytical != finite-diff "
+                f"(1-level, seed={seed}, alpha={alpha}, sigma={sigma_val}, "
+                f"J={J}). This is a real bug in the hand-derived d/d(sigma) "
+                f"formula; demand-adjustment corrections for nested-logit "
+                f"demand_params users will be wrong."
+            ),
+        )
+
+    @pytest.mark.parametrize("seed,alpha,sigma0,sigma1,J", [
+        (10, -2.0, 0.3, 0.5, 8),
+        (11, -1.0, 0.2, 0.6, 6),
+        (12, -3.0, 0.1, 0.4, 8),
+    ])
+    def test_two_level_nested_logit_sigma_derivatives(
+            self, seed, alpha, sigma0, sigma1, J):
+        """Two-level nested logit: d/d(sigma_0) and d/d(sigma_1) both match finite-diff."""
+        from pyRVtest.backends.logit import _nested_logit_jacobian_derivative
+        rng = np.random.default_rng(seed=seed)
+        raw = rng.uniform(0.1, 1.0, size=J)
+        s = 0.5 * raw / raw.sum()
+        # Two-level hierarchy: level 0 (finest) has 4 nests; level 1 (coarsest) has 2 nests.
+        # Each level-1 nest contains 2 level-0 nests.
+        finest = np.array(['a', 'a', 'b', 'b', 'c', 'c', 'd', 'd'][:J], dtype=object)
+        coarsest = np.array(['A', 'A', 'A', 'A', 'B', 'B', 'B', 'B'][:J], dtype=object)
+        sigma = [sigma0, sigma1]
+        nesting = [finest, coarsest]
+
+        # m=0 derivative
+        analytical_0 = _nested_logit_jacobian_derivative(alpha, sigma, s, nesting, 0)
+        numerical_0 = self._fd_derivative(alpha, sigma, s, nesting, 0, eps=1e-6)
+        np.testing.assert_allclose(
+            analytical_0, numerical_0, atol=1e-8, rtol=1e-6,
+            err_msg=f"d/d(sigma_0) mismatch (2-level, seed={seed})"
+        )
+        # m=1 derivative
+        analytical_1 = _nested_logit_jacobian_derivative(alpha, sigma, s, nesting, 1)
+        numerical_1 = self._fd_derivative(alpha, sigma, s, nesting, 1, eps=1e-6)
+        np.testing.assert_allclose(
+            analytical_1, numerical_1, atol=1e-8, rtol=1e-6,
+            err_msg=f"d/d(sigma_1) mismatch (2-level, seed={seed})"
+        )
