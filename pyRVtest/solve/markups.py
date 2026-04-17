@@ -74,4 +74,5 @@ def compute(problem: Any) -> Tuple[List[_NDArray], List[_NDArray], List[_NDArray
         problem.models["ownership_upstream"], problem.models["vertical_integration"],
         problem.models["custom_model_specification"], problem.models["user_supplied_markups"],
         problem.models["mix_flag"], demand_backend=problem._demand_backend,
+        constant_markup=problem.models["constant_markup"],
     )

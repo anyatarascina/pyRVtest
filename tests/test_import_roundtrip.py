@@ -103,11 +103,13 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.backends.labor', ['LaborSupplyBackend']),
     ('pyRVtest.backends.labor.nested_logit_labor', ['LaborSupplyBackend']),
     # v0.4 step 5a: populated __all__ (was empty in step 1 skeleton).
+    # v0.4 step 12: Dearing et al. (2026) simple-markup models appended.
     # v0.4 step 14a: labor-side conduct models appended.
     ('pyRVtest.models', [
         'ConductModel', 'Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition',
         'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel',
         'Vertical',
+        'RuleOfThumb', 'Keystone', 'ConstantMarkup',
         'Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining',
     ]),
     ('pyRVtest.models.base', ['ConductModel']),  # v0.4 step 5a
@@ -115,7 +117,8 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.models.vertical', ['Vertical']),
     ('pyRVtest.models.mixed', ['MixCournotBertrand']),
     ('pyRVtest.models.collusion', ['PartialCollusion']),
-    ('pyRVtest.models.constant', []),  # step 12
+    # v0.4 step 12: Dearing et al. (2026) simple-markup models.
+    ('pyRVtest.models.constant', ['ConstantMarkup', 'Keystone', 'RuleOfThumb']),
     # v0.4 step 14a: labor conduct models populated.
     ('pyRVtest.models.labor', [
         'Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining',

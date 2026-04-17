@@ -105,7 +105,8 @@ def build_markups(
     return _compute_markups(
         product_data, pyblp_results, models["models_downstream"], models["ownership_downstream"],
         models["models_upstream"], models["ownership_upstream"], models["vertical_integration"],
-        models["custom_model_specification"], models["user_supplied_markups"], models["mix_flag"]
+        models["custom_model_specification"], models["user_supplied_markups"], models["mix_flag"],
+        constant_markup=models["constant_markup"],
     )
 
 
@@ -125,7 +126,8 @@ def _compute_markups(
         ownership_downstream: Optional[Array], model_upstream: Optional[Array] = None,
         ownership_upstream: Optional[Array] = None, vertical_integration: Optional[Array] = None,
         custom_model_specification: Optional[dict] = None, user_supplied_markups: Optional[Array] = None,
-        mix_flag: Optional[Array] = None, demand_backend: Optional[object] = None) -> Array:
+        mix_flag: Optional[Array] = None, demand_backend: Optional[object] = None,
+        constant_markup: Optional[Array] = None) -> Array:
     r"""Compute markups given pre-processed model arrays.
 
     Internal function called by :func:`build_markups` and :meth:`Problem.solve`. Accepts the raw arrays produced by
@@ -196,6 +198,8 @@ def _compute_markups(
         vertical_integration = [None] * number_models
     if mix_flag is None:
         mix_flag = [None] * number_models
+    if constant_markup is None:
+        constant_markup = [None] * number_models
 
     # v0.4 step 4g: demand Jacobian comes from the backend when provided,
     # or from pyblp_results for the legacy no-backend path (used only by
@@ -228,7 +232,7 @@ def _compute_markups(
                 markups_downstream[i], retailer_ownership_matrix = evaluate_first_order_conditions(
                     index_t, model_downstream[i], ownership_downstream[i], retailer_response_matrix, shares_t,
                     markups_downstream[i], custom_model_specification[i], markup_type='downstream',
-                    type_mix_flag=mix_flag[i])
+                    type_mix_flag=mix_flag[i], constant_markup=constant_markup[i])
 
                 # compute upstream markups (if applicable) following formula in Villas-Boas (2007)
                 if not (model_upstream[i] is None):
@@ -319,7 +323,7 @@ def construct_passthrough_matrix(
 
 def evaluate_first_order_conditions(
         index, model_type, type_ownership_matrix, response_matrix, shares, markups, custom_model_specification,
-        markup_type, type_mix_flag=None):
+        markup_type, type_mix_flag=None, constant_markup=None):
     """Compute markups for some standard models including Bertrand, Cournot, monopoly, and perfect competition using
     the first order conditions corresponding to each model. Allow user to pass in their own markup function as well.
 
@@ -359,6 +363,21 @@ def evaluate_first_order_conditions(
             markups[index, :] = -np.linalg.solve(response_matrix, shares)
         elif model_type == 'perfect_competition':
             markups[index, :] = np.zeros((len(shares), 1))
+        elif model_type == 'constant_markup':
+            # v0.4 step 12: Dearing et al. (2026) Example 7. The markup
+            # is a model primitive (per-product dollar markup), supplied
+            # as a scalar or as a column of product_data and broadcast
+            # into a per-row (N, 1) array upstream of this call.
+            if constant_markup is None:
+                raise ValueError(
+                    "Expected constant_markup to be supplied when "
+                    "model_type='constant_markup'. "
+                    "Received constant_markup=None. "
+                    "Fix: this is an internal wiring bug — the ConstantMarkup "
+                    "instance should have populated the Models recarray with "
+                    "a non-None entry."
+                )
+            markups[index, :] = constant_markup[index]
         elif model_type == 'mix_cournot_bertrand':
             markups[index, :] = _compute_mix_cournot_bertrand_markups(
                 ownership_matrix, response_matrix, mix_flag, shares

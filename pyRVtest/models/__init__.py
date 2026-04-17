@@ -28,9 +28,10 @@ Step 5b wires ``Problem(models=[...])`` into the pipeline; step 5c
 preserves ``ModelFormulation(model_downstream='bertrand', ...)`` as a
 deprecation alias that constructs the right class internally.
 
-Step 12 will add ``ConstantMarkup``, ``RuleOfThumb``, and ``CostPlus``
-once the Dearing notation question is resolved. Step 14 will add the
-labor-side models (``Monopsony``, ``BertrandWages``,
+Step 12 adds Dearing et al. (2026) simple-markup models:
+``RuleOfThumb(phi)``, ``Keystone()`` (``phi=2`` shorthand), and
+``ConstantMarkup(markup)`` in ``pyRVtest.models.constant``. Step 14
+adds the labor-side models (``Monopsony``, ``BertrandWages``,
 ``CournotEmployment``, ``NashBargaining``).
 
 See ``.claude/plans/v0.4-refactor.md`` §4.2 for the full API design.
@@ -46,6 +47,7 @@ True
 
 from .base import ConductModel
 from .collusion import PartialCollusion
+from .constant import ConstantMarkup, Keystone, RuleOfThumb
 from .custom import CustomConductModel
 from .labor import BertrandWages, CournotEmployment, Monopsony, NashBargaining
 from .mixed import MixCournotBertrand
@@ -80,6 +82,10 @@ __all__ = [
     'PartialCollusion',
     'CustomConductModel',
     'Vertical',
+    # v0.4 step 12: Dearing et al. (2026) simple-markup models.
+    'RuleOfThumb',
+    'Keystone',
+    'ConstantMarkup',
     # v0.4 step 14a: labor-side conduct models.
     'Monopsony',
     'BertrandWages',

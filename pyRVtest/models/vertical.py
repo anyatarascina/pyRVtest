@@ -33,7 +33,7 @@ path) and will be exposed as ``pyRVtest.build_passthrough`` in step 11.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Union
+from typing import Optional, Union
 
 from .base import ConductModel
 
@@ -88,7 +88,7 @@ class Vertical:
             unit_tax: Optional[str] = None,
             advalorem_tax: Optional[str] = None,
             advalorem_payer: Optional[str] = None,
-            cost_scaling: Optional[str] = None,
+            cost_scaling: Optional[Union[str, float, int]] = None,
             user_supplied_markups: Optional[str] = None,
     ) -> None:
         if not isinstance(downstream, ConductModel):
@@ -135,6 +135,22 @@ class Vertical:
         self._validate_shared_config()
 
     def _validate_shared_config(self) -> None:
+        if isinstance(self.cost_scaling, bool):
+            raise TypeError(
+                f"Expected cost_scaling on Vertical(...) to be a column-name "
+                f"string or a numeric scalar. "
+                f"Received bool ({self.cost_scaling!r}). "
+                f"Fix: pass a numeric scalar (e.g. 0.5) or a column name."
+            )
+        if self.cost_scaling is not None and not isinstance(
+                self.cost_scaling, (str, float, int)):
+            raise TypeError(
+                f"Expected cost_scaling on Vertical(...) to be a column-name "
+                f"string, a numeric scalar, or None. "
+                f"Received {type(self.cost_scaling).__name__}. "
+                f"Fix: pass a column name like cost_scaling='lambda_col' or a "
+                f"scalar like cost_scaling=0.5."
+            )
         if self.advalorem_tax is not None and self.advalorem_payer is None:
             raise TypeError(
                 "Expected advalorem_payer to be 'firm' or 'consumer' when "

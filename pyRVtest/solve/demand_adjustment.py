@@ -227,8 +227,10 @@ def compute_demand_adjustment(
     for m in range(M):
         if models_upstream[m] is not None or custom_spec[m] is not None:
             finite_diff_models.append(m)
-        elif models_downstream[m] in ('perfect_competition',):
-            # Markup is structurally zero; gradient is zero. Skip.
+        elif models_downstream[m] in ('perfect_competition', 'constant_markup'):
+            # Markup is either structurally zero (perfect_competition) or a
+            # demand-parameter-free constant (constant_markup, Dearing 2026
+            # Example 7); gradient w.r.t. theta is zero. Skip.
             pass
         else:
             analytical_models.append(m)
@@ -382,7 +384,7 @@ def _analytical_markup_derivative(
         d_mu[b_t] = d_mu_B.flatten()
         d_mu[c_t] = d_mu_C.flatten()
         return d_mu
-    # Perfect competition or unknown model type: zero gradient.
+    # Perfect competition, constant-markup, or unknown model type: zero gradient.
     return np.zeros(J_t)
 
 
@@ -406,6 +408,7 @@ def _perturb_and_rebuild_markups(
             problem.models["user_supplied_markups"],
             problem.models["mix_flag"],
             demand_backend=perturbed_backend,
+            constant_markup=problem.models["constant_markup"],
         )
         return result
 

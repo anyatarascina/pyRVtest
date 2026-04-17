@@ -397,6 +397,10 @@ class Models(object):
         The cost scaling parameter.
     cost_scaling_column: `str, optional`
         The name of the column containing the cost scaling parameter.
+    constant_markup: `ndarray, optional`
+        Per-product dollar markup :math:`\\zeta_j` for models that specify a
+        fixed additive markup (Dearing et al. 2026, Example 7). ``None`` for
+        models that compute markups from first-order conditions.
     custom_model: `dict, optional`
         A custom formula used to compute markups, optionally specified by the user.
     user_supplied_markups: `ndarray, optional`
@@ -428,6 +432,7 @@ class Models(object):
     advalorem_payer: Array
     cost_scaling: Array
     cost_scaling_column: Array
+    constant_markup: Array
     user_supplied_markups: Array
     user_supplied_markups_name: Array
 
@@ -501,6 +506,7 @@ class Models(object):
         advalorem_payer = [None] * M
         cost_scaling = [None] * M
         cost_scaling_column = [None] * M
+        constant_markup = [None] * M
         user_supplied_markups = [None] * M
         user_supplied_markups_name = [None] * M
         mix_flag = [None] * M
@@ -547,13 +553,44 @@ class Models(object):
             else:
                 advalorem_tax[m] = np.zeros((N, 1))
             if config.cost_scaling is not None:
-                cost_scaling_column[m] = config.cost_scaling
-                cost_scaling[m] = extract_matrix(product_data, config.cost_scaling)
+                # v0.4 step 12: cost_scaling accepts either a column name (str)
+                # or a numeric scalar (float/int, broadcast to every row). The
+                # scalar form is what powers the ergonomic RuleOfThumb(phi) /
+                # Keystone() wrappers in pyRVtest.models.constant.
+                if isinstance(config.cost_scaling, str):
+                    cost_scaling_column[m] = config.cost_scaling
+                    cost_scaling[m] = extract_matrix(product_data, config.cost_scaling)
+                else:
+                    cost_scaling_column[m] = None
+                    cost_scaling[m] = np.full((N, 1), float(config.cost_scaling))
             else:
                 cost_scaling[m] = np.zeros((N, 1))
             if config.user_supplied_markups is not None:
                 user_supplied_markups[m] = extract_matrix(product_data, config.user_supplied_markups)
                 user_supplied_markups_name[m] = config.user_supplied_markups
+
+            # v0.4 step 12: ConstantMarkup threads its per-row markup vector
+            # through the Models recarray as a new field. Either a scalar
+            # (broadcast to every row) or a column in product_data.
+            from .models.constant import ConstantMarkup as _ConstantMarkup
+            if isinstance(down_conduct, _ConstantMarkup):
+                markup_spec = down_conduct.markup
+                if isinstance(markup_spec, str):
+                    extracted = extract_matrix(product_data, markup_spec)
+                    if extracted is None:
+                        raise ValidationError(
+                            f"Expected product_data to contain the column "
+                            f"{markup_spec!r} referenced by "
+                            f"ConstantMarkup(markup={markup_spec!r}). "
+                            f"Received product_data without that key. "
+                            f"Fix: add the column, or switch to a scalar "
+                            f"markup."
+                        )
+                    constant_markup[m] = np.asarray(extracted, dtype=options.dtype).reshape(-1, 1)
+                else:
+                    constant_markup[m] = np.full(
+                        (N, 1), float(markup_spec), dtype=options.dtype,
+                    )
 
         # structure product fields as a mapping
         models_mapping: Dict[Union[str, tuple], Optional[Array]] = {}
@@ -573,6 +610,7 @@ class Models(object):
             'advalorem_payer': advalorem_payer,
             'cost_scaling_column': cost_scaling_column,
             'cost_scaling': cost_scaling,
+            'constant_markup': constant_markup,
             'custom_model_specification': custom_model,
             'user_supplied_markups': user_supplied_markups,
             'user_supplied_markups_name': user_supplied_markups_name,

@@ -68,7 +68,7 @@ The directory layout is::
     │   ├── collusion.py     # PartialCollusion
     │   ├── custom.py        # CustomConductModel
     │   ├── vertical.py      # Vertical composer
-    │   ├── constant.py      # Placeholder (step 12)
+    │   ├── constant.py      # RuleOfThumb, Keystone, ConstantMarkup (step 12)
     │   ├── labor.py         # Monopsony, BertrandWages, CournotEmployment, NashBargaining (step 14a)
     │   └── _adapter.py      # Legacy ModelFormulation bridge
     ├── solve/               # Per-phase pipeline stages
@@ -157,6 +157,55 @@ Concrete classes:
   upstream :class:`ConductModel` into a bilateral oligopoly. Carries
   the shared config (``vertical_integration``, taxes) at the wrapper
   level; inner conducts carry only their own ownership / kappa / mix.
+
+Dearing simple-markup models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026), "Learning
+Firm Conduct: Pass-Through as a Foundation for Instrument Relevance,"
+motivate two families of simple-markup models that live alongside the
+mechanical conduct classes.
+
+* :class:`pyRVtest.RuleOfThumb` — price is a fixed multiple
+  :math:`\varphi \geq 1` of marginal cost (Dearing Example 1, pp. 7-8),
+  :math:`p = \varphi \cdot mc`, equivalently :math:`\Delta =
+  (\varphi - 1) / \varphi \cdot p`. Implemented as an ergonomic wrapper
+  over the existing ``cost_scaling`` machinery (extended in v0.4 to
+  accept a numeric scalar): ``RuleOfThumb(phi=2.0)`` internally sets
+  ``cost_scaling = 1.0`` and delegates to the perfect-competition
+  markup FOC so that the ``cost_scaling`` post-processing in
+  ``Problem.solve`` yields the Dearing math.
+
+* :class:`pyRVtest.Keystone` — the ``phi = 2`` special case (50% markup
+  over cost, equivalently 50% of price). A one-line subclass of
+  :class:`RuleOfThumb`.
+
+* :class:`pyRVtest.ConstantMarkup` — fixed per-product dollar markup
+  :math:`\Delta_{jt} = \zeta_j` (Dearing Example 7, pp. 23-24). The
+  markup is a model primitive, not an FOC output; pass either a scalar
+  (same dollar markup for every product) or a column name in
+  ``product_data`` for per-product values. Routed through a new
+  ``'constant_markup'`` branch in
+  :func:`pyRVtest.markups.evaluate_first_order_conditions`.
+
+Quick examples::
+
+    pyRVtest.Problem(
+        ...,
+        models=[
+            pyRVtest.Bertrand(ownership='firm_ids'),
+            pyRVtest.RuleOfThumb(phi=2.0),          # Dearing Example 1
+            pyRVtest.Keystone(),                    # phi=2 shorthand
+            pyRVtest.ConstantMarkup(markup=0.5),    # scalar dollar markup
+            pyRVtest.ConstantMarkup(markup='eta'),  # per-product dollar markup
+        ],
+    )
+
+Backward compatibility: the v0.3 pattern
+``PerfectCompetition(cost_scaling='lmbda_col')`` for per-product rule-of-thumb
+markups continues to work unchanged; ``RuleOfThumb(phi=...)`` is the
+ergonomic shorthand for the common case where :math:`\varphi` is the same
+across all products.
 
 A typical v0.4 problem setup::
 

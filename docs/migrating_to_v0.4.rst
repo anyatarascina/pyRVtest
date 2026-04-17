@@ -231,6 +231,13 @@ Tax kwargs (``unit_tax``, ``advalorem_tax``, ``advalorem_payer``,
 conduct they live on the conduct class; for vertical they live on the
 ``Vertical`` wrapper.
 
+v0.4 extends ``cost_scaling`` to accept either a column name in
+``product_data`` (the v0.3 behavior, unchanged) **or** a numeric scalar
+(new in v0.4 step 12) broadcast uniformly to every product. The scalar
+form is the foundation of the ergonomic
+:class:`~pyRVtest.RuleOfThumb` / :class:`~pyRVtest.Keystone` wrappers
+described below.
+
 **Before:**
 
 .. code-block:: python
@@ -253,6 +260,45 @@ conduct they live on the conduct class; for vertical they live on the
         advalorem_payer='firm',
         cost_scaling='scale_col',
     )
+
+Dearing simple-markup models (RuleOfThumb, Keystone, ConstantMarkup)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+v0.4 step 12 adds three simple-markup models from Dearing, Magnolfi, Quint,
+Sullivan, and Waldfogel (2026):
+
+* :class:`~pyRVtest.RuleOfThumb` / :class:`~pyRVtest.Keystone` —
+  Example 1: price is a fixed multiple :math:`\varphi \geq 1` of
+  marginal cost, :math:`p = \varphi \cdot mc`. ``Keystone()`` is the
+  ``phi = 2`` shorthand. Implemented as an ergonomic wrapper over the
+  existing ``cost_scaling`` machinery (now extended to accept a scalar).
+
+* :class:`~pyRVtest.ConstantMarkup` — Example 7: fixed per-product
+  dollar markup :math:`\Delta_{jt} = \zeta_j`. Supply as a scalar
+  (identical across products) or as a column name.
+
+The v0.3 pattern of ``PerfectCompetition(cost_scaling='lmbda_col')`` for
+per-product rule-of-thumb markups continues to work unchanged.
+``RuleOfThumb(phi=...)`` is the v0.4 shorthand for the common case
+where :math:`\varphi` is the same across all products:
+
+**v0.3:**
+
+.. code-block:: python
+
+    # per-product lambda via a column of ones would give you phi=2 uniformly
+    product_data['lmbda_col'] = 1.0
+    pyRVtest.ModelFormulation(
+        model_downstream='perfect_competition',
+        cost_scaling='lmbda_col',
+    )
+
+**v0.4:**
+
+.. code-block:: python
+
+    pyRVtest.RuleOfThumb(phi=2.0)        # or Keystone()
+    pyRVtest.ConstantMarkup(markup=0.5)  # fixed $0.50 markup for every product
 
 User-supplied markups
 ^^^^^^^^^^^^^^^^^^^^^

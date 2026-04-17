@@ -61,8 +61,19 @@ class ConductModel:
         Tax column and payer specification (per-unit taxes and/or
         ad-valorem taxes). See Problem.solve for how taxes enter the
         effective markup.
-    cost_scaling : str, optional
-        Column name for the per-product cost-scaling factor.
+    cost_scaling : str, float, int, optional
+        Per-product cost-scaling factor :math:`\\lambda`. The effective
+        markup becomes ``tax_adj / (1 + lambda) * markup`` and the
+        effective price becomes ``tax_adj * price / (1 + lambda) - unit_tax``.
+
+        Accepts either a column name (``str``) pointing to a per-product
+        column in ``product_data``, or a numeric scalar (``float``/``int``)
+        applied uniformly to every row. The scalar form is the mechanism
+        behind the ergonomic :class:`RuleOfThumb` / :class:`Keystone`
+        wrappers in ``pyRVtest.models.constant`` (Dearing et al. 2026,
+        Example 1): ``RuleOfThumb(phi=2.0)`` internally sets
+        ``cost_scaling=1.0`` so that the implied marginal cost is
+        ``p / (1 + 1) = p / 2``.
     vertical_integration : str, optional
         Column name indicating which products are vertically integrated
         (store brands, etc.). Only meaningful on the outer (combined)
@@ -93,7 +104,7 @@ class ConductModel:
             unit_tax: Optional[str] = None,
             advalorem_tax: Optional[str] = None,
             advalorem_payer: Optional[str] = None,
-            cost_scaling: Optional[str] = None,
+            cost_scaling: Optional[Union[str, float, int]] = None,
             vertical_integration: Optional[str] = None,
             mix_flag: Optional[str] = None,
     ) -> None:
@@ -103,13 +114,30 @@ class ConductModel:
         self.unit_tax = unit_tax
         self.advalorem_tax = advalorem_tax
         self.advalorem_payer = advalorem_payer
-        self.cost_scaling = cost_scaling
+        self.cost_scaling: Optional[Union[str, float, int]] = cost_scaling
         self.vertical_integration = vertical_integration
         self.mix_flag = mix_flag
         self._validate_shared_config()
 
     def _validate_shared_config(self) -> None:
         """Shared validation applicable to all subclasses."""
+        if self.cost_scaling is not None and not isinstance(
+                self.cost_scaling, (str, float, int)):
+            raise TypeError(
+                f"Expected cost_scaling to be a column-name string, a "
+                f"numeric scalar, or None. "
+                f"Received {type(self.cost_scaling).__name__}. "
+                f"Fix: pass a column name like cost_scaling='lambda_col', a "
+                f"scalar like cost_scaling=0.5, or drop the argument."
+            )
+        # Reject boolean explicitly: isinstance(True, int) is True.
+        if isinstance(self.cost_scaling, bool):
+            raise TypeError(
+                f"Expected cost_scaling to be a column-name string or a "
+                f"numeric scalar. "
+                f"Received bool ({self.cost_scaling!r}). "
+                f"Fix: pass a numeric scalar (e.g. 0.5) or a column name."
+            )
         if self.advalorem_tax is not None and self.advalorem_payer is None:
             raise TypeError(
                 "Expected advalorem_payer to be 'firm' or 'consumer' when "

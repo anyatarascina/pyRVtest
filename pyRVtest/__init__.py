@@ -28,9 +28,9 @@ from .markups import (
 # v0.4 step 5a: class-based ConductModel API re-exported at the package level.
 # v0.4 step 14a: labor-side models added next to their product-side siblings.
 from .models import (
-    Bertrand, BertrandWages, ConductModel, Cournot, CournotEmployment,
-    CustomConductModel, MixCournotBertrand, Monopoly, Monopsony, NashBargaining,
-    PartialCollusion, PerfectCompetition, Vertical,
+    Bertrand, BertrandWages, ConductModel, ConstantMarkup, Cournot, CournotEmployment,
+    CustomConductModel, Keystone, MixCournotBertrand, Monopoly, Monopsony, NashBargaining,
+    PartialCollusion, PerfectCompetition, RuleOfThumb, Vertical,
 )
 from .problem import Problem, Models
 from .products import Products
@@ -51,6 +51,8 @@ __all__ = [
     # v0.4 step 5a: class-based ConductModel API.
     'ConductModel', 'Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition',
     'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel', 'Vertical',
+    # v0.4 step 12: Dearing et al. (2026) simple-markup models.
+    'RuleOfThumb', 'Keystone', 'ConstantMarkup',
     # v0.4 step 14a: labor-side conduct models.
     'Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining',
     # v0.4 step 11: public build_passthrough helper.
