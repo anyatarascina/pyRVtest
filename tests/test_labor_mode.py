@@ -442,3 +442,248 @@ class TestLaborSupplyBackendSkeleton:
         from pyRVtest.backends import DemandBackend
         b = LaborSupplyBackend(alpha=1.2)
         assert isinstance(b, DemandBackend)
+
+
+# ---------------------------------------------------------------------------
+# CustomConductModel side='labor' opt-in (post-step-14 correctness fix).
+#
+# Rationale: unlike PerfectCompetition (zero markup == zero markdown,
+# genuinely side-neutral), a user-supplied markup_fn implicitly picks a
+# sign convention. Silently accepting a CustomConductModel on either
+# side lets a product-side formula leak into a labor-mode Problem
+# without noticing. The explicit side='labor' opt-in surfaces that
+# choice at Problem.__init__ time.
+# ---------------------------------------------------------------------------
+
+
+class TestCustomConductModelSideOptIn:
+    def test_custom_with_side_labor_accepted_in_labor_mode(self):
+        """CustomConductModel(side='labor') works under market_side='labor'."""
+        df = _build_labor_product_data()
+        # A trivial markdown formula; not used here because the conduct
+        # model carries user_supplied_markups, but required by the API.
+        markdown_fn = lambda O, D, s: 0.1 * np.ones((len(s), 1))  # noqa: E731
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+            instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+            product_data=df,
+            models=[
+                pyRVtest.Monopsony(user_supplied_markups='markdown_m1'),
+                pyRVtest.CustomConductModel(
+                    markup_fn=markdown_fn,
+                    user_supplied_markups='markdown_m2',
+                    side='labor',
+                ),
+            ],
+            market_side='labor',
+        )
+        assert problem._market_side == 'labor'
+
+    def test_custom_without_side_rejected_in_labor_mode(self):
+        """CustomConductModel() (side=None) raises under market_side='labor'."""
+        df = _build_labor_product_data()
+        markdown_fn = lambda O, D, s: 0.1 * np.ones((len(s), 1))  # noqa: E731
+        with pytest.raises(ValidationError) as excinfo:
+            pyRVtest.Problem(
+                cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+                instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+                product_data=df,
+                models=[
+                    pyRVtest.Monopsony(user_supplied_markups='markdown_m1'),
+                    pyRVtest.CustomConductModel(
+                        markup_fn=markdown_fn,
+                        user_supplied_markups='markdown_m2',
+                    ),
+                ],
+                market_side='labor',
+            )
+        msg = str(excinfo.value)
+        assert 'Expected' in msg
+        assert 'Received' in msg
+        assert 'Fix' in msg
+        assert "side='labor'" in msg
+        assert 'CustomConductModel' in msg
+
+    def test_custom_with_side_product_rejected_in_labor_mode(self):
+        """CustomConductModel(side='product') also rejected under labor mode."""
+        df = _build_labor_product_data()
+        markdown_fn = lambda O, D, s: 0.1 * np.ones((len(s), 1))  # noqa: E731
+        with pytest.raises(ValidationError, match=r"side='labor'"):
+            pyRVtest.Problem(
+                cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+                instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+                product_data=df,
+                models=[
+                    pyRVtest.Monopsony(user_supplied_markups='markdown_m1'),
+                    pyRVtest.CustomConductModel(
+                        markup_fn=markdown_fn,
+                        user_supplied_markups='markdown_m2',
+                        side='product',
+                    ),
+                ],
+                market_side='labor',
+            )
+
+    def test_custom_with_side_labor_rejected_in_product_mode(self):
+        """CustomConductModel(side='labor') rejected under market_side='product'."""
+        # Build a product-side DGP (prices/shares named canonically).
+        rng = np.random.default_rng(seed=54321)
+        T = 30
+        N = 2 * T
+        df = pd.DataFrame({
+            'market_ids': np.repeat(np.arange(T), 2),
+            'firm_ids': np.tile([0, 1], T),
+            'prices': 1.0 + rng.uniform(0.1, 1.5, size=N),
+            'shares': rng.uniform(0.1, 0.4, size=N),
+            'markup_m1': 0.1 * np.ones(N),
+            'markup_m2': np.zeros(N),
+            'cost_shifter': rng.standard_normal(N),
+            'iv0': rng.standard_normal(N),
+            'iv1': rng.standard_normal(N),
+            'iv2': rng.standard_normal(N),
+        })
+        markup_fn = lambda O, D, s: 0.1 * np.ones((len(s), 1))  # noqa: E731
+        with pytest.raises(ValidationError) as excinfo:
+            pyRVtest.Problem(
+                cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+                instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+                product_data=df,
+                models=[
+                    pyRVtest.Bertrand(
+                        ownership='firm_ids', user_supplied_markups='markup_m1',
+                    ),
+                    pyRVtest.CustomConductModel(
+                        markup_fn=markup_fn,
+                        user_supplied_markups='markup_m2',
+                        side='labor',
+                    ),
+                ],
+            )
+        msg = str(excinfo.value)
+        assert 'Expected' in msg
+        assert 'Received' in msg
+        assert 'Fix' in msg
+        assert "side='labor'" in msg
+
+    def test_custom_with_side_product_accepted_in_product_mode(self):
+        """Explicit side='product' is accepted (equivalent to the default)."""
+        rng = np.random.default_rng(seed=11111)
+        T = 30
+        N = 2 * T
+        df = pd.DataFrame({
+            'market_ids': np.repeat(np.arange(T), 2),
+            'firm_ids': np.tile([0, 1], T),
+            'prices': 1.0 + rng.uniform(0.1, 1.5, size=N),
+            'shares': rng.uniform(0.1, 0.4, size=N),
+            'markup_m1': 0.1 * np.ones(N),
+            'cost_shifter': rng.standard_normal(N),
+            'iv0': rng.standard_normal(N),
+            'iv1': rng.standard_normal(N),
+            'iv2': rng.standard_normal(N),
+        })
+        markup_fn = lambda O, D, s: 0.1 * np.ones((len(s), 1))  # noqa: E731
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+            instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+            product_data=df,
+            models=[
+                pyRVtest.CustomConductModel(
+                    markup_fn=markup_fn,
+                    user_supplied_markups='markup_m1',
+                    side='product',
+                ),
+            ],
+        )
+        assert problem._market_side == 'product'
+
+    def test_custom_invalid_side_raises_at_construction(self):
+        """Invalid side=... raises ValidationError at CustomConductModel init."""
+        markup_fn = lambda O, D, s: np.zeros((len(s), 1))  # noqa: E731
+        with pytest.raises(ValidationError) as excinfo:
+            pyRVtest.CustomConductModel(markup_fn=markup_fn, side='invalid')
+        msg = str(excinfo.value)
+        assert 'Expected' in msg
+        assert 'Received' in msg
+        assert 'Fix' in msg
+        assert "'invalid'" in msg
+
+    def test_custom_side_attribute_stored(self):
+        """The side kwarg is exposed as an instance attribute for introspection."""
+        markup_fn = lambda O, D, s: np.zeros((len(s), 1))  # noqa: E731
+        m_default = pyRVtest.CustomConductModel(markup_fn=markup_fn)
+        m_labor = pyRVtest.CustomConductModel(markup_fn=markup_fn, side='labor')
+        m_product = pyRVtest.CustomConductModel(markup_fn=markup_fn, side='product')
+        assert m_default.side is None
+        assert m_labor.side == 'labor'
+        assert m_product.side == 'product'
+
+    def test_custom_repr_includes_side_when_set(self):
+        """__repr__ surfaces side='labor' so logs show the opt-in."""
+        markup_fn = lambda O, D, s: np.zeros((len(s), 1))  # noqa: E731
+        m_labor = pyRVtest.CustomConductModel(markup_fn=markup_fn, side='labor')
+        m_default = pyRVtest.CustomConductModel(markup_fn=markup_fn)
+        assert "side='labor'" in repr(m_labor)
+        # Default (None) should not clutter the repr.
+        assert 'side=' not in repr(m_default)
+
+
+class TestPerfectCompetitionSideNeutralRegression:
+    """Regression pin: PerfectCompetition accepts both sides without a side kwarg.
+
+    Zero markup and zero markdown are the same object, so no sign
+    convention is implied. This pin prevents a future refactor from
+    accidentally requiring a ``side`` opt-in on ``PerfectCompetition``.
+    """
+
+    def test_perfect_competition_has_no_side_kwarg(self):
+        """PerfectCompetition() takes no side kwarg (stays side-neutral)."""
+        # Constructs cleanly with no arguments.
+        pyRVtest.PerfectCompetition()
+        # Passing side= is a TypeError (unknown kwarg), not accepted silently.
+        with pytest.raises(TypeError):
+            pyRVtest.PerfectCompetition(side='labor')  # type: ignore[call-arg]
+
+    def test_perfect_competition_accepted_in_product_mode(self):
+        """PerfectCompetition works on the default product-side Problem."""
+        rng = np.random.default_rng(seed=22222)
+        T = 30
+        N = 2 * T
+        df = pd.DataFrame({
+            'market_ids': np.repeat(np.arange(T), 2),
+            'firm_ids': np.tile([0, 1], T),
+            'prices': 1.0 + rng.uniform(0.1, 1.5, size=N),
+            'shares': rng.uniform(0.1, 0.4, size=N),
+            'markup_m1': 0.1 * np.ones(N),
+            'markup_m2': np.zeros(N),
+            'cost_shifter': rng.standard_normal(N),
+            'iv0': rng.standard_normal(N),
+            'iv1': rng.standard_normal(N),
+            'iv2': rng.standard_normal(N),
+        })
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+            instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+            product_data=df,
+            models=[
+                pyRVtest.Bertrand(
+                    ownership='firm_ids', user_supplied_markups='markup_m1',
+                ),
+                pyRVtest.PerfectCompetition(user_supplied_markups='markup_m2'),
+            ],
+        )
+        assert problem._market_side == 'product'
+
+    def test_perfect_competition_accepted_in_labor_mode(self):
+        """PerfectCompetition works on a labor-side Problem without opt-in."""
+        df = _build_labor_product_data()
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+            instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+            product_data=df,
+            models=[
+                pyRVtest.Monopsony(user_supplied_markups='markdown_m1'),
+                pyRVtest.PerfectCompetition(user_supplied_markups='markdown_m2'),
+            ],
+            market_side='labor',
+        )
+        assert problem._market_side == 'labor'

@@ -196,8 +196,16 @@ v0.4 modulo one-line deprecation warnings.
   employment with rich error messages. `ProblemResults.__str__` swaps
   the header banner under labor mode ("markdown / MRP / wage" instead
   of "markup / MC / price"). Labor-side models cannot be mixed with
-  product-side models; `PerfectCompetition` and `CustomConductModel`
-  are side-neutral. 28 new tests in `tests/test_labor_mode.py`.
+  product-side models; `PerfectCompetition` stays side-neutral.
+  `CustomConductModel` now requires an explicit `side='labor'` opt-in
+  when used under labor mode (and rejects `side='labor'` under the
+  default product mode) because the user-supplied `markup_fn`
+  implicitly picks a sign convention and silent acceptance on either
+  side would let a product-side formula leak into a labor problem
+  unnoticed. The symmetric cross-side validator also now rejects
+  labor-side conduct classes (Monopsony, BertrandWages, etc.) under the
+  default `market_side='product'`. 39 tests in
+  `tests/test_labor_mode.py`.
 - **`Problem.solve` split into staged pipeline** (step 8). The ~200-line
   monolithic `solve()` method is now a thin orchestrator that calls
   staged modules under `pyRVtest/solve/`: `markups.compute`,
