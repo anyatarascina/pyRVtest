@@ -125,12 +125,18 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
         'hausman', 'bartik', 'concentration_hhi',
     ]),
     ('pyRVtest.solve', []),
-    ('pyRVtest.solve.markups', []),
+    # v0.4 step 8b: markups stage populated.
+    ('pyRVtest.solve.markups', ['compute']),
     ('pyRVtest.solve.passthrough', ['build_passthrough']),  # v0.4 step 11
-    ('pyRVtest.solve.orthogonalize', []),
-    ('pyRVtest.solve.endogenous_cost', []),
+    # v0.4 step 8a: orthogonalize stage populated.
+    ('pyRVtest.solve.orthogonalize', ['qr_residualize', 'residualize']),
+    # v0.4 step 8c: endogenous-cost stage populated.
+    ('pyRVtest.solve.endogenous_cost', ['iv_correct']),
     ('pyRVtest.solve.demand_adjustment', ['_residualize_on_xd', 'compute_demand_adjustment']),  # v0.4 4b + 4d
-    ('pyRVtest.solve.test_engine', []),
+    # v0.4 step 8d: test-engine stage populated.
+    ('pyRVtest.solve.test_engine', [
+        'compute_block_gram', 'compute_instrument_results', 'compute_mcs', 'extract_block',
+    ]),
     # Added in v0.4 step 2: Products extracted to its own module.
     ('pyRVtest.products', ['Products']),
     # v0.4 step 19: custom exception hierarchy.

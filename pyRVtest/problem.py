@@ -819,8 +819,20 @@ class Problem(Container, StringRepresentation):
         >>> results = problem.solve(demand_adjustment=False)  # doctest: +SKIP
         """
 
+        # v0.4 step 8e: this method is an orchestrator. Each stage lives in
+        # ``pyRVtest/solve/*.py``:
+        #   1. ``solve.markups.compute``        -> per-model markups via the demand backend
+        #   2. (inline)                         -> tax-adjustment + log / mc_correction bookkeeping
+        #   3. ``solve.endogenous_cost.iv_correct`` + ``solve.orthogonalize.residualize``
+        #                                         -> 2SLS IV correction + FWL residualization
+        #   4. ``solve.demand_adjustment.compute_demand_adjustment``
+        #                                         -> first-stage demand-side correction
+        #   5. ``solve.test_engine.compute_instrument_results``
+        #                                         -> RV / F / MCS per instrument set
         logger.info("Solving the problem ...")
         step_start_time = time.time()
+
+        self._validate_solve_args(demand_adjustment, clustering_adjustment)
 
         M = self.M
         N = self.N
@@ -828,20 +840,22 @@ class Problem(Container, StringRepresentation):
         markups = self.markups
         critical_values_power, critical_values_size = read_critical_values_tables()
 
-        self._validate_solve_args(demand_adjustment, clustering_adjustment)
-
+        # -----------------------------------------------------------------
+        # Stage 1: build markups via the demand backend.
+        # -----------------------------------------------------------------
         markups_upstream = np.zeros(M, dtype=options.dtype)
         markups_downstream = np.zeros(M, dtype=options.dtype)
+        if markups[0] is None:
+            logger.info('Computing Markups ...')
+            markups, markups_downstream, markups_upstream = _markups_stage(self)
+
+        # -----------------------------------------------------------------
+        # Stage 2: apply taxes, cost scaling, log-costs, user mc_correction.
+        # -----------------------------------------------------------------
         advalorem_tax_adj = [None] * M
         prices_effective = [None] * M
         markups_effective = [None] * M
-
-        if markups[0] is None:
-            logger.info('Computing Markups ...')
-            markups, markups_downstream, markups_upstream = self._perturb_and_build_markups()
-
         marginal_cost = self.products.prices - markups
-
         unit_tax = self.models["unit_tax"]
         advalorem_tax = self.models["advalorem_tax"]
         cost_scaling = self.models["cost_scaling"]
@@ -875,8 +889,13 @@ class Problem(Container, StringRepresentation):
                 )
             marginal_cost = marginal_cost + mc_correction
 
+        # -----------------------------------------------------------------
+        # Stage 3: endogenous-cost IV correction + orthogonalize.
+        # When ``endogenous_cost_component`` is set, one IV correction per
+        # instrument set; without it, a single orthogonalization is shared
+        # across all instrument sets.
+        # -----------------------------------------------------------------
         cost_param = None
-
         if self.endogenous_cost_component is not None:
             logger.info('Computing IV correction for endogenous cost component ...')
             marginal_cost_base = marginal_cost.copy()
@@ -886,11 +905,11 @@ class Problem(Container, StringRepresentation):
             endog_hat_per_instrument = [None] * L
 
             for l in range(L):
-                cp_l, mc_corr_l, endog_hat_l = self._compute_iv_correction(l, M, N, marginal_cost_base)
+                cp_l, mc_corr_l, endog_hat_l = _iv_correct_stage(self, l, M, N, marginal_cost_base)
                 mc_l = marginal_cost_base.copy()
                 for m in range(M):
                     mc_l[m] = mc_l[m] + mc_corr_l[m]
-                mo_l, omega_l, tau_l = self._prepare_orthogonal_variables(M, N, markups_effective, mc_l)
+                mo_l, omega_l, tau_l = _residualize_stage(self, M, N, markups_effective, mc_l)
                 if l == 0:
                     markups_orthogonal = mo_l  # identical across instrument sets; keep first
                     marginal_cost = mc_l        # store first instrument's corrected MC for results
@@ -899,26 +918,24 @@ class Problem(Container, StringRepresentation):
                 omega_per_instrument[l] = omega_l
                 tau_list_per_instrument[l] = tau_l
                 endog_hat_per_instrument[l] = endog_hat_l
-
         else:
-            markups_orthogonal, omega, tau_list = self._prepare_orthogonal_variables(
-                M, N, markups_effective, marginal_cost
+            markups_orthogonal, omega, tau_list = _residualize_stage(
+                self, M, N, markups_effective, marginal_cost
             )
             omega_per_instrument = [omega] * L
             endog_hat_per_instrument = [None] * L
             tau_list_per_instrument = None
 
+        # -----------------------------------------------------------------
+        # Stage 4: first-stage demand-side correction (optional).
+        # -----------------------------------------------------------------
         gradient_markups = H_prime_wd = H = h_i = h = None
         gradient_gamma_per_instrument = None
         if demand_adjustment:
             # v0.4 step 4e: single code path via the unified function in
-            # solve/demand_adjustment.py. Replaces the former split into
-            # _compute_analytical_demand_adjustment (demand_params) and
-            # _compute_demand_adjustment_gradient (demand_results). Also
-            # closes the silent capability gap where the analytical path
-            # returned gradient_gamma_per_instrument=None, silently
-            # disabling the endogenous-cost correction for demand_params
-            # users.
+            # solve/demand_adjustment.py. Closes the silent capability gap
+            # where the analytical path previously returned
+            # gradient_gamma_per_instrument=None.
             from .solve.demand_adjustment import compute_demand_adjustment
             mc_base_for_grad = (
                 marginal_cost_base if self.endogenous_cost_component is not None else None
@@ -930,6 +947,9 @@ class Problem(Container, StringRepresentation):
                 advalorem_tax_adj, cost_scaling, mc_base_for_grad,
             )
 
+        # -----------------------------------------------------------------
+        # Stage 5: test engine — RV, F, MCS per instrument set.
+        # -----------------------------------------------------------------
         g_list = [None] * L
         Q_list = [None] * L
         RV_numerator_list = [None] * L
@@ -947,11 +967,11 @@ class Problem(Container, StringRepresentation):
         for instrument in range(L):
             grad_gamma_l = (gradient_gamma_per_instrument[instrument]
                             if gradient_gamma_per_instrument is not None else None)
-            r = self._compute_instrument_results(
-                instrument, M, N, omega_per_instrument[instrument], demand_adjustment, gradient_markups,
+            r = _compute_instrument_results_stage(
+                self, instrument, M, N, omega_per_instrument[instrument], demand_adjustment, gradient_markups,
                 H_prime_wd, H, h_i, h, clustering_adjustment,
                 critical_values_size, critical_values_power, endog_hat_per_instrument[instrument],
-                grad_gamma_l
+                grad_gamma_l,
             )
             g_list[instrument] = r['g']
             Q_list[instrument] = r['Q']
