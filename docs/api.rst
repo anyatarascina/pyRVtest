@@ -72,3 +72,29 @@ The results can be pickled or converted into a dictionary.
    :toctree: _api
 
    ProblemResults.to_pickle
+
+
+Exceptions
+----------
+
+Starting in v0.4, pyRVtest raises a small hierarchy of custom exceptions
+for common validation and backend failures. Every custom class
+subclasses a Python built-in (``ValueError`` or ``RuntimeError``) so
+that existing callers using ``except ValueError:`` continue to work
+unchanged.
+
+Error messages follow an **expected / received / fix** structure: what
+the check was looking for, what was actually there, and a concrete
+next step. Internal-invariant failures are prefixed with ``pyRVtest
+internal error:`` and kept terse.
+
+.. autosummary::
+   :toctree: _api
+   :template: class_without_methods.rst
+
+   PyRVTestError
+   ValidationError
+   InstrumentDataError
+   BackendError
+   DemandBackendError
+   HessianUnavailableError

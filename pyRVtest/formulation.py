@@ -142,39 +142,119 @@ class ModelFormulation(object):
         # validate the parameters
         model_set = {'monopoly', 'cournot', 'bertrand', 'perfect_competition', 'mix_cournot_bertrand', 'other'}
         if model_downstream is None and user_supplied_markups is None:
-            raise TypeError("Either model_downstream or user_supplied_markups must be provided.")
+            raise TypeError(
+                "Expected either model_downstream (a conduct string) or "
+                "user_supplied_markups (a column name) to be set. "
+                "Received both as None. "
+                "Fix: pass model_downstream='bertrand' (or similar), or "
+                "user_supplied_markups='<column>'."
+            )
         if model_downstream is not None and model_downstream not in model_set:
-            raise TypeError("model_downstream must be monopoly, bertrand, cournot, perfect_competition, or other.")
+            raise TypeError(
+                f"Expected model_downstream to be one of {sorted(model_set)}. "
+                f"Received {model_downstream!r}. "
+                f"Fix: pick one of the supported conduct strings."
+            )
         if model_upstream is not None and model_upstream not in model_set:
-            raise TypeError("model_upstream must be monopoly, bertrand, cournot, perfect_competition, or other.")
+            raise TypeError(
+                f"Expected model_upstream to be one of {sorted(model_set)}. "
+                f"Received {model_upstream!r}. "
+                f"Fix: pick one of the supported conduct strings."
+            )
         if model_upstream is not None and model_downstream in {'cournot'} and model_upstream in {'cournot'}:
-            raise TypeError("model_upstream and model_downstream cannot both be cournot.")
+            raise TypeError(
+                "Expected at most one tier of a vertical model to use Cournot "
+                "(the Villas-Boas passthrough derivation is not defined for "
+                "Cournot-on-Cournot). "
+                "Received model_downstream='cournot' and model_upstream='cournot'. "
+                "Fix: use Bertrand or Monopoly for one of the two tiers."
+            )
         if ownership_downstream is not None and not isinstance(ownership_downstream, str):
-            raise TypeError("ownership_downstream must be a None or a str.")
+            raise TypeError(
+                f"Expected ownership_downstream to be a column name (str) or None. "
+                f"Received {type(ownership_downstream).__name__}. "
+                f"Fix: pass the column name as a string, e.g. 'firm_ids'."
+            )
         if ownership_upstream is not None and not isinstance(ownership_upstream, str):
-            raise TypeError("ownership_upstream must be a None or a str.")
+            raise TypeError(
+                f"Expected ownership_upstream to be a column name (str) or None. "
+                f"Received {type(ownership_upstream).__name__}. "
+                f"Fix: pass the column name as a string, e.g. 'manufacturer_ids'."
+            )
         if model_upstream is not None and not isinstance(ownership_upstream, str):
-            raise TypeError("ownership_upstream must be a str when upstream model defined.")
+            raise TypeError(
+                "Expected ownership_upstream to be a column-name string when "
+                "model_upstream is set (vertical models need upstream ownership). "
+                "Received ownership_upstream as None (or non-str). "
+                "Fix: supply ownership_upstream='<manufacturer-id-column>'."
+            )
         if vertical_integration is not None and not isinstance(vertical_integration, str):
-            raise TypeError("vertical_integration must be a None or a str.")
+            raise TypeError(
+                f"Expected vertical_integration to be a column name (str) or None. "
+                f"Received {type(vertical_integration).__name__}. "
+                f"Fix: pass the column name as a string."
+            )
         if unit_tax is not None and not isinstance(unit_tax, str):
-            raise TypeError("unit_tax must be a None or a str.")
+            raise TypeError(
+                f"Expected unit_tax to be a column name (str) or None. "
+                f"Received {type(unit_tax).__name__}. "
+                f"Fix: pass the column name as a string."
+            )
         if advalorem_tax is not None and not isinstance(advalorem_tax, str):
-            raise TypeError("advalorem_tax must be a None or a str.")
+            raise TypeError(
+                f"Expected advalorem_tax to be a column name (str) or None. "
+                f"Received {type(advalorem_tax).__name__}. "
+                f"Fix: pass the column name as a string."
+            )
         if advalorem_payer is not None and advalorem_payer not in {'firm', 'consumer', 'firms', 'consumers'}:
-            raise TypeError("advalorem_payer must be a None, firm, or consumer.")
+            raise TypeError(
+                f"Expected advalorem_payer to be 'firm' or 'consumer' (or None). "
+                f"Received {advalorem_payer!r}. "
+                f"Fix: set advalorem_payer='firm' or 'consumer' to indicate who "
+                f"remits the ad-valorem tax."
+            )
         if advalorem_tax is not None and advalorem_payer is None:
-            raise TypeError("advalorem_payer must be defined as firm or consumer when allowing for advalorem taxes.")
+            raise TypeError(
+                "Expected advalorem_payer to be 'firm' or 'consumer' when "
+                "advalorem_tax is supplied. "
+                "Received advalorem_payer=None. "
+                "Fix: set advalorem_payer='firm' or 'consumer'."
+            )
         if cost_scaling is not None and not isinstance(cost_scaling, str):
-            raise TypeError("cost_scaling must be a None or a str.")
+            raise TypeError(
+                f"Expected cost_scaling to be a column name (str) or None. "
+                f"Received {type(cost_scaling).__name__}. "
+                f"Fix: pass the column name as a string."
+            )
         if mix_flag is not None and not isinstance(mix_flag, str):
-            raise TypeError("mix_flag must be None or a str.")
+            raise TypeError(
+                f"Expected mix_flag to be a column name (str) or None. "
+                f"Received {type(mix_flag).__name__}. "
+                f"Fix: pass the column name of the per-product Bertrand/Cournot "
+                f"boolean flag."
+            )
         if model_downstream == 'mix_cournot_bertrand' and mix_flag is None:
-            raise TypeError("mix_flag must be provided when model_downstream='mix_cournot_bertrand'.")
+            raise TypeError(
+                "Expected mix_flag to be set when model_downstream='mix_cournot_bertrand' "
+                "(the Schur-complement FOC needs to know which products are Bertrand). "
+                "Received mix_flag=None. "
+                "Fix: pass mix_flag='<boolean-column>' (True=Bertrand, False=Cournot)."
+            )
         if mix_flag is not None and model_downstream != 'mix_cournot_bertrand':
-            raise TypeError("mix_flag is only valid when model_downstream='mix_cournot_bertrand'.")
+            raise TypeError(
+                f"Expected mix_flag to be set only when "
+                f"model_downstream='mix_cournot_bertrand'. "
+                f"Received mix_flag={mix_flag!r} with model_downstream={model_downstream!r}. "
+                f"Fix: drop mix_flag, or set model_downstream='mix_cournot_bertrand'."
+            )
         if model_downstream == 'other' and custom_model_specification is None and user_supplied_markups is None:
-            raise TypeError("custom_model_specification must be provided when model_downstream='other'.")
+            raise TypeError(
+                "Expected custom_model_specification (or user_supplied_markups) "
+                "when model_downstream='other'. "
+                "Received both as None. "
+                "Fix: pass custom_model_specification={'name': callable}, or "
+                "switch to user_supplied_markups='<column>'."
+            )
 
         # parse the formulas into patsy terms
         self._model_downstream = model_downstream

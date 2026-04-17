@@ -19,6 +19,7 @@ from typing import Any, Dict, Hashable, Optional, Union
 import numpy as np
 from numpy.typing import NDArray
 
+from ..exceptions import HessianUnavailableError
 from ..markups import _construct_passthrough_from_hessian
 from ..models.vertical import Vertical
 
@@ -85,8 +86,10 @@ def build_passthrough(
     n_models = len(problem._models)
     if not (0 <= model_index < n_models):
         raise ValueError(
-            f"model_index={model_index} out of range; problem has "
-            f"{n_models} model(s). Valid indices are 0..{n_models - 1}."
+            f"Expected model_index to be in [0, {n_models}) for this Problem "
+            f"(has {n_models} model(s)). "
+            f"Received model_index={model_index} (out of range). "
+            f"Fix: pass an integer in 0..{n_models - 1}."
         )
 
     # --- validate model is vertical ---
@@ -98,9 +101,12 @@ def build_passthrough(
     )
     if not is_vertical:
         raise ValueError(
-            f"model_index={model_index} refers to a non-vertical model "
-            f"({type(candidate).__name__}); build_passthrough requires a "
-            f"Vertical model (one with a non-None upstream conduct)."
+            f"Expected the model at model_index={model_index} to be a "
+            f"Vertical model (i.e., with a non-None upstream conduct) because "
+            f"passthrough is only defined for vertical structures. "
+            f"Received a non-vertical model ({type(candidate).__name__}). "
+            f"Fix: point model_index at a Vertical(...) entry, or skip "
+            f"build_passthrough for this model."
         )
 
     # --- validate market_id if provided ---
@@ -108,8 +114,11 @@ def build_passthrough(
     if market_id is not None:
         if not np.any(unique_market_ids == market_id):
             raise ValueError(
-                f"market_id={market_id!r} is not in problem.unique_market_ids. "
-                f"Valid market ids: {list(unique_market_ids)}."
+                f"Expected market_id to appear in problem.unique_market_ids. "
+                f"Received market_id={market_id!r}, which is not in "
+                f"problem.unique_market_ids={list(unique_market_ids)}. "
+                f"Fix: pass a market id from problem.unique_market_ids, or "
+                f"omit market_id to compute passthrough for all markets."
             )
         markets_to_compute = [market_id]
     else:
@@ -123,8 +132,12 @@ def build_passthrough(
     backend = problem._demand_backend
     if backend is None:
         raise ValueError(
-            "problem._demand_backend is None; build_passthrough requires "
-            "a demand backend (supply demand_params or demand_results to Problem)."
+            "Expected Problem to carry a constructed demand backend so that "
+            "compute_jacobian / compute_hessian can run. "
+            "Received problem._demand_backend=None (neither demand_params nor "
+            "demand_results was supplied at Problem construction). "
+            "Fix: pass demand_params={...} or demand_results=<pyblp.ProblemResults> "
+            "to Problem(...)."
         )
 
     ownership_downstream = problem.models['ownership_downstream'][model_index]
@@ -140,11 +153,13 @@ def build_passthrough(
         # Hessian: required for vertical passthrough.
         d2s_dp2_t = backend.compute_hessian(market_id=t)
         if d2s_dp2_t is None:
-            raise ValueError(
-                f"problem._demand_backend.compute_hessian(market_id={t!r}) "
-                f"returned None; vertical-integration passthrough requires a "
-                f"demand backend that provides a Hessian. Supply `hessian_fn` "
-                f"to UserSuppliedBackend or use one of the built-in backends."
+            raise HessianUnavailableError(
+                f"Expected the demand backend to provide a Hessian for "
+                f"vertical-integration passthrough. "
+                f"Received problem._demand_backend.compute_hessian(market_id="
+                f"{t!r}) returned None. "
+                f"Fix: supply `hessian_fn` to UserSuppliedBackend, or use a "
+                f"built-in backend (PyBLPBackend, LogitBackend, NestedLogitBackend)."
             )
 
         # Ownership: slice to this market and drop NaN-padded columns.

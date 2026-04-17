@@ -91,13 +91,21 @@ class UserSuppliedBackend:
     ) -> None:
         if jacobian.ndim != 2:
             raise ValueError(
-                f"jacobian must be 2-D (N, J_max); got shape {jacobian.shape}."
+                f"Expected jacobian to be a 2-D (N, J_max) NaN-padded stacked "
+                f"demand Jacobian. "
+                f"Received an array with shape {jacobian.shape} (ndim={jacobian.ndim}). "
+                f"Fix: stack per-market Jacobians into an (N, J_max) array, padding "
+                f"with NaN where a market has fewer than J_max products."
             )
         market_ids_1d = np.asarray(market_ids).flatten()
         if market_ids_1d.shape[0] != jacobian.shape[0]:
             raise ValueError(
-                f"market_ids has length {market_ids_1d.shape[0]} but jacobian has "
-                f"{jacobian.shape[0]} rows; must match."
+                f"Expected market_ids length to match the number of jacobian rows "
+                f"(one market id per product). "
+                f"Received market_ids of length {market_ids_1d.shape[0]} and "
+                f"jacobian with {jacobian.shape[0]} rows; these must match. "
+                f"Fix: rebuild market_ids so it has one entry per product row of "
+                f"the stacked Jacobian."
             )
         self._jacobian = jacobian
         self._market_ids = market_ids_1d
@@ -130,22 +138,28 @@ class UserSuppliedBackend:
     def perturbed(self, theta_index: int, delta: float) -> Iterator['UserSuppliedBackend']:
         if self.n_parameters == 0:
             raise NotImplementedError(
-                "UserSuppliedBackend was constructed without theta_names; "
-                "it has no parameters to perturb. Pass theta_names=[...] "
-                "and perturb_callback=... if you need finite-diff "
-                "demand-adjustment corrections."
+                "Expected UserSuppliedBackend to carry declared parameters "
+                "(theta_names=[...]) before perturbed() can be called; the "
+                "current instance was constructed without theta_names. "
+                "Received 0 parameters. "
+                "Fix: pass theta_names=[...] and perturb_callback=... at "
+                "construction to enable finite-diff demand-adjustment corrections."
             )
         if self._perturb_callback is None:
             raise NotImplementedError(
-                "UserSuppliedBackend has parameters declared but no "
-                "perturb_callback. Pass "
-                "perturb_callback=lambda idx, delta: <new backend> "
-                "at construction to enable perturbed() for finite-diff "
-                "demand adjustment."
+                "Expected UserSuppliedBackend to carry a perturb_callback when "
+                "parameters are declared. "
+                "Received theta_names set but perturb_callback=None. "
+                "Fix: pass perturb_callback=lambda idx, delta: <new backend> "
+                "at construction to enable perturbed() for finite-diff demand "
+                "adjustment."
             )
         if theta_index < 0 or theta_index >= self.n_parameters:
             raise IndexError(
-                f"theta_index must be in [0, {self.n_parameters}), got {theta_index}."
+                f"Expected theta_index in [0, {self.n_parameters}) for this "
+                f"UserSuppliedBackend. "
+                f"Received theta_index={theta_index}. "
+                f"Fix: pass an integer in the valid range."
             )
         perturbed_backend = self._perturb_callback(theta_index, delta)
         try:

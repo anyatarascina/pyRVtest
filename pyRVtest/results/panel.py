@@ -74,13 +74,18 @@ class PanelResults:
     def __init__(self, results: Mapping[Hashable, ProblemResults]) -> None:
         if not isinstance(results, Mapping):
             raise TypeError(
-                f"results must be a mapping from panel keys to ProblemResults, "
-                f"got {type(results).__name__}."
+                f"Expected results to be a mapping (dict-like) from panel keys "
+                f"to ProblemResults. "
+                f"Received {type(results).__name__}. "
+                f"Fix: pass a mapping {{key: ProblemResults}}; for a list, "
+                f"enumerate it into a dict first."
             )
         if len(results) == 0:
             raise ValueError(
-                "PanelResults requires at least one ProblemResults; got an "
-                "empty mapping."
+                "Expected the results mapping to contain at least one "
+                "ProblemResults. "
+                "Received an empty mapping. "
+                "Fix: supply at least one (key, ProblemResults) entry."
             )
         # Preserve insertion order.
         stored: Dict[Hashable, ProblemResults] = {}
@@ -89,8 +94,11 @@ class PanelResults:
         for key, pr in results.items():
             if not isinstance(pr, ProblemResults):
                 raise TypeError(
-                    f"results[{key!r}] must be a ProblemResults instance, got "
-                    f"{type(pr).__name__}."
+                    f"Expected every value in the results mapping to be a "
+                    f"ProblemResults instance. "
+                    f"Received results[{key!r}] of type {type(pr).__name__}. "
+                    f"Fix: call problem.solve() to obtain a ProblemResults, "
+                    f"then store it under this key."
                 )
             n_models = int(len(pr.markups))
             if expected_n_models is None:
@@ -98,11 +106,14 @@ class PanelResults:
                 expected_key = key
             elif n_models != expected_n_models:
                 raise ValueError(
-                    f"Mismatched model sets across panel: key {expected_key!r} "
-                    f"has {expected_n_models} models but key {key!r} has "
-                    f"{n_models}. All children must share the same candidate "
-                    f"model roster so rejection-rate aggregation is well "
-                    f"defined."
+                    f"Mismatched model sets: expected all panel children to "
+                    f"share the same candidate model roster (rejection-rate "
+                    f"aggregation is only well defined when the set of models "
+                    f"is fixed). "
+                    f"Received key {expected_key!r} with {expected_n_models} "
+                    f"models and key {key!r} with {n_models}. "
+                    f"Fix: rebuild the panel so every child is solved with the "
+                    f"same list of candidate models."
                 )
             stored[key] = pr
         self._results = stored

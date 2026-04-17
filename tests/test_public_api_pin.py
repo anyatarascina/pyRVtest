@@ -167,6 +167,7 @@ def test_audit_covers_expected_modules():
         'pyRVtest.solve',
         'pyRVtest.solve.demand_adjustment',
         'pyRVtest.solve.passthrough',
+        'pyRVtest.exceptions',
     }
     missing = required - covered
     assert not missing, (

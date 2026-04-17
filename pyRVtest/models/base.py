@@ -112,14 +112,18 @@ class ConductModel:
         """Shared validation applicable to all subclasses."""
         if self.advalorem_tax is not None and self.advalorem_payer is None:
             raise TypeError(
-                "advalorem_payer must be 'firm' or 'consumer' when "
-                "advalorem_tax is supplied."
+                "Expected advalorem_payer to be 'firm' or 'consumer' when "
+                "advalorem_tax is supplied. "
+                "Received advalorem_payer=None. "
+                "Fix: set advalorem_payer='firm' or 'consumer' to indicate who "
+                "remits the ad-valorem tax."
             )
         if self.advalorem_payer is not None and self.advalorem_payer not in {
                 'firm', 'consumer', 'firms', 'consumers'}:
             raise TypeError(
-                f"advalorem_payer must be 'firm' or 'consumer', got "
-                f"{self.advalorem_payer!r}."
+                f"Expected advalorem_payer to be 'firm' or 'consumer' (or None). "
+                f"Received {self.advalorem_payer!r}. "
+                f"Fix: pass advalorem_payer='firm' or 'consumer'."
             )
 
     # -----------------------------------------------------------------
@@ -146,7 +150,9 @@ class ConductModel:
             Markup vector for this market, shape ``(J_t, 1)``.
         """
         raise NotImplementedError(
-            f"{type(self).__name__}._compute_markup must be implemented"
+            f"pyRVtest internal error: expected {type(self).__name__} to "
+            f"override ConductModel._compute_markup(O, D, s). "
+            f"Received a call on the abstract base method."
         )
 
     def _markup_derivative(
@@ -176,7 +182,9 @@ class ConductModel:
             ``d(markup)/d(theta_k)`` vector, shape ``(J_t,)``.
         """
         raise NotImplementedError(
-            f"{type(self).__name__}._markup_derivative must be implemented"
+            f"pyRVtest internal error: expected {type(self).__name__} to "
+            f"override ConductModel._markup_derivative(O, D, dD, s, mu). "
+            f"Received a call on the abstract base method."
         )
 
     # -----------------------------------------------------------------

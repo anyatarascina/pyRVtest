@@ -56,7 +56,7 @@ class MixCournotBertrand(ConductModel):
     >>> MixCournotBertrand(mix_flag=None)  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    TypeError: mix_flag is required for MixCournotBertrand: ...
+    TypeError: Expected mix_flag to identify which products play Bertrand ...
     """
 
     _model_name = 'mix_cournot_bertrand'
@@ -68,9 +68,12 @@ class MixCournotBertrand(ConductModel):
     ) -> None:
         if mix_flag is None:
             raise TypeError(
-                "mix_flag is required for MixCournotBertrand: pass the column "
-                "name of the per-product Bertrand (True) / Cournot (False) "
-                "boolean indicator."
+                "Expected mix_flag to identify which products play Bertrand "
+                "(True) vs Cournot (False) in each market; mix_flag is required "
+                "for MixCournotBertrand. "
+                "Received mix_flag=None. "
+                "Fix: pass mix_flag='<column_name>' naming the per-product "
+                "boolean indicator in product_data."
             )
         super().__init__(mix_flag=mix_flag, **kwargs)
 
@@ -78,9 +81,12 @@ class MixCournotBertrand(ConductModel):
             self, O: _NDArray, D: _NDArray, s: _NDArray,
     ) -> _NDArray:
         raise NotImplementedError(
-            "MixCournotBertrand._compute_markup needs the per-market mix_flag "
-            "slice; use _compute_markup_with_flag(O, D, s, mix_flag_t) "
-            "instead. Problem supplies the flag during step 5b wiring."
+            "pyRVtest internal error: expected the pipeline to call "
+            "MixCournotBertrand._compute_markup_with_flag(O, D, s, mix_flag_t), "
+            "which carries the per-market Bertrand/Cournot slice. "
+            "Received a direct _compute_markup call without mix_flag. "
+            "Fix: route this call through _compute_markup_with_flag (Problem "
+            "supplies the flag during step 5b wiring)."
         )
 
     def _compute_markup_with_flag(
@@ -119,8 +125,11 @@ class MixCournotBertrand(ConductModel):
             s: _NDArray, mu: _NDArray,
     ) -> _NDArray:
         raise NotImplementedError(
-            "MixCournotBertrand._markup_derivative needs the per-market "
-            "mix_flag slice; use _markup_derivative_with_flag instead."
+            "pyRVtest internal error: expected the pipeline to call "
+            "MixCournotBertrand._markup_derivative_with_flag (which carries "
+            "the per-market mix_flag slice). "
+            "Received a direct _markup_derivative call without mix_flag. "
+            "Fix: route this call through _markup_derivative_with_flag."
         )
 
     def _markup_derivative_with_flag(

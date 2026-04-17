@@ -93,13 +93,19 @@ class Vertical:
     ) -> None:
         if not isinstance(downstream, ConductModel):
             raise TypeError(
-                f"downstream must be a ConductModel instance, got "
-                f"{type(downstream).__name__}."
+                f"Expected the downstream argument to Vertical(...) to be a "
+                f"ConductModel instance (e.g., Bertrand, Cournot, Monopoly). "
+                f"Received {type(downstream).__name__}. "
+                f"Fix: wrap the downstream specification in the appropriate "
+                f"ConductModel subclass: downstream must be a ConductModel."
             )
         if not isinstance(upstream, ConductModel):
             raise TypeError(
-                f"upstream must be a ConductModel instance, got "
-                f"{type(upstream).__name__}."
+                f"Expected the upstream argument to Vertical(...) to be a "
+                f"ConductModel instance (e.g., Monopoly, Bertrand, Cournot). "
+                f"Received {type(upstream).__name__}. "
+                f"Fix: wrap the upstream specification in the appropriate "
+                f"ConductModel subclass: upstream must be a ConductModel."
             )
         # Tax / vertical-integration config should NOT be on the inner
         # conducts in a Vertical; those belong to the combined model.
@@ -110,9 +116,13 @@ class Vertical:
             ):
                 if getattr(tier, field, None) is not None:
                     raise TypeError(
-                        f"{field} must be set on the Vertical(...) wrapper, "
-                        f"not on the inner {tier_name} ConductModel. Move "
-                        f"{field}={getattr(tier, field)!r} to Vertical(...)."
+                        f"Expected {field!r} to be set on the Vertical(...) "
+                        f"wrapper, not on the inner {tier_name} ConductModel "
+                        f"(shared config belongs to the combined vertical model). "
+                        f"Received {field}={getattr(tier, field)!r} on the "
+                        f"{tier_name} tier. "
+                        f"Fix: move {field}={getattr(tier, field)!r} to "
+                        f"Vertical(...) as a keyword argument."
                     )
         self.downstream = downstream
         self.upstream = upstream
@@ -127,14 +137,17 @@ class Vertical:
     def _validate_shared_config(self) -> None:
         if self.advalorem_tax is not None and self.advalorem_payer is None:
             raise TypeError(
-                "advalorem_payer must be 'firm' or 'consumer' when "
-                "advalorem_tax is supplied."
+                "Expected advalorem_payer to be 'firm' or 'consumer' when "
+                "advalorem_tax is supplied on Vertical(...). "
+                "Received advalorem_payer=None. "
+                "Fix: set advalorem_payer='firm' or 'consumer'."
             )
         if self.advalorem_payer is not None and self.advalorem_payer not in {
                 'firm', 'consumer', 'firms', 'consumers'}:
             raise TypeError(
-                f"advalorem_payer must be 'firm' or 'consumer', got "
-                f"{self.advalorem_payer!r}."
+                f"Expected advalorem_payer to be 'firm' or 'consumer' (or None). "
+                f"Received {self.advalorem_payer!r}. "
+                f"Fix: pass advalorem_payer='firm' or 'consumer'."
             )
 
     def __repr__(self) -> str:

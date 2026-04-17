@@ -172,12 +172,14 @@ def compute_demand_adjustment(
 
     if not isinstance(backend, SupportsDemandAdjustment):
         raise TypeError(
-            f"compute_demand_adjustment requires a backend implementing "
-            f"SupportsDemandAdjustment; got {type(backend).__name__}. "
-            f"`UserSuppliedBackend` without adjustment inputs cannot produce "
-            f"a demand-side first-stage correction. Either supply the "
-            f"adjustment inputs when constructing the backend, or set "
-            f"`demand_adjustment=False`."
+            f"Expected the demand backend to implement the "
+            f"SupportsDemandAdjustment protocol (providing demand_moments, "
+            f"xi_gradient, jacobian_gradient) for the first-stage correction. "
+            f"Received {type(backend).__name__}; UserSuppliedBackend without "
+            f"adjustment inputs cannot produce a demand-side first-stage "
+            f"correction. "
+            f"Fix: supply beta / x_columns / demand_instrument_columns when "
+            f"constructing the backend, or call Problem.solve(demand_adjustment=False)."
         )
     # After the isinstance check, backend is a SupportsDemandAdjustment. The
     # Protocol only declares `demand_moments`, `xi_gradient`, and `perturbed`;

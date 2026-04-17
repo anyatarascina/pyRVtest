@@ -12,6 +12,14 @@ ProblemResults, build_markups, build_ownership, etc.) is unchanged.
 from . import data, options
 # New v0.4 subpackages (empty skeletons until their populating steps).
 from . import backends, instruments, models, solve
+from .exceptions import (
+    BackendError,
+    DemandBackendError,
+    HessianUnavailableError,
+    InstrumentDataError,
+    PyRVTestError,
+    ValidationError,
+)
 from .formulation import Formulation, ModelFormulation
 from .markups import (
     build_ownership, build_markups, construct_passthrough_matrix,
@@ -45,4 +53,7 @@ __all__ = [
     'build_passthrough',
     # v0.4 step 23: agent-guide exporter.
     'show_agent_guide',
+    # v0.4 step 19: custom exception hierarchy.
+    'PyRVTestError', 'ValidationError', 'InstrumentDataError',
+    'BackendError', 'DemandBackendError', 'HessianUnavailableError',
 ]

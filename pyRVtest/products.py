@@ -26,6 +26,7 @@ from pyblp.utilities.basics import (
 )
 
 from . import options
+from .exceptions import InstrumentDataError
 from .formulation import Formulation
 
 
@@ -95,28 +96,57 @@ class Products(object):
 
         # validate the cost formulations
         if not isinstance(cost_formulation, Formulation):
-            raise TypeError("cost_formulation must be a Formulation instance or None.")
+            raise TypeError(
+                f"Expected cost_formulation to be a pyRVtest.Formulation instance. "
+                f"Received {type(cost_formulation).__name__}. "
+                f"Fix: wrap your cost-shifter formula string in Formulation(...)."
+            )
         if cost_formulation is None:
-            raise ValueError("The formulation for marginal cost must be specified.")
+            raise ValueError(
+                "Expected cost_formulation to specify the marginal-cost formula. "
+                "Received None. "
+                "Fix: pass cost_formulation=Formulation('0 + <cost-shifters>')."
+            )
 
         # build w
         w, w_formulation, w_data = cost_formulation._build_matrix(product_data)
 
         # check that prices are not in X1
         if 'prices' in w_data:
-            raise NameError("prices cannot be included in the formulation for marginal cost.")
+            raise NameError(
+                "Expected the cost_formulation to exclude the 'prices' column. "
+                "Received a formulation that includes 'prices'. "
+                "Fix: drop 'prices' from cost_formulation; it is the dependent "
+                "variable, not a cost shifter."
+            )
 
         # validate the instrument formulation
         if instrument_formulation is None:
-            raise ValueError("The formulation for instruments for testing must be specified.")
+            raise ValueError(
+                "Expected instrument_formulation to specify testing instruments. "
+                "Received None. "
+                "Fix: pass instrument_formulation=Formulation('0 + <instruments>'), "
+                "or a list of Formulations for multiple instrument sets."
+            )
         if hasattr(instrument_formulation, '__len__'):
             L = len(instrument_formulation)
             if not all(isinstance(f, Formulation) for f in instrument_formulation):
-                raise TypeError("Each formulation in instrument_formulation must be a Formulation.")
+                raise TypeError(
+                    "Expected every entry in instrument_formulation to be a "
+                    "pyRVtest.Formulation instance. "
+                    "Received a sequence containing non-Formulation values. "
+                    "Fix: wrap each instrument-set formula in Formulation(...) "
+                    "before passing the list."
+                )
         else:
             L = 1
             if not isinstance(instrument_formulation, Formulation):
-                raise TypeError("instrument_formulation must be a single Formulation instance.")
+                raise TypeError(
+                    f"Expected instrument_formulation to be a single pyRVtest.Formulation "
+                    f"or a sequence of them. "
+                    f"Received {type(instrument_formulation).__name__}. "
+                    f"Fix: pass Formulation('0 + <instruments>')."
+                )
 
         # build Z. `instrument_formulation` is typed as a Sequence for multi-instrument callers,
         # but the single-instrument branch also accepts a bare Formulation — mypy sees only the
@@ -128,7 +158,14 @@ class Products(object):
             )
             for z in Z_formulation_l:
                 if z in w_data:
-                    raise NameError("Z must be excluded from marginal cost.")
+                    raise InstrumentDataError(
+                        "Expected instrument columns (Z) to be disjoint from the "
+                        "marginal-cost shifters (w). "
+                        "Received an instrument variable that also appears in "
+                        "cost_formulation; Z must be excluded from marginal cost. "
+                        "Fix: drop the duplicate variable from either cost_formulation "
+                        "or instrument_formulation (variables cannot serve both roles)."
+                    )
             Z["Z0"] = Z_l
             Z["Z0_formulation"] = Z_formulation_l
             Z["Z0_data"] = Z_data_l
@@ -139,7 +176,15 @@ class Products(object):
                 Z_l, Z_formulation_l, Z_data_l = f_l._build_matrix(product_data)
                 for z in Z_formulation_l:
                     if z in w_data:
-                        raise NameError("Z must be excluded from marginal cost.")
+                        raise InstrumentDataError(
+                            "Expected instrument columns (Z) to be disjoint from the "
+                            "marginal-cost shifters (w). "
+                            "Received an instrument variable that also appears in "
+                            "cost_formulation; Z must be excluded from marginal cost. "
+                            "Fix: drop the duplicate variable from either "
+                            "cost_formulation or instrument_formulation (variables "
+                            "cannot serve both roles)."
+                        )
                 Z["Z{0}".format(l)] = Z_l
                 Z["Z{0}_formulation".format(l)] = Z_formulation_l
                 Z["Z{0}_data".format(l)] = Z_data_l
@@ -155,45 +200,100 @@ class Products(object):
         product_ids = extract_matrix(product_data, 'product_ids')
         clustering_ids = extract_matrix(product_data, 'clustering_ids')
         if market_ids is None:
-            raise KeyError("product_data must have a market_ids field.")
+            raise KeyError(
+                "Expected product_data to contain a 'market_ids' column. "
+                "Received product_data without that key. "
+                "Fix: add a 'market_ids' column identifying the market each product belongs to."
+            )
         if market_ids.shape[1] > 1:
-            raise ValueError("The market_ids field of product_data must be one-dimensional.")
+            raise ValueError(
+                f"Expected the 'market_ids' column to be one-dimensional. "
+                f"Received shape {market_ids.shape}. "
+                f"Fix: pass a single vector of market identifiers, not a multi-column array."
+            )
         if nesting_ids is not None and nesting_ids.shape[1] > 1:
-            raise ValueError("The nesting_ids field of product_data must be one-dimensional.")
+            raise ValueError(
+                f"Expected the 'nesting_ids' column to be one-dimensional. "
+                f"Received shape {nesting_ids.shape}. "
+                f"Fix: pass a single vector of nesting identifiers."
+            )
         if product_ids is not None and product_ids.shape[1] > 1:
-            raise ValueError("The product_ids field of product_data must be one-dimensional.")
+            raise ValueError(
+                f"Expected the 'product_ids' column to be one-dimensional. "
+                f"Received shape {product_ids.shape}. "
+                f"Fix: pass a single vector of product identifiers."
+            )
         if clustering_ids is not None:
             if clustering_ids.shape[1] > 1:
-                raise ValueError("The clustering_ids field of product_data must be one-dimensional.")
+                raise ValueError(
+                    f"Expected the 'clustering_ids' column to be one-dimensional. "
+                    f"Received shape {clustering_ids.shape}. "
+                    f"Fix: pass a single vector of clustering identifiers."
+                )
             if np.unique(clustering_ids).size == 1:
-                raise ValueError("The clustering_ids field of product_data must have at least two distinct IDs.")
+                raise ValueError(
+                    "Expected 'clustering_ids' to contain at least 2 distinct IDs "
+                    "so cluster-robust covariance is identified. "
+                    "Received a column with 1 unique ID. "
+                    "Fix: drop the clustering_ids column, or supply a column with "
+                    "multiple clusters."
+                )
 
         # load shares
         shares = extract_matrix(product_data, 'shares')
         if shares is None:
-            raise KeyError("product_data must have a shares field.")
+            raise KeyError(
+                "Expected product_data to contain a 'shares' column. "
+                "Received product_data without that key. "
+                "Fix: add a 'shares' column with per-product market shares in (0, 1)."
+            )
         if shares.shape[1] > 1:
-            raise ValueError("The shares field of product_data must be one-dimensional.")
+            raise ValueError(
+                f"Expected the 'shares' column to be one-dimensional. "
+                f"Received shape {shares.shape}. "
+                f"Fix: pass a single vector of shares per product."
+            )
         if (shares <= 0).any() or (shares >= 1).any():
             raise ValueError(
-                "The shares field of product_data must consist of values between zero and one, exclusive.")
+                "Expected every entry of 'shares' to lie strictly in the open "
+                "interval (0, 1). "
+                "Received at least one share outside that range. "
+                "Fix: clip or drop products with non-interior shares, or check "
+                "that shares are fractions, not percentages."
+            )
 
         # verify that shares sum to less than one in each market
         market_groups = Groups(market_ids)
         bad_shares_index = market_groups.sum(shares) >= 1
         if np.any(bad_shares_index):
             bad_market_ids = market_groups.unique[bad_shares_index.flat]
-            raise ValueError(f"Shares in these markets do not sum to less than 1: {bad_market_ids}.")
+            raise ValueError(
+                f"Expected within-market shares to sum to less than 1 (leaving "
+                f"room for the outside option). "
+                f"Received markets whose shares sum to >= 1: {bad_market_ids}. "
+                f"Fix: renormalize shares, or drop the affected markets."
+            )
 
         # load prices
         prices = extract_matrix(product_data, 'prices')
         if prices is None:
-            raise KeyError("product_data must have a prices field.")
+            raise KeyError(
+                "Expected product_data to contain a 'prices' column. "
+                "Received product_data without that key. "
+                "Fix: add a non-negative 'prices' column."
+            )
         if prices.shape[1] > 1:
-            raise ValueError("The prices field of product_data must be one-dimensional.")
+            raise ValueError(
+                f"Expected the 'prices' column to be one-dimensional. "
+                f"Received shape {prices.shape}. "
+                f"Fix: pass a single vector of prices per product."
+            )
         if (prices < 0).any():
             raise ValueError(
-                "The prices field of product_data must consist of values >= zero, exclusive.")
+                "Expected every entry of 'prices' to be non-negative. "
+                "Received at least one negative price. "
+                "Fix: check the units of the prices column; all values must be >= 0."
+            )
 
         # structure product fields as a mapping. Keys are either plain strings
         # (e.g. 'market_ids') or (formulation_tuple, column_name) pairs for w/Z.
@@ -222,7 +322,14 @@ class Products(object):
             })
         invalid_names = set(underlying_data) & {k if isinstance(k, str) else k[1] for k in product_mapping}
         if invalid_names:
-            raise NameError(f"These reserved names in product_formulations are invalid: {list(invalid_names)}.")
+            raise NameError(
+                f"Expected formulation variables to avoid reserved pyRVtest names "
+                f"(market_ids, shares, prices, 'w', 'Z0', ...). "
+                f"Received these reserved names in cost/instrument formulations: "
+                f"{list(invalid_names)}. "
+                f"Fix: rename the offending columns in product_data and in the "
+                f"formulation strings."
+            )
 
         combined: Dict[ProductKey, Tuple[Optional[Array], Any]] = dict(product_mapping)
         for key_str, value in underlying_data.items():

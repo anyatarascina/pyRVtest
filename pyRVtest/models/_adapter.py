@@ -96,8 +96,11 @@ def from_model_formulations(
     for i, mf in enumerate(mfs):
         if not isinstance(mf, ModelFormulation):
             raise TypeError(
-                f"model_formulations[{i}] must be a ModelFormulation "
-                f"instance, got {type(mf).__name__}."
+                f"Expected model_formulations[{i}] to be a ModelFormulation "
+                f"instance. "
+                f"Received {type(mf).__name__}. "
+                f"Fix: wrap each spec in ModelFormulation(...), or migrate to "
+                f"the preferred models=[Bertrand(...), ...] API."
             )
         out.append(from_model_formulation(mf))
     return out
@@ -151,13 +154,18 @@ def _conduct_from_string(
     if model_str == 'other':
         if custom_model_specification is None:
             raise TypeError(
-                "ModelFormulation with model_downstream='other' must have "
-                "custom_model_specification set."
+                "Expected custom_model_specification when ModelFormulation has "
+                "model_downstream='other' (custom markup formulas need a callable). "
+                "Received custom_model_specification=None. "
+                "Fix: pass custom_model_specification={'<name>': <callable>}."
             )
         if not isinstance(custom_model_specification, dict) or not custom_model_specification:
             raise TypeError(
-                "custom_model_specification must be a non-empty "
-                "{name: callable} dict."
+                f"Expected custom_model_specification to be a non-empty dict "
+                f"mapping a name to a callable. "
+                f"Received {type(custom_model_specification).__name__} "
+                f"(empty={not custom_model_specification}). "
+                f"Fix: pass {{'<name>': <callable>}}."
             )
         name, fn = next(iter(custom_model_specification.items()))
         return CustomConductModel(
@@ -168,9 +176,17 @@ def _conduct_from_string(
         )
     if model_str is None:
         raise TypeError(
-            "ModelFormulation without model_downstream cannot be translated "
-            "to a ConductModel. (This case previously relied on "
-            "user_supplied_markups alone; specify an explicit "
-            "model_downstream if you need this path post-v0.4.)"
+            "Expected ModelFormulation to specify a non-None model_downstream "
+            "string for translation to a ConductModel. "
+            "Received model_downstream=None (historically this relied on "
+            "user_supplied_markups alone). "
+            "Fix: pass model_downstream='bertrand' (or similar) explicitly, or "
+            "use the class-based API directly (pyRVtest.Bertrand, etc.)."
         )
-    raise TypeError(f"Unknown model_downstream string: {model_str!r}")
+    raise TypeError(
+        f"Expected model_downstream to be one of the known conduct strings "
+        f"('bertrand', 'cournot', 'monopoly', 'perfect_competition', "
+        f"'mix_cournot_bertrand', 'other'). "
+        f"Received {model_str!r}. "
+        f"Fix: pick a supported conduct string."
+    )

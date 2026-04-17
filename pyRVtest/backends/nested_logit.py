@@ -134,8 +134,11 @@ class NestedLogitBackend(LogitBackend):
         n = self.n_parameters
         if theta_index < 0 or theta_index >= n:
             raise IndexError(
-                f"NestedLogitBackend has {n} parameters; theta_index must be in [0, {n}), "
-                f"got {theta_index}."
+                f"Expected theta_index in [0, {n}) for NestedLogitBackend (has {n} "
+                f"parameter(s): alpha followed by the sigma nesting levels). "
+                f"Received theta_index={theta_index}. "
+                f"Fix: pass an integer in the valid range; see backend.theta_names "
+                f"for names."
             )
         saved_alpha = self._alpha
         saved_sigma = list(self._sigma)

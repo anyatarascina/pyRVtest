@@ -243,11 +243,17 @@ def _compute_markups(
                         # since vertical models require a Hessian.
                         d2s_dp2_t = demand_backend.compute_hessian(market_id=t)
                         if d2s_dp2_t is None:
-                            raise ValueError(
-                                f"demand_backend.compute_hessian(market_id={t!r}) returned None; "
-                                f"vertical-integration models (model_upstream is not None) require a "
-                                f"demand backend that provides a Hessian. Supply `hessian_fn` to "
-                                f"`UserSuppliedBackend` or use one of the built-in backends."
+                            from .exceptions import HessianUnavailableError
+                            raise HessianUnavailableError(
+                                f"Expected the demand backend to provide a Hessian "
+                                f"for vertical-integration passthrough (model_upstream "
+                                f"is set). "
+                                f"Received demand_backend.compute_hessian(market_id="
+                                f"{t!r}) returned None. "
+                                f"Fix: supply `hessian_fn` to UserSuppliedBackend, or "
+                                f"use a built-in backend (PyBLPBackend, LogitBackend, "
+                                f"NestedLogitBackend) that computes the Hessian "
+                                f"analytically."
                             )
                         passthrough_matrix = _construct_passthrough_from_hessian(
                             d2s_dp2_t, retailer_response_matrix, retailer_ownership_matrix, markups_t
@@ -364,9 +370,12 @@ def evaluate_first_order_conditions(
                     markups[index] = custom_model_formula(ownership_matrix, response_matrix, shares)
                 else:
                     raise TypeError(
-                        f"custom_model_specification value for '{custom_model}' must be a callable "
-                        f"f(ownership_matrix, response_matrix, shares) -> ndarray, not a string. "
-                        f"String formulas are no longer supported."
+                        f"Expected custom_model_specification[{custom_model!r}] to "
+                        f"be a callable f(ownership, response_matrix, shares) -> ndarray. "
+                        f"Received a value of type {type(custom_model_formula).__name__} "
+                        f"(string formulas are no longer supported post-v0.3). "
+                        f"Fix: replace the value with a callable or use "
+                        f"pyRVtest.CustomConductModel(markup_fn=...)."
                     )
 
     return markups, ownership_matrix

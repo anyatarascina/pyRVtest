@@ -67,8 +67,12 @@ class CustomConductModel(ConductModel):
     ) -> None:
         if not callable(markup_fn):
             raise TypeError(
-                f"markup_fn must be callable (ownership, D, shares) -> "
-                f"markups, got {type(markup_fn).__name__}."
+                f"Expected markup_fn to be callable with signature "
+                f"(ownership, response_matrix, shares) -> ndarray; "
+                f"markup_fn must be callable. "
+                f"Received {type(markup_fn).__name__}. "
+                f"Fix: pass a Python function or lambda that takes three "
+                f"per-market arguments and returns the markup vector."
             )
         super().__init__(ownership=ownership, **kwargs)
         self.markup_fn = markup_fn
@@ -90,7 +94,11 @@ class CustomConductModel(ConductModel):
         # fallback via backend.perturbed at the pipeline level. This
         # method signals that to the caller.
         raise NotImplementedError(
-            "CustomConductModel has no analytical markup derivative; "
-            "compute_demand_adjustment falls back to finite-diff via "
-            "backend.perturbed for custom and vertical models."
+            "Expected CustomConductModel to route markup derivatives through "
+            "the backend's finite-diff perturbation path (compute_demand_adjustment "
+            "handles this for custom and vertical models via backend.perturbed). "
+            "Received a direct _markup_derivative call on CustomConductModel, "
+            "which has no closed-form derivative by construction. "
+            "Fix: this method should not be called directly; check the caller "
+            "and route through the finite-diff fallback instead."
         )

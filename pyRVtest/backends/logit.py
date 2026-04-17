@@ -40,6 +40,7 @@ from typing import Any, Iterator, List, Mapping, Optional, Tuple
 import numpy as np
 from pyblp.utilities.basics import Array, output
 
+from ..exceptions import DemandBackendError
 from ..solve.demand_adjustment import _residualize_on_xd
 
 
@@ -100,16 +101,33 @@ def compute_analytical_jacobian(
     """
     # Validate alpha and sigma
     if not isinstance(alpha, (int, float)) or alpha >= 0:
-        raise ValueError("alpha must be a negative scalar (price coefficient from demand estimation).")
+        raise ValueError(
+            f"Expected alpha to be a negative scalar (the price coefficient from "
+            f"demand estimation). "
+            f"Received {alpha!r}. "
+            f"Fix: pass the estimated price coefficient, which must be < 0 for "
+            f"downward-sloping demand."
+        )
     if not isinstance(sigma, (list, tuple)):
-        raise TypeError("sigma must be a list of nesting parameters (empty list for plain logit).")
+        raise TypeError(
+            f"Expected sigma to be a list or tuple of nesting parameters "
+            f"(empty list [] for plain logit). "
+            f"Received {type(sigma).__name__}. "
+            f"Fix: pass sigma=[] for plain logit or sigma=[rho_1, ...] for nested."
+        )
     for i, s_val in enumerate(sigma):
         if not isinstance(s_val, (int, float)):
-            raise TypeError(f"sigma[{i}] must be a number, got {type(s_val)}.")
+            raise TypeError(
+                f"Expected every element of sigma to be a real number. "
+                f"Received sigma[{i}] of type {type(s_val).__name__}. "
+                f"Fix: pass numeric nesting parameters in [0, 1)."
+            )
         if s_val < 0 or s_val >= 1:
             raise ValueError(
-                f"sigma[{i}] = {s_val} is out of range. Each sigma must be in [0, 1). "
-                f"Note: sigma = 0 corresponds to plain logit (Berry, 1994 convention)."
+                f"Expected each sigma entry to lie in [0, 1). "
+                f"Received sigma[{i}] = {s_val} (out of range). "
+                f"Fix: use sigma = 0 for plain logit (Berry 1994 convention) or "
+                f"a value in [0, 1) for nested logit."
             )
 
     market_ids = np.asarray(product_data['market_ids']).flatten()
@@ -131,8 +149,11 @@ def compute_analytical_jacobian(
             nesting_ids_columns = _infer_nesting_columns(product_data, L)
         if len(nesting_ids_columns) != L:
             raise ValueError(
-                f"Number of nesting ID columns ({len(nesting_ids_columns)}) must match "
-                f"number of non-zero sigma values ({L})."
+                f"Expected the number of nesting ID columns to match the number "
+                f"of non-zero sigma levels. "
+                f"Received {len(nesting_ids_columns)} columns "
+                f"({nesting_ids_columns!r}) for {L} non-zero sigma value(s). "
+                f"Fix: supply one nesting-ID column per non-zero sigma level."
             )
         for col in nesting_ids_columns:
             nesting_arrays.append(np.asarray(product_data[col]).flatten())
@@ -451,15 +472,20 @@ def _infer_nesting_columns(product_data: Mapping, L: int) -> List[str]:
         if len(candidates) == 1:
             return candidates
         raise ValueError(
-            f"Cannot find nesting ID column. Expected 'nesting_ids' in product_data. "
-            f"Pass nesting_ids_columns explicitly in demand_params."
+            f"Expected product_data to contain a 'nesting_ids' column (or a single "
+            f"column name starting with 'nesting_ids'). "
+            f"Received columns {sorted(all_cols)}. "
+            f"Fix: pass nesting_ids_columns=['<column>'] explicitly in demand_params."
         )
 
     candidates = [c for c in all_cols if c.startswith('nesting_ids')]
     if len(candidates) < L:
         raise ValueError(
-            f"Found {len(candidates)} nesting ID columns but sigma has {L} levels. "
-            f"Pass nesting_ids_columns explicitly in demand_params."
+            f"Expected at least {L} nesting-ID columns to match the {L}-level sigma "
+            f"vector. "
+            f"Received {len(candidates)} candidate(s): {candidates}. "
+            f"Fix: pass nesting_ids_columns=[...] explicitly in demand_params, one "
+            f"entry per sigma level."
         )
 
     data_arrays = [(col, np.asarray(product_data[col]).flatten()) for col in candidates[:L + 2]]
@@ -473,9 +499,12 @@ def _infer_nesting_columns(product_data: Mapping, L: int) -> List[str]:
             coarse_vals = np.unique(coarser[finer == val])
             if len(coarse_vals) > 1:
                 raise ValueError(
-                    f"Nesting columns are not hierarchical: '{ordered[i]}' value '{val}' "
-                    f"maps to multiple '{ordered[i + 1]}' values: {coarse_vals}. "
-                    f"Pass nesting_ids_columns explicitly in demand_params."
+                    f"Expected nesting columns to be strictly hierarchical (each "
+                    f"finer-level value must map to exactly one coarser-level value). "
+                    f"Received column {ordered[i]!r} value {val!r} mapping to "
+                    f"multiple {ordered[i + 1]!r} values: {coarse_vals}. "
+                    f"Fix: pass nesting_ids_columns=[...] explicitly in demand_params "
+                    f"in the intended finest-to-coarsest order."
                 )
 
     n_groups = [len(np.unique(np.asarray(product_data[col]).flatten())) for col in ordered]
@@ -587,7 +616,10 @@ class LogitBackend:
     def perturbed(self, theta_index: int, delta: float) -> Iterator['LogitBackend']:
         if theta_index != 0:
             raise IndexError(
-                f"LogitBackend has 1 parameter (alpha); theta_index must be 0, got {theta_index}."
+                f"Expected theta_index == 0 for LogitBackend (it has 1 parameter, alpha). "
+                f"Received theta_index={theta_index}. "
+                f"Fix: call perturbed(0, delta); use NestedLogitBackend if you need "
+                f"to perturb sigma as well."
             )
         saved_alpha = self._alpha
         saved_cache = self._jacobian_cache
@@ -693,10 +725,14 @@ class LogitBackend:
         if self._demand_instrument_columns is None:
             missing.append('demand_instrument_columns')
         if missing:
-            raise ValueError(
-                f"{type(self).__name__} was constructed without the demand-adjustment "
-                f"state: {', '.join(missing)}. Pass these kwargs at construction to "
-                f"enable demand_moments / xi_gradient / jacobian_gradient."
+            raise DemandBackendError(
+                f"Expected {type(self).__name__} to carry the demand-adjustment "
+                f"state (beta, x_columns, demand_instrument_columns, optionally "
+                f"W_demand) so that demand_moments / xi_gradient / jacobian_gradient "
+                f"can run. "
+                f"Received a backend missing: {', '.join(missing)}. "
+                f"Fix: pass these kwargs at construction to enable demand adjustment, "
+                f"or set demand_adjustment=False on Problem.solve."
             )
 
     def _build_X_D(self) -> Array:

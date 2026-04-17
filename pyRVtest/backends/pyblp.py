@@ -184,8 +184,10 @@ class PyBLPBackend:
         if weight_choice == 'updated_W':
             return self._results.updated_W
         raise ValueError(
-            f"options.demand_adjustment_weight must be 'W' or 'updated_W', "
-            f"got {weight_choice!r}."
+            f"Expected pyRVtest.options.demand_adjustment_weight to be 'W' "
+            f"(DMSS-correct) or 'updated_W' (legacy pre-b3b08a3 reproduction). "
+            f"Received {weight_choice!r}. "
+            f"Fix: set pyRVtest.options.demand_adjustment_weight = 'W'."
         )
 
     def xi_gradient(self) -> _NDArray:
@@ -327,7 +329,11 @@ class PyBLPBackend:
             else:
                 r._rho[i, 0] = r._rho[i, 0] + delta
         else:
-            raise ValueError(f"unknown parameter kind: {kind}")
+            raise ValueError(
+                f"pyRVtest internal error: expected parameter kind in "
+                f"{{'sigma', 'pi', 'beta', 'rho'}} for perturbation dispatch; "
+                f"received {kind!r}."
+            )
 
     def _recompute_delta(self) -> None:
         with contextlib.redirect_stdout(open(os.devnull, 'w')):

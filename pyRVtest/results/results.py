@@ -395,8 +395,10 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
 
         if not (0.0 < alpha < 1.0):
             raise ValueError(
-                f"alpha must lie strictly between 0 and 1 (got {alpha!r}). "
-                f"Typical values are 0.01, 0.05, 0.10."
+                f"Expected alpha to lie strictly in the open interval (0, 1). "
+                f"Received alpha={alpha!r}. "
+                f"Fix: pass a two-sided significance level such as 0.01, 0.05, "
+                f"or 0.10."
             )
 
         L = self._number_of_instrument_sets()

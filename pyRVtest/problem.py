@@ -59,9 +59,11 @@ def _normalize_demand_params_rho(demand_params: dict) -> dict:
     has_sigma = 'sigma' in demand_params
     if has_rho and has_sigma:
         raise TypeError(
-            "demand_params cannot contain both 'rho' and 'sigma'. 'rho' is "
-            "the canonical key; 'sigma' is a deprecated alias. Pass one or "
-            "the other, not both."
+            "Expected demand_params to contain at most one of 'rho' or 'sigma'. "
+            "Received both keys; demand_params cannot contain both 'rho' and "
+            "'sigma' ('rho' is canonical; 'sigma' is a deprecated alias). "
+            "Fix: drop 'sigma' and keep 'rho' (they have identical semantics); "
+            "'sigma' will be removed in v0.6."
         )
     normalized = dict(demand_params)
     if has_sigma and not has_rho:
@@ -235,16 +237,30 @@ class Models(object):
             elif isinstance(entry, ModelFormulation):
                 normalized.append(from_model_formulation(entry))
             elif entry is None:
-                raise TypeError(f"models[{i}] is None; all entries must be ConductModel, Vertical, or ModelFormulation.")
+                raise TypeError(
+                    f"Expected every entry of models to be a ConductModel, "
+                    f"Vertical, or ModelFormulation instance. "
+                    f"Received models[{i}] = None. "
+                    f"Fix: replace the None entry with a conduct-model instance "
+                    f"(e.g., pyRVtest.Bertrand(ownership='firm_ids'))."
+                )
             else:
                 raise TypeError(
-                    f"models[{i}] must be a ConductModel, Vertical, or ModelFormulation instance; "
-                    f"got {type(entry).__name__}."
+                    f"Expected every entry of models to be a ConductModel, "
+                    f"Vertical, or ModelFormulation instance. "
+                    f"Received models[{i}] of type {type(entry).__name__}. "
+                    f"Fix: wrap the specification in the appropriate class "
+                    f"(Bertrand, Cournot, Monopoly, Vertical, etc.)."
                 )
 
         M = len(normalized)
         if M < 1:
-            raise ValueError("At least one model must be specified.")
+            raise ValueError(
+                "Expected at least one candidate model in models. "
+                "Received an empty sequence. "
+                "Fix: pass models=[Bertrand(...), Cournot(...)] (or similar) "
+                "with at least one ConductModel entry."
+            )
         N = product_data.shape[0]
 
         # initialize per-model fields
@@ -474,8 +490,10 @@ class Problem(Container, StringRepresentation):
         # type.
         if models is not None and model_formulations is not None:
             raise TypeError(
-                "Specify either `models=` (new class-based API) or "
-                "`model_formulations=` (legacy string-based API), not both."
+                "Expected exactly one of `models=` (class-based, preferred) or "
+                "`model_formulations=` (legacy string-based) to be set, not both. "
+                "Received both. "
+                "Fix: pass only one; prefer models=[Bertrand(...), ...] for new code."
             )
         if models is None and model_formulations is not None:
             from .models._adapter import from_model_formulations
@@ -489,13 +507,30 @@ class Problem(Container, StringRepresentation):
 
         # Validate demand_params
         if demand_params is not None and demand_results is not None:
-            raise ValueError("Specify demand_params or demand_results, not both.")
+            raise ValueError(
+                "Expected exactly one of demand_params (analytical path) or "
+                "demand_results (pyblp path) to be set, not both. "
+                "Received both. "
+                "Fix: pass only one; use demand_params={...} for the analytical "
+                "logit/nested-logit path, or demand_results=<pyblp.ProblemResults> "
+                "for pyblp-driven BLP / nested-logit estimation."
+            )
         if demand_params is not None:
             if 'alpha' not in demand_params:
-                raise ValueError("demand_params must contain 'alpha' (price coefficient).")
+                raise ValueError(
+                    "Expected demand_params to contain an 'alpha' key (the price "
+                    "coefficient from demand estimation). "
+                    "Received demand_params without 'alpha'. "
+                    "Fix: include 'alpha': <estimated negative price coefficient>."
+                )
             alpha = demand_params['alpha']
             if not isinstance(alpha, (int, float)) or alpha >= 0:
-                raise ValueError("demand_params['alpha'] must be a negative number.")
+                raise ValueError(
+                    f"Expected demand_params['alpha'] to be a negative real number "
+                    f"(for downward-sloping demand). "
+                    f"Received {alpha!r}. "
+                    f"Fix: pass the estimated price coefficient, which must be < 0."
+                )
             # v0.4 step 6b: 'rho' is the canonical nested-logit parameter name
             # (aligns with pyblp). 'sigma' remains accepted as a deprecated
             # alias for backwards compatibility; emit a DeprecationWarning once
@@ -504,21 +539,32 @@ class Problem(Container, StringRepresentation):
             sigma = demand_params.get('sigma', [])
             if not isinstance(sigma, (list, tuple)):
                 raise TypeError(
-                    "demand_params['rho'] must be a list of nesting parameters "
-                    "(or demand_params['sigma'], the deprecated alias)."
+                    f"Expected demand_params['rho'] (or the deprecated alias "
+                    f"'sigma') to be a list or tuple of nesting parameters. "
+                    f"Received {type(sigma).__name__}. "
+                    f"Fix: pass demand_params['rho']=[] for plain logit or "
+                    f"[<rho_level>, ...] for nested logit."
                 )
             for i, s_val in enumerate(sigma):
                 if s_val < 0 or s_val >= 1:
                     raise ValueError(
-                        f"demand_params['sigma'][{i}] = {s_val} out of range [0, 1). "
-                        f"sigma = 0 is plain logit (Berry 1994 convention)."
+                        f"Expected every nesting parameter in "
+                        f"demand_params['sigma'] to lie in [0, 1). "
+                        f"Received demand_params['sigma'][{i}] = {s_val} "
+                        f"(out of range [0, 1)). "
+                        f"Fix: use 0 for plain logit (Berry 1994 convention) or "
+                        f"a value in [0, 1) for nested logit."
                     )
 
         if markup_data is None:
             if models is None:
                 raise TypeError(
-                    "Either `models=` (class-based) or `model_formulations=` "
-                    "(legacy) must be provided when markup_data is None."
+                    "Expected either `models=` (class-based) or "
+                    "`model_formulations=` (legacy) when markup_data is None, "
+                    "so that pyRVtest can compute markups from the conduct models. "
+                    "Received both as None. "
+                    "Fix: pass models=[Bertrand(...), ...] or supply precomputed "
+                    "markup_data yourself."
                 )
             M = len(models)
         else:
@@ -530,29 +576,56 @@ class Problem(Container, StringRepresentation):
             L = 1
 
         if not isinstance(cost_formulation, Formulation):
-            raise TypeError("cost_formulation must be a single Formulation instance.")
+            raise TypeError(
+                f"Expected cost_formulation to be a single pyRVtest.Formulation. "
+                f"Received {type(cost_formulation).__name__}. "
+                f"Fix: pass cost_formulation=Formulation('0 + <cost-shifters>')."
+            )
 
         if L == 1:
             if not isinstance(instrument_formulation, Formulation):
-                raise TypeError("instrument_formulation must be a single Formulation instance.")
+                raise TypeError(
+                    f"Expected instrument_formulation to be a single pyRVtest.Formulation "
+                    f"when only one instrument set is provided. "
+                    f"Received {type(instrument_formulation).__name__}. "
+                    f"Fix: pass instrument_formulation=Formulation('0 + <instruments>')."
+                )
         elif L > 1:
             if not all(isinstance(f, Formulation) for f in instrument_formulation):
-                raise TypeError("Each formulation in instrument_formulation must be a Formulation.")
+                raise TypeError(
+                    "Expected every entry in instrument_formulation to be a "
+                    "pyRVtest.Formulation instance. "
+                    "Received a sequence containing non-Formulation values. "
+                    "Fix: wrap each instrument-set formula in Formulation(...)."
+                )
 
         if endogenous_cost_component is not None:
             if not isinstance(endogenous_cost_component, str):
-                raise TypeError("endogenous_cost_component must be a string column name.")
+                raise TypeError(
+                    f"Expected endogenous_cost_component to be a column-name string. "
+                    f"Received {type(endogenous_cost_component).__name__}. "
+                    f"Fix: pass the column name as a string."
+                )
             _, w_formulation_check, _ = cost_formulation._build_matrix(product_data)
             endog_terms = [f for f in w_formulation_check if endogenous_cost_component in f.names]
             if not endog_terms:
                 raise ValueError(
-                    f"endogenous_cost_component '{endogenous_cost_component}' must appear in cost_formulation."
+                    f"Expected endogenous_cost_component to appear in cost_formulation. "
+                    f"Received endogenous_cost_component={endogenous_cost_component!r} "
+                    f"but the parsed cost_formulation has no matching term. "
+                    f"Fix: include '{endogenous_cost_component}' in cost_formulation "
+                    f"(e.g., Formulation('0 + {endogenous_cost_component} + ...'))."
                 )
             for f in endog_terms:
                 if str(f) != endogenous_cost_component:
                     raise ValueError(
-                        f"endogenous_cost_component '{endogenous_cost_component}' must enter cost_formulation "
-                        f"linearly (no interactions or transformations). Found term: '{f}'."
+                        f"Expected endogenous_cost_component to enter "
+                        f"cost_formulation linearly (no interactions or "
+                        f"transformations). "
+                        f"Received the term {str(f)!r} for "
+                        f"endogenous_cost_component={endogenous_cost_component!r}. "
+                        f"Fix: split the nonlinear term out of cost_formulation "
+                        f"and include the plain linear column."
                     )
 
         products = Products(
@@ -616,17 +689,22 @@ class Problem(Container, StringRepresentation):
 
         if max(options.collinear_atol, options.collinear_rtol) > 0:
             cost_shifters = self.products.w
-            common_message = "To disable collinearity checks, set options.collinear_atol = options.collinear_rtol = 0."
+            fix_hint = (
+                "Fix: drop one of the collinear columns, or set "
+                "options.collinear_atol = options.collinear_rtol = 0 to disable the check."
+            )
             collinear, successful = precisely_identify_collinearity(cost_shifters)
             if not successful:
                 raise ValueError(
-                    f"Failed to compute the QR decomposition of w while checking for collinearity issues. "
-                    f"{common_message}"
+                    "Expected the cost-shifter matrix w to admit a QR "
+                    "decomposition for the collinearity diagnostic. "
+                    "Received a matrix that QR could not factor (likely due to "
+                    "NaN / inf entries). " + fix_hint
                 )
             if collinear.any():
                 raise ValueError(
-                    f"Detected collinearity issues with w. "
-                    f"{common_message}"
+                    "Expected the cost-shifter matrix w to be full column rank. "
+                    "Received a matrix with collinear columns. " + fix_hint
                 )
             for instrument in range(self.L):
                 cost_shifters = self.products.w
@@ -634,14 +712,15 @@ class Problem(Container, StringRepresentation):
                 collinear, successful = precisely_identify_collinearity(cost_shifters)
                 if not successful:
                     raise ValueError(
-                        f"Failed to compute the QR decomposition of [w,z" + str(instrument) + "] while checking for "
-                        f"collinearity issues. "
-                        f"{common_message}"
+                        f"Expected the stacked [w, z{instrument}] matrix to admit "
+                        f"a QR decomposition for the collinearity diagnostic. "
+                        f"Received a matrix that QR could not factor. " + fix_hint
                     )
                 if collinear.any():
                     raise ValueError(
-                        f"Detected collinearity issues with [w,z" + str(instrument) + "]."
-                        f"{common_message}"
+                        f"Expected the stacked [w, z{instrument}] matrix to be "
+                        f"full column rank. "
+                        f"Received a matrix with collinear columns. " + fix_hint
                     )
 
         output(f"Initialized the problem after {format_seconds(time.time() - start_time)}.")
@@ -775,13 +854,24 @@ class Problem(Container, StringRepresentation):
 
         if costs_type == "log" and not demand_adjustment:
             if np.any(marginal_cost < 0):
-                raise ValueError("Can't generate log costs with negative marginal cost!")
+                raise ValueError(
+                    "Expected all implied marginal costs to be positive when "
+                    "costs_type='log' (log is undefined for <= 0). "
+                    "Received at least one negative marginal cost (price - markup < 0). "
+                    "Fix: switch to costs_type='linear', or inspect the candidate "
+                    "conduct models whose markups exceed price."
+                )
             marginal_cost = np.log(marginal_cost)
 
         if mc_correction is not None:
             if marginal_cost.shape != mc_correction.shape:
                 raise ValueError(
-                    "The dimensions of marginal cost correction don't match the dimensions of the marginal cost."
+                    f"Expected mc_correction to match the marginal-cost shape "
+                    f"(M, N). "
+                    f"Received mc_correction.shape={mc_correction.shape}, "
+                    f"marginal_cost.shape={marginal_cost.shape}. "
+                    f"Fix: pass an mc_correction array with the same shape as "
+                    f"problem.markups."
                 )
             marginal_cost = marginal_cost + mc_correction
 
@@ -892,11 +982,25 @@ class Problem(Container, StringRepresentation):
     def _validate_solve_args(self, demand_adjustment: bool, clustering_adjustment: bool) -> None:
         """Validate arguments passed to solve."""
         if not isinstance(demand_adjustment, bool):
-            raise TypeError("demand_adjustment must be a boolean (one of True or False).")
+            raise TypeError(
+                f"Expected demand_adjustment to be True or False. "
+                f"Received {type(demand_adjustment).__name__}. "
+                f"Fix: pass demand_adjustment=True or False."
+            )
         if not isinstance(clustering_adjustment, bool):
-            raise TypeError("clustering_adjustment must be a boolean (one of True or False).")
+            raise TypeError(
+                f"Expected clustering_adjustment to be True or False. "
+                f"Received {type(clustering_adjustment).__name__}. "
+                f"Fix: pass clustering_adjustment=True or False."
+            )
         if clustering_adjustment and np.shape(self.products.clustering_ids)[1] != 1:
-            raise ValueError("product_data.clustering_ids must be specified with clustering_adjustment True.")
+            raise ValueError(
+                "Expected product_data to contain a 'clustering_ids' column "
+                "when clustering_adjustment=True. "
+                "Received product_data without a (one-dimensional) clustering_ids column. "
+                "Fix: add 'clustering_ids' to product_data, or set "
+                "clustering_adjustment=False."
+            )
         # demand_adjustment + endogenous_cost_component is now supported; the gradient
         # accounts for the dependence of gamma_m on theta via per-instrument finite differences.
         if demand_adjustment and self.demand_params is not None:
@@ -911,15 +1015,26 @@ class Problem(Container, StringRepresentation):
                 missing.append('x_columns')
             if missing:
                 raise ValueError(
-                    f"demand_adjustment=True with demand_params requires: {', '.join(missing)}. "
-                    f"These are only needed for demand adjustment; omit them if demand_adjustment=False."
+                    f"Expected demand_params to carry demand-adjustment state "
+                    f"(beta, x_columns, demand_instrument_columns) when "
+                    f"Problem.solve(demand_adjustment=True) is called. "
+                    f"Received demand_params missing: {', '.join(missing)}. "
+                    f"Fix: add the missing keys to demand_params, or call "
+                    f"solve(demand_adjustment=False) (these inputs are only needed "
+                    f"for the first-stage correction)."
                 )
         for m in range(self.M):
             if self._models[m].user_supplied_markups is not None:
                 if demand_adjustment:
                     raise ValueError(
-                        "demand_adjustment is not supported with user-supplied markups, because the "
-                        "finite-difference gradient requires a demand system to perturb."
+                        "Expected no user-supplied markups when "
+                        "demand_adjustment=True (the finite-difference gradient "
+                        "needs a demand system to perturb, which user-supplied "
+                        "markups bypass). "
+                        "Received at least one model with user_supplied_markups set. "
+                        "Fix: set demand_adjustment=False when passing "
+                        "user_supplied_markups, or compute markups from a demand "
+                        "system instead."
                     )
 
     def _construct_demand_backend(self):
@@ -1100,7 +1215,10 @@ class Problem(Container, StringRepresentation):
             out['1'] = np.ones(len(any_col))
             return out
         raise TypeError(
-            f"Unsupported product_data type for intercept augmentation: {type(raw)}"
+            f"pyRVtest internal error: expected product_data to be a pandas "
+            f"DataFrame, a structured numpy array, or a dict-like mapping for "
+            f"intercept augmentation. "
+            f"Received {type(raw).__name__}."
         )
 
     def _perturb_and_build_markups(self):

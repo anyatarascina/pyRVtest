@@ -51,7 +51,7 @@ class PartialCollusion(Bertrand):
     >>> PartialCollusion(ownership='firm_ids')  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    TypeError: kappa_specification is required for PartialCollusion. ...
+    TypeError: Expected kappa_specification to define the profit-weight matrix ...
     """
 
     _model_name = 'bertrand'  # same math; only ownership construction differs
@@ -64,9 +64,13 @@ class PartialCollusion(Bertrand):
     ) -> None:
         if kappa_specification is None:
             raise TypeError(
-                "kappa_specification is required for PartialCollusion. For "
-                "standard Bertrand (kappa = identity) use Bertrand(...) "
-                "directly."
+                "Expected kappa_specification to define the profit-weight matrix "
+                "for the partial-collusion model; kappa_specification is "
+                "required for PartialCollusion. "
+                "Received kappa_specification=None. "
+                "Fix: pass kappa_specification='collusion_row' (or "
+                "'collusion_column', or a custom callable). For standard "
+                "Bertrand (kappa = identity) use Bertrand(...) directly."
             )
         super().__init__(
             ownership=ownership,
