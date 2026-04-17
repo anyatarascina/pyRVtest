@@ -25,6 +25,7 @@ from .markups import build_ownership, _compute_markups
 from .data import read_critical_values_tables
 from .products import Products
 from .results import ProblemResults, Progress
+from .solve.markups import compute as _markups_stage
 from .solve.orthogonalize import qr_residualize as _qr_residualize, residualize as _residualize_stage
 
 # v0.4 step 18: per-module logger. Emits INFO-level progress messages that
@@ -1219,25 +1220,14 @@ class Problem(Container, StringRepresentation):
         )
 
     def _perturb_and_build_markups(self):
-        """Call _compute_markups with this Problem's constructed backend.
+        """Build per-model markups using this Problem's demand backend.
 
-        v0.4 step 4g: after step 4f deleted the inline demand-adjustment
-        methods that mutated ``self.demand_results._sigma`` / ``._pi`` /
-        ``._beta`` / ``._rho`` directly, nothing mutates demand state behind
-        the backend's cache. Routing through ``self._demand_backend`` is
-        therefore safe: the cache is invalidated correctly by
-        ``backend.perturbed(...)`` everywhere it's used. Legacy
-        ``demand_jacobian`` / ``demand_alpha`` / ``demand_sigma`` kwargs on
-        ``_compute_markups`` are gone; ``compute_jacobian`` / ``compute_hessian``
-        on the backend subsume them.
+        Thin delegation to :func:`pyRVtest.solve.markups.compute` after
+        the v0.4 step 8b extraction. Kept as a method for backward-
+        compatible access from test fixtures and
+        :func:`pyRVtest.solve.passthrough.build_passthrough`.
         """
-        return _compute_markups(
-            self.products, self.demand_results, self.models["models_downstream"],
-            self.models["ownership_downstream"], self.models["models_upstream"],
-            self.models["ownership_upstream"], self.models["vertical_integration"],
-            self.models["custom_model_specification"], self.models["user_supplied_markups"],
-            self.models["mix_flag"], demand_backend=self._demand_backend,
-        )
+        return _markups_stage(self)
 
     def _prepare_orthogonal_variables(self, M: int, N: int, markups_effective: list, marginal_cost: Array):
         """Absorb fixed effects and residualize markups and marginal costs w.r.t. cost shifters.
