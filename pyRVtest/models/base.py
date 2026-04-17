@@ -61,6 +61,25 @@ class ConductModel:
         Tax column and payer specification (per-unit taxes and/or
         ad-valorem taxes). See Problem.solve for how taxes enter the
         effective markup.
+
+        .. deprecated:: v0.4
+            Per-model ``unit_tax`` / ``advalorem_tax`` /
+            ``advalorem_payer`` are kept for backward compatibility but
+            the preferred home for tax columns is at the Problem level
+            (``Problem(..., unit_tax='col', advalorem_tax='col',
+            advalorem_payer='firm')``). Use the salience flags
+            ``unit_tax_salient`` and ``advalorem_tax_salient`` on
+            individual models to opt out of a Problem-level tax for a
+            salience / non-salience test.
+    unit_tax_salient, advalorem_tax_salient : bool, optional
+        v0.4: opt-out flags for Problem-level taxes on a per-model
+        basis. Default is ``True`` (the model sees the Problem-level
+        tax). Setting to ``False`` makes this model ignore the
+        Problem-level tax while peers see it — the mechanism for
+        salience tests (``Bertrand()`` vs.
+        ``Bertrand(unit_tax_salient=False)`` under
+        ``Problem(..., unit_tax='col')``). Ignored if no Problem-level
+        tax is set (no-op).
     cost_scaling : str, float, int, optional
         Per-product cost-scaling factor :math:`\\lambda`. The effective
         markup becomes ``tax_adj / (1 + lambda) * markup`` and the
@@ -107,6 +126,8 @@ class ConductModel:
             cost_scaling: Optional[Union[str, float, int]] = None,
             vertical_integration: Optional[str] = None,
             mix_flag: Optional[str] = None,
+            unit_tax_salient: bool = True,
+            advalorem_tax_salient: bool = True,
     ) -> None:
         self.ownership = ownership
         self.kappa_specification = kappa_specification
@@ -117,6 +138,11 @@ class ConductModel:
         self.cost_scaling: Optional[Union[str, float, int]] = cost_scaling
         self.vertical_integration = vertical_integration
         self.mix_flag = mix_flag
+        # v0.4 OQ 14: per-model salience flags for Problem-level taxes.
+        # Default True means the model sees the Problem-level tax; False
+        # makes this model opt out (used for salience tests).
+        self.unit_tax_salient = unit_tax_salient
+        self.advalorem_tax_salient = advalorem_tax_salient
         self._validate_shared_config()
 
     def _validate_shared_config(self) -> None:
@@ -152,6 +178,25 @@ class ConductModel:
                 f"Expected advalorem_payer to be 'firm' or 'consumer' (or None). "
                 f"Received {self.advalorem_payer!r}. "
                 f"Fix: pass advalorem_payer='firm' or 'consumer'."
+            )
+        # v0.4 OQ 14: per-model salience flags must be booleans. Reject
+        # truthy-but-non-bool values (e.g. strings) with an actionable
+        # error so users don't accidentally pass column names here.
+        if not isinstance(self.unit_tax_salient, bool):
+            raise TypeError(
+                f"Expected unit_tax_salient to be True or False. "
+                f"Received {type(self.unit_tax_salient).__name__} "
+                f"({self.unit_tax_salient!r}). "
+                f"Fix: pass unit_tax_salient=True (the default, model "
+                f"sees Problem-level unit_tax) or False (opt out)."
+            )
+        if not isinstance(self.advalorem_tax_salient, bool):
+            raise TypeError(
+                f"Expected advalorem_tax_salient to be True or False. "
+                f"Received {type(self.advalorem_tax_salient).__name__} "
+                f"({self.advalorem_tax_salient!r}). "
+                f"Fix: pass advalorem_tax_salient=True (default, model "
+                f"sees Problem-level advalorem_tax) or False (opt out)."
             )
 
     # -----------------------------------------------------------------

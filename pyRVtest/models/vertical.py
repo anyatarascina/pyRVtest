@@ -60,6 +60,16 @@ class Vertical:
         upstream-markup combination logic.
     unit_tax, advalorem_tax, advalorem_payer, cost_scaling : str, optional
         Taxes / cost scaling applied to the combined vertical model.
+
+        .. deprecated:: v0.4
+            Prefer Problem-level taxes:
+            ``Problem(..., unit_tax='col', advalorem_tax='col',
+            advalorem_payer='firm')``. The model-level fields remain
+            for backward compatibility but emit a DeprecationWarning.
+    unit_tax_salient, advalorem_tax_salient : bool, optional
+        v0.4: opt-out flags for Problem-level taxes at the vertical
+        level. Default ``True``; set to ``False`` to make this Vertical
+        ignore the Problem-level tax (salience-test mechanism).
     user_supplied_markups : str, optional
         Column name of pre-computed total markups; if supplied, bypasses
         the conduct math entirely (for both tiers).
@@ -90,6 +100,8 @@ class Vertical:
             advalorem_payer: Optional[str] = None,
             cost_scaling: Optional[Union[str, float, int]] = None,
             user_supplied_markups: Optional[str] = None,
+            unit_tax_salient: bool = True,
+            advalorem_tax_salient: bool = True,
     ) -> None:
         if not isinstance(downstream, ConductModel):
             raise TypeError(
@@ -132,6 +144,9 @@ class Vertical:
         self.advalorem_payer = advalorem_payer
         self.cost_scaling = cost_scaling
         self.user_supplied_markups = user_supplied_markups
+        # v0.4 OQ 14: per-model salience flags for Problem-level taxes.
+        self.unit_tax_salient = unit_tax_salient
+        self.advalorem_tax_salient = advalorem_tax_salient
         self._validate_shared_config()
 
     def _validate_shared_config(self) -> None:
@@ -164,6 +179,23 @@ class Vertical:
                 f"Expected advalorem_payer to be 'firm' or 'consumer' (or None). "
                 f"Received {self.advalorem_payer!r}. "
                 f"Fix: pass advalorem_payer='firm' or 'consumer'."
+            )
+        # v0.4 OQ 14: per-model salience flags must be booleans.
+        if not isinstance(self.unit_tax_salient, bool):
+            raise TypeError(
+                f"Expected unit_tax_salient on Vertical(...) to be True or "
+                f"False. "
+                f"Received {type(self.unit_tax_salient).__name__} "
+                f"({self.unit_tax_salient!r}). "
+                f"Fix: pass unit_tax_salient=True (default) or False."
+            )
+        if not isinstance(self.advalorem_tax_salient, bool):
+            raise TypeError(
+                f"Expected advalorem_tax_salient on Vertical(...) to be "
+                f"True or False. "
+                f"Received {type(self.advalorem_tax_salient).__name__} "
+                f"({self.advalorem_tax_salient!r}). "
+                f"Fix: pass advalorem_tax_salient=True (default) or False."
             )
 
     def __repr__(self) -> str:

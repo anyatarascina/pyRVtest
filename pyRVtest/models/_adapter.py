@@ -64,6 +64,8 @@ def from_model_formulation(
             advalorem_payer=mf._advalorem_payer,
             cost_scaling=mf._cost_scaling,
             user_supplied_markups=mf._user_supplied_markups,
+            unit_tax_salient=mf._unit_tax_salient,
+            advalorem_tax_salient=mf._advalorem_tax_salient,
         )
     # Simple (non-vertical) case: all config lives on the one class.
     # ``model_downstream`` may be ``None`` here only when the caller relied on
@@ -85,6 +87,8 @@ def from_model_formulation(
         cost_scaling=mf._cost_scaling,
         vertical_integration=mf._vertical_integration,
         user_supplied_markups=mf._user_supplied_markups,
+        unit_tax_salient=mf._unit_tax_salient,
+        advalorem_tax_salient=mf._advalorem_tax_salient,
     )
 
 

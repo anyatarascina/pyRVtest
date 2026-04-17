@@ -166,6 +166,34 @@ v0.4 modulo one-line deprecation warnings.
 - **Minimal CI** (step 24.5). `.github/workflows/ci.yml` runs pytest on
   Ubuntu + Python 3.11 on every push and PR. `mypy --strict` and
   `pytest --doctest-modules` steps are active following steps 17 and 21.
+- **Problem-level taxes + per-model salience flags** (OQ 14). Pass
+  `unit_tax='col'`, `advalorem_tax='col'`, and
+  `advalorem_payer='firm'|'consumer'` directly on `Problem(...)` so the
+  tax lives on the DGP (where it belongs) rather than being repeated on
+  every candidate model. Individual models opt out via
+  `Bertrand(..., unit_tax_salient=False)` /
+  `advalorem_tax_salient=False` — the mechanism for salience tests
+  (e.g., comparing a salient-tax Bertrand to a non-salient-tax Bertrand
+  under the same Problem-level tax). Salience flags default to `True`;
+  if no Problem-level tax is set the flag is a no-op. The legacy
+  per-model `unit_tax` / `advalorem_tax` path still works and wins by
+  precedence when both are set (each emits a once-per-session
+  `DeprecationWarning` plus a separate conflict-warning when Problem-
+  level and model-level values disagree). 18 tests in
+  `tests/test_problem_level_taxes.py`.
+- **Known-coefficient cost shifters on `Formulation`** (OQ 14). The
+  `cost_formulation` now accepts a
+  `known_coefficients={'col': gamma, ...}` dict of cost shifters with
+  researcher-supplied (non-estimated) coefficients. They enter the
+  effective-price line in `Problem.solve`:
+  `prices_effective = advalorem_tax_adj * p / (1 + cost_scaling) -
+  unit_tax - sum(gamma_k * x_k)`, applied uniformly to every model
+  (these are DGP-level primitives, not behavioral choices). Per-unit
+  taxes are the leading special case; Dearing et al. (2026) work with
+  a broader class of such shifters. Validation at Formulation
+  construction time (dict type, finite numeric coefficients, no
+  overlap with the formula); column-existence check at
+  `Problem.__init__`. 16 tests in `tests/test_known_coefficients.py`.
 
 ### Changed
 
@@ -254,6 +282,14 @@ v0.4 modulo one-line deprecation warnings.
 - `pyRVtest.output.output()` is a logging-backed compatibility shim and
   emits a once-per-session `DeprecationWarning`. Use
   `logging.getLogger("your.module").info(...)` in new code.
+- **Per-model `unit_tax` / `advalorem_tax` / `advalorem_payer`** on
+  `ConductModel`, `Vertical`, and `ModelFormulation` are deprecated in
+  favor of the Problem-level kwargs. The model-level fields still work
+  (and win by legacy precedence when both are set) but emit a once-
+  per-session `DeprecationWarning`. Will be removed in v0.6. Migrate
+  by moving the tax column to `Problem(..., unit_tax='col', ...)` and
+  using `unit_tax_salient=False` on individual models for
+  salience-test opt-outs.
 
 ### Notes for coauthors
 

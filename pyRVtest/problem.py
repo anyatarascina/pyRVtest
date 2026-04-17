@@ -4,7 +4,7 @@ import abc
 import logging
 import time
 import warnings
-from typing import Any, Dict, Hashable, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Hashable, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from pyblp.utilities.algebra import precisely_identify_collinearity
@@ -53,6 +53,88 @@ _DEMAND_PARAMS_SIGMA_DEPRECATION_MSG = (
 # Problem.__init__ and we only want one warning per Python session regardless
 # of how many Problem() calls trigger it.
 _demand_params_sigma_deprecation_warned = False
+
+# v0.4 OQ 14: once-per-session flags for the model-level tax deprecations.
+# Kept in a set keyed by the warning kind so a user with 10 Bertrand instances
+# carrying a legacy unit_tax sees one warning rather than ten. Tests that
+# exercise the warning reset these before the call.
+_legacy_tax_deprecation_warned: set = set()
+
+_MODEL_UNIT_TAX_DEPRECATION_MSG = (
+    "Specifying unit_tax on an individual ConductModel / ModelFormulation / "
+    "Vertical is deprecated; pass unit_tax='col' at the Problem level "
+    "instead (the DGP defines the tax; models opt out for salience tests via "
+    "unit_tax_salient=False). Model-level unit_tax will be removed in v0.6. "
+    "See docs/migrating_to_v0.4.rst for the migration recipe."
+)
+
+_MODEL_ADVALOREM_TAX_DEPRECATION_MSG = (
+    "Specifying advalorem_tax / advalorem_payer on an individual ConductModel "
+    "/ ModelFormulation / Vertical is deprecated; pass advalorem_tax='col' "
+    "and advalorem_payer='firm'|'consumer' at the Problem level instead. "
+    "Model-level advalorem_tax will be removed in v0.6. See "
+    "docs/migrating_to_v0.4.rst."
+)
+
+_MODEL_TAX_CONFLICT_MSG_TEMPLATE = (
+    "Conflicting {field} specification: model-level {field}={model!r} wins "
+    "(legacy precedence) but Problem-level {field}={problem!r} was also set "
+    "and will be ignored for this model. Fix: drop the model-level {field} "
+    "and rely on the Problem-level value (use {field}_salient=False to opt "
+    "individual models out for salience tests)."
+)
+
+
+def _validate_problem_tax_kwargs(
+        unit_tax: Optional[str],
+        advalorem_tax: Optional[str],
+        advalorem_payer: Optional[str],
+) -> Optional[str]:
+    """Validate Problem-level tax kwargs introduced in v0.4 OQ 14.
+
+    Returns a normalized ``advalorem_payer`` (mapping ``'firms'`` ->
+    ``'firm'`` and ``'consumers'`` -> ``'consumer'`` for parity with the
+    per-model validator) or ``None``.
+    """
+    if unit_tax is not None and not isinstance(unit_tax, str):
+        raise ValidationError(
+            f"Expected Problem(unit_tax=...) to be a column-name string or None. "
+            f"Received {type(unit_tax).__name__} ({unit_tax!r}). "
+            f"Fix: pass the column name as a string, e.g. Problem(..., unit_tax='tax_col')."
+        )
+    if advalorem_tax is not None and not isinstance(advalorem_tax, str):
+        raise ValidationError(
+            f"Expected Problem(advalorem_tax=...) to be a column-name string or None. "
+            f"Received {type(advalorem_tax).__name__} ({advalorem_tax!r}). "
+            f"Fix: pass the column name as a string, e.g. Problem(..., advalorem_tax='vat_col')."
+        )
+    if advalorem_payer is not None and advalorem_payer not in {
+            'firm', 'consumer', 'firms', 'consumers'}:
+        raise ValidationError(
+            f"Expected Problem(advalorem_payer=...) to be 'firm' or 'consumer' (or None). "
+            f"Received {advalorem_payer!r}. "
+            f"Fix: pass advalorem_payer='firm' or 'consumer'."
+        )
+    if advalorem_tax is not None and advalorem_payer is None:
+        raise ValidationError(
+            "Expected Problem(advalorem_payer=...) to be 'firm' or 'consumer' when "
+            "Problem(advalorem_tax=...) is supplied. "
+            "Received advalorem_payer=None. "
+            "Fix: set advalorem_payer='firm' or 'consumer'."
+        )
+    if advalorem_tax is None and advalorem_payer is not None:
+        raise ValidationError(
+            "Expected Problem(advalorem_tax=...) to be supplied when "
+            "Problem(advalorem_payer=...) is set. "
+            "Received advalorem_payer without advalorem_tax. "
+            "Fix: drop advalorem_payer, or pair it with advalorem_tax='col'."
+        )
+    # Normalize plural forms to singular so the downstream resolver sees
+    # one canonical spelling ('firm'/'consumer').
+    if advalorem_payer is not None:
+        advalorem_payer = advalorem_payer.replace(
+            'consumers', 'consumer').replace('firms', 'firm')
+    return advalorem_payer
 
 
 def _normalize_demand_params_rho(demand_params: dict) -> dict:
@@ -525,6 +607,9 @@ class Models(object):
             cls,
             models: Sequence[Any],
             product_data: Mapping,
+            problem_unit_tax: Optional[str] = None,
+            problem_advalorem_tax: Optional[str] = None,
+            problem_advalorem_payer: Optional[str] = None,
     ) -> RecArray:
         """Structure model data for the pipeline.
 
@@ -535,6 +620,14 @@ class Models(object):
         ``from_model_formulation`` before calling here. Legacy
         ``ModelFormulation`` instances passed directly are accepted for
         backward compatibility (translated inline).
+
+        v0.4 OQ 14: accepts Problem-level tax kwargs
+        (``problem_unit_tax``, ``problem_advalorem_tax``,
+        ``problem_advalorem_payer``) that are applied to every model
+        with salience flag ``True``, per Scenarios 1-6 in the plan.
+        Model-level tax columns (the legacy path) still win by
+        precedence; when a model carries one, a once-per-session
+        :class:`DeprecationWarning` fires.
         """
         from .models import ConductModel, Vertical
         from .models._adapter import from_model_formulation
@@ -625,16 +718,71 @@ class Models(object):
             if config.vertical_integration is not None:
                 vertical_integration[m] = extract_matrix(product_data, config.vertical_integration)
                 vertical_integration_index[m] = config.vertical_integration
+            # v0.4 OQ 14: resolve effective tax source per model per the
+            # precedence in plan Scenarios 1-6:
+            #   1. legacy model-level unit_tax wins (with DeprecationWarning)
+            #   2. otherwise Problem-level unit_tax if unit_tax_salient
+            #   3. otherwise zero.
+            # ``config`` is either a ConductModel or a Vertical; both carry
+            # the ``unit_tax``, ``advalorem_tax``, ``advalorem_payer``, and
+            # the two salience flags.
+            unit_tax_salient = getattr(config, 'unit_tax_salient', True)
+            advalorem_tax_salient = getattr(config, 'advalorem_tax_salient', True)
+
             if config.unit_tax is not None:
+                # Legacy path; warn and honor precedence.
+                if 'unit_tax' not in _legacy_tax_deprecation_warned:
+                    warnings.warn(
+                        _MODEL_UNIT_TAX_DEPRECATION_MSG,
+                        DeprecationWarning,
+                        stacklevel=3,
+                    )
+                    _legacy_tax_deprecation_warned.add('unit_tax')
+                if problem_unit_tax is not None:
+                    # Extra warning: conflicting spec.
+                    warnings.warn(
+                        _MODEL_TAX_CONFLICT_MSG_TEMPLATE.format(
+                            field='unit_tax',
+                            model=config.unit_tax,
+                            problem=problem_unit_tax,
+                        ),
+                        DeprecationWarning,
+                        stacklevel=3,
+                    )
                 unit_tax[m] = extract_matrix(product_data, config.unit_tax)
                 unit_tax_name[m] = config.unit_tax
+            elif problem_unit_tax is not None and unit_tax_salient:
+                unit_tax[m] = extract_matrix(product_data, problem_unit_tax)
+                unit_tax_name[m] = problem_unit_tax
             else:
                 unit_tax[m] = np.zeros((N, 1))
+
             if config.advalorem_tax is not None:
+                if 'advalorem_tax' not in _legacy_tax_deprecation_warned:
+                    warnings.warn(
+                        _MODEL_ADVALOREM_TAX_DEPRECATION_MSG,
+                        DeprecationWarning,
+                        stacklevel=3,
+                    )
+                    _legacy_tax_deprecation_warned.add('advalorem_tax')
+                if problem_advalorem_tax is not None:
+                    warnings.warn(
+                        _MODEL_TAX_CONFLICT_MSG_TEMPLATE.format(
+                            field='advalorem_tax',
+                            model=config.advalorem_tax,
+                            problem=problem_advalorem_tax,
+                        ),
+                        DeprecationWarning,
+                        stacklevel=3,
+                    )
                 advalorem_tax[m] = extract_matrix(product_data, config.advalorem_tax)
                 advalorem_tax_name[m] = config.advalorem_tax
                 payer = config.advalorem_payer.replace('consumers', 'consumer').replace('firms', 'firm')
                 advalorem_payer[m] = payer
+            elif problem_advalorem_tax is not None and advalorem_tax_salient:
+                advalorem_tax[m] = extract_matrix(product_data, problem_advalorem_tax)
+                advalorem_tax_name[m] = problem_advalorem_tax
+                advalorem_payer[m] = problem_advalorem_payer
             else:
                 advalorem_tax[m] = np.zeros((N, 1))
             if config.cost_scaling is not None:
@@ -821,7 +969,10 @@ class Problem(Container, StringRepresentation):
             demand_params: Optional[dict] = None,
             models: Optional[Sequence[Any]] = None,
             market_side: str = 'product',
-            column_names: Optional[Mapping[str, str]] = None) -> None:
+            column_names: Optional[Mapping[str, str]] = None,
+            unit_tax: Optional[str] = None,
+            advalorem_tax: Optional[str] = None,
+            advalorem_payer: Optional[str] = None) -> None:
         """Initialize the underlying economy with product and agent data before absorbing fixed effects.
 
         v0.4 step 14c adds two labor-side keyword arguments:
@@ -840,6 +991,22 @@ class Problem(Container, StringRepresentation):
             Override labor-side column-name defaults. Accepts
             ``{'price': '<wage-col>', 'shares': '<employment-share-col>'}``.
             Only meaningful when ``market_side='labor'``.
+
+        v0.4 OQ 14 adds Problem-level tax arguments:
+
+        unit_tax : str, optional
+            Column name in ``product_data`` holding per-unit taxes.
+            When set, every model inherits this tax unless the model
+            opts out via ``unit_tax_salient=False`` (the salience-test
+            mechanism).
+        advalorem_tax : str, optional
+            Column name holding ad-valorem tax rates (fractions).
+            Inherited by every model by default; individual models can
+            opt out via ``advalorem_tax_salient=False``.
+        advalorem_payer : str, optional
+            ``'firm'`` or ``'consumer'``. Required when
+            ``advalorem_tax`` is set; indicates who remits the
+            ad-valorem tax.
         """
 
         logger.info("Initializing the problem ...")
@@ -1034,11 +1201,82 @@ class Problem(Container, StringRepresentation):
                         f"and include the plain linear column."
                     )
 
+        # v0.4 OQ 14: Problem-level tax validation. Normalize the payer
+        # string (maps 'firms' -> 'firm', 'consumers' -> 'consumer') so
+        # downstream code sees one canonical spelling.
+        advalorem_payer = _validate_problem_tax_kwargs(
+            unit_tax=unit_tax,
+            advalorem_tax=advalorem_tax,
+            advalorem_payer=advalorem_payer,
+        )
+        # Column-existence checks: do them here (not in the validator)
+        # because product_data is first available inside __init__.
+        if unit_tax is not None and extract_matrix(product_data, unit_tax) is None:
+            raise ValidationError(
+                f"Expected product_data to contain the Problem-level "
+                f"unit_tax column {unit_tax!r}. "
+                f"Received product_data without that key. "
+                f"Fix: add the column, or drop Problem(unit_tax=...)."
+            )
+        if advalorem_tax is not None and extract_matrix(product_data, advalorem_tax) is None:
+            raise ValidationError(
+                f"Expected product_data to contain the Problem-level "
+                f"advalorem_tax column {advalorem_tax!r}. "
+                f"Received product_data without that key. "
+                f"Fix: add the column, or drop Problem(advalorem_tax=...)."
+            )
+
+        # v0.4 OQ 14: resolve known-coefficient cost shifters from the
+        # cost formulation. The validator on Formulation already checked
+        # types; here we check column existence in product_data and the
+        # no-overlap-with-parsed-formula invariant. Store the resolved
+        # arrays for prices_effective to consume.
+        known_coef_arrays: List[Tuple[str, float, Array]] = []
+        known_coefs = getattr(cost_formulation, 'known_coefficients', {}) or {}
+        if known_coefs:
+            # Authoritative check against parsed formula term names.
+            _, w_formulation_parsed, _ = cost_formulation._build_matrix(product_data)
+            formula_term_names: set = set()
+            for term in w_formulation_parsed:
+                formula_term_names.update(term.names)
+            for col, coef in known_coefs.items():
+                if col in formula_term_names:
+                    raise ValidationError(
+                        f"Expected known_coefficients[{col!r}] to name a "
+                        f"column that is NOT already a parsed term in "
+                        f"cost_formulation. "
+                        f"Received {col!r} both in known_coefficients and "
+                        f"as a parsed term of the formula. "
+                        f"Fix: drop {col!r} from the formula (the "
+                        f"known-coefficient mechanism adds it at a fixed "
+                        f"coefficient), or drop it from "
+                        f"known_coefficients."
+                    )
+                arr = extract_matrix(product_data, col)
+                if arr is None:
+                    raise ValidationError(
+                        f"Expected product_data to contain the "
+                        f"known-coefficient column {col!r} referenced "
+                        f"by cost_formulation.known_coefficients. "
+                        f"Received product_data without that key. "
+                        f"Fix: add the column to product_data, or drop "
+                        f"{col!r} from known_coefficients."
+                    )
+                # Promote to (N, 1) column; extract_matrix already does
+                # this when the value is a 1-D vector, but be defensive.
+                arr = np.asarray(arr, dtype=options.dtype).reshape(-1, 1)
+                known_coef_arrays.append((col, float(coef), arr))
+
         products = Products(
             cost_formulation=cost_formulation, instrument_formulation=instrument_formulation, product_data=product_data
         )
         if markup_data is None:
-            models_recarray = Models(models=models, product_data=product_data)
+            models_recarray = Models(
+                models=models, product_data=product_data,
+                problem_unit_tax=unit_tax,
+                problem_advalorem_tax=advalorem_tax,
+                problem_advalorem_payer=advalorem_payer,
+            )
             markups = [None] * M
         else:
             models_recarray = None
@@ -1048,6 +1286,15 @@ class Problem(Container, StringRepresentation):
 
         self.cost_formulation = cost_formulation
         self.instrument_formulation = instrument_formulation
+        # v0.4 OQ 14: keep Problem-level tax kwargs on self for repr /
+        # inspection / downstream bookkeeping. Stored in normalized form.
+        self._problem_unit_tax: Optional[str] = unit_tax
+        self._problem_advalorem_tax: Optional[str] = advalorem_tax
+        self._problem_advalorem_payer: Optional[str] = advalorem_payer
+        # v0.4 OQ 14: resolved known-coefficient shifters consumed in
+        # Problem.solve's prices_effective computation. List of
+        # (column_name, gamma, (N, 1) array) tuples.
+        self._known_coefficient_shifters: List[Tuple[str, float, Array]] = known_coef_arrays
         # Public attribute `model_formulations` kept for backward-compat callers
         # that inspect it; holds the legacy tuple when the user supplied one,
         # else None. The canonical internal representation is the ConductModel
@@ -1264,10 +1511,22 @@ class Problem(Container, StringRepresentation):
         unit_tax = self.models["unit_tax"]
         advalorem_tax = self.models["advalorem_tax"]
         cost_scaling = self.models["cost_scaling"]
+        # v0.4 OQ 14: sum of known-coefficient cost shifters (gamma_k *
+        # x_k). Applied uniformly to every model m: known-coefficient
+        # shifters are DGP-level (Dearing et al. 2026), not model-level
+        # behavioral choices, so they do not carry a salience flag.
+        # Summed once outside the model loop for efficiency.
+        known_coef_sum = None
+        if self._known_coefficient_shifters:
+            known_coef_sum = sum(
+                coef * arr for (_col, coef, arr) in self._known_coefficient_shifters
+            )
         for m in range(M):
             condition = self.models["advalorem_payer"][m] == "consumer"
             advalorem_tax_adj[m] = 1 / (1 + advalorem_tax[m]) if condition else (1 - advalorem_tax[m])
             prices_effective[m] = (advalorem_tax_adj[m] * self.products.prices / (1 + cost_scaling[m]) - unit_tax[m])
+            if known_coef_sum is not None:
+                prices_effective[m] = prices_effective[m] - known_coef_sum
             markups_effective[m] = (advalorem_tax_adj[m] / (1 + cost_scaling[m])) * markups[m]
             marginal_cost[m] = prices_effective[m] - markups_effective[m]
 

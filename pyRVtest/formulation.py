@@ -3,11 +3,168 @@
 import warnings
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Type, Union
 
-from pyblp.utilities.basics import Array
-from pyblp.configurations.formulation import Absorb, Formulation  # noqa: F401
+import numpy as np
+
+from pyblp.utilities.basics import Array  # noqa: F401
+from pyblp.configurations.formulation import Absorb, Formulation as _PyblpFormulation
+
+from .exceptions import ValidationError
 
 
 __all__ = ['Absorb', 'Formulation', 'ModelFormulation']
+
+
+class Formulation(_PyblpFormulation):  # type: ignore[misc]  # pyblp has no stubs
+    r"""pyRVtest Formulation: PyBLP's Formulation plus known-coefficient cost shifters.
+
+    pyRVtest subclasses :class:`pyblp.Formulation` to add
+    ``known_coefficients``, a v0.4 OQ 14 addition that lets users
+    specify cost shifters with known (non-estimated) coefficients.
+    These shifters enter the effective-price computation in
+    :meth:`Problem.solve` directly, in the same slot as per-unit
+    taxes: ``prices_effective = advalorem_tax_adj * p / (1 +
+    cost_scaling) - unit_tax - sum(gamma_k * known_shifter_k)``.
+
+    Unlike regular cost shifters in the formula string (which are
+    estimated into the cost function and residualized out), known-
+    coefficient shifters enter with a coefficient supplied by the
+    researcher. Dearing, Magnolfi, Quint, Sullivan, and Waldfogel
+    (2026) work with a general class of such shifters; per-unit taxes
+    are the leading special case.
+
+    Parameters
+    ----------
+    formula : str
+        R-style formula; same semantics as :class:`pyblp.Formulation`.
+    absorb : str, optional
+        Forwarded to :class:`pyblp.Formulation`.
+    absorb_method : str, optional
+        Forwarded to :class:`pyblp.Formulation`.
+    absorb_options : dict, optional
+        Forwarded to :class:`pyblp.Formulation`.
+    known_coefficients : dict, optional
+        Mapping from column name (str) to numeric scalar coefficient
+        ``gamma_k``. Each column in ``known_coefficients`` must be in
+        ``product_data`` (checked when ``Problem`` is constructed;
+        ``Formulation`` alone does not know the data). Columns must
+        NOT appear in ``formula`` — doing so is redundant and would
+        specify two coefficients for the same column. Values must be
+        finite.
+
+    Examples
+    --------
+    >>> from pyRVtest import Formulation
+    >>> f = Formulation('0 + w', known_coefficients={'input_price': 0.75})
+    >>> f.known_coefficients
+    {'input_price': 0.75}
+    """
+
+    def __init__(
+            self,
+            formula: str,
+            absorb: Optional[str] = None,
+            absorb_method: Optional[str] = None,
+            absorb_options: Optional[Mapping[str, Any]] = None,
+            known_coefficients: Optional[Dict[str, Union[float, int]]] = None,
+    ) -> None:
+        super().__init__(
+            formula=formula,
+            absorb=absorb,
+            absorb_method=absorb_method,
+            absorb_options=absorb_options,
+        )
+        self.known_coefficients: Dict[str, float] = _validate_known_coefficients(
+            known_coefficients, formula,
+        )
+
+
+def _validate_known_coefficients(
+        known_coefficients: Optional[Dict[str, Union[float, int]]],
+        formula: str,
+) -> Dict[str, float]:
+    """Validate ``known_coefficients`` at ``Formulation`` construction.
+
+    Returns a new dict of str-keyed float values. An unset / ``None`` /
+    empty dict resolves to an empty dict. This function checks types
+    and numeric finiteness; the column-existence check lives at
+    ``Problem.__init__`` where ``product_data`` is available, and the
+    no-overlap-with-formula check below is a lightweight textual
+    heuristic (full patsy-term inspection also runs at
+    ``Problem.__init__`` via ``cost_formulation._build_matrix``).
+    """
+    if known_coefficients is None:
+        return {}
+    if not isinstance(known_coefficients, dict):
+        raise ValidationError(
+            f"Expected known_coefficients to be a dict of "
+            f"{{column_name: coefficient}}. "
+            f"Received {type(known_coefficients).__name__} "
+            f"({known_coefficients!r}). "
+            f"Fix: pass known_coefficients={{'col': 0.75}} or omit the "
+            f"argument."
+        )
+    validated: Dict[str, float] = {}
+    for col, coef in known_coefficients.items():
+        if not isinstance(col, str) or not col:
+            raise ValidationError(
+                f"Expected every key of known_coefficients to be a "
+                f"non-empty column-name string. "
+                f"Received {col!r} (type "
+                f"{type(col).__name__}). "
+                f"Fix: use the name of the column in product_data as "
+                f"a string key."
+            )
+        # Reject bool explicitly (isinstance(True, int) is True).
+        if isinstance(coef, bool) or not isinstance(coef, (int, float)):
+            raise ValidationError(
+                f"Expected known_coefficients[{col!r}] to be a numeric "
+                f"scalar (float or int). "
+                f"Received {type(coef).__name__} ({coef!r}). "
+                f"Fix: pass a numeric coefficient, e.g. "
+                f"known_coefficients={{{col!r}: 1.0}}."
+            )
+        if not np.isfinite(coef):
+            raise ValidationError(
+                f"Expected known_coefficients[{col!r}] to be a finite "
+                f"numeric scalar. "
+                f"Received {coef!r}. "
+                f"Fix: pass a finite numeric coefficient."
+            )
+        # Textual heuristic: bail early when a known-coef column is
+        # obviously already a term in the formula (matches whole-word).
+        # Full validation happens against parsed terms at
+        # Problem.__init__ time (see problem.py).
+        if _column_in_formula_literal(col, formula):
+            raise ValidationError(
+                f"Expected known_coefficients[{col!r}] to name a "
+                f"column that is NOT already a term in the formula "
+                f"{formula!r} (specifying both would double-count "
+                f"the column). "
+                f"Received {col!r} both in known_coefficients and in "
+                f"the formula. "
+                f"Fix: drop {col!r} from the formula (the "
+                f"known-coefficient mechanism adds it at a fixed "
+                f"coefficient), or drop it from known_coefficients "
+                f"(the formula estimates a free coefficient)."
+            )
+        validated[col] = float(coef)
+    return validated
+
+
+def _column_in_formula_literal(col: str, formula: str) -> bool:
+    """Heuristic: does ``col`` appear as a whole-word token in ``formula``?
+
+    Catches the common error case where a user writes
+    ``Formulation('0 + input_price', known_coefficients={'input_price': 1})``.
+    Not exhaustive (a parsed patsy term with an ``I(input_price**2)``
+    wrapper would evade this); the authoritative check lives at
+    ``Problem.__init__`` against the parsed ColumnFormulation names,
+    but catching the easy case here gives users a clean
+    ``Formulation(...)`` error rather than a ``Problem(...)`` one.
+    """
+    import re
+    pattern = r'(?<![A-Za-z0-9_])' + re.escape(col) + r'(?![A-Za-z0-9_])'
+    return re.search(pattern, formula) is not None
 
 
 _MODELFORMULATION_DEPRECATION_MSG = (
@@ -108,6 +265,8 @@ class ModelFormulation(object):
     _kappa_specification_upstream: Optional[Union[str, Callable[[Any, Any], float]]]
     _user_supplied_markups: Optional[str]
     _mix_flag: Optional[str]
+    _unit_tax_salient: bool
+    _advalorem_tax_salient: bool
 
     # v0.4 step 5c: once-per-session DeprecationWarning. Class-level flag so
     # the warning fires on the first ModelFormulation construction of the
@@ -123,7 +282,8 @@ class ModelFormulation(object):
             cost_scaling: Optional[str] = None,
             kappa_specification_downstream: Optional[Union[str, Callable[[Any, Any], float]]] = None,
             kappa_specification_upstream: Optional[Union[str, Callable[[Any, Any], float]]] = None,
-            user_supplied_markups: Optional[str] = None, mix_flag: Optional[str] = None) -> None:
+            user_supplied_markups: Optional[str] = None, mix_flag: Optional[str] = None,
+            unit_tax_salient: bool = True, advalorem_tax_salient: bool = True) -> None:
         """Parse the formula into patsy terms and SymPy expressions. In the process, validate it as much as possible
         without any data.
         """
@@ -247,6 +407,21 @@ class ModelFormulation(object):
                 f"Received mix_flag={mix_flag!r} with model_downstream={model_downstream!r}. "
                 f"Fix: drop mix_flag, or set model_downstream='mix_cournot_bertrand'."
             )
+        # v0.4 OQ 14: per-model salience flags for Problem-level taxes.
+        if not isinstance(unit_tax_salient, bool):
+            raise TypeError(
+                f"Expected unit_tax_salient to be True or False. "
+                f"Received {type(unit_tax_salient).__name__} "
+                f"({unit_tax_salient!r}). "
+                f"Fix: pass unit_tax_salient=True (default) or False."
+            )
+        if not isinstance(advalorem_tax_salient, bool):
+            raise TypeError(
+                f"Expected advalorem_tax_salient to be True or False. "
+                f"Received {type(advalorem_tax_salient).__name__} "
+                f"({advalorem_tax_salient!r}). "
+                f"Fix: pass advalorem_tax_salient=True (default) or False."
+            )
         if model_downstream == 'other' and custom_model_specification is None and user_supplied_markups is None:
             raise TypeError(
                 "Expected custom_model_specification (or user_supplied_markups) "
@@ -271,6 +446,8 @@ class ModelFormulation(object):
         self._cost_scaling = cost_scaling
         self._user_supplied_markups = user_supplied_markups
         self._mix_flag = mix_flag
+        self._unit_tax_salient = unit_tax_salient
+        self._advalorem_tax_salient = advalorem_tax_salient
 
     def __reduce__(self) -> Tuple[Type['ModelFormulation'], Tuple[Any, ...]]:
         """Handle pickling."""
@@ -282,6 +459,7 @@ class ModelFormulation(object):
             self._cost_scaling,
             self._kappa_specification_downstream, self._kappa_specification_upstream,
             self._user_supplied_markups, self._mix_flag,
+            self._unit_tax_salient, self._advalorem_tax_salient,
         ))
 
     def __str__(self) -> str:

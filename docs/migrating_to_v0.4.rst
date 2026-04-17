@@ -57,7 +57,7 @@ The migration rules
 4. For vertical models (``model_upstream`` set in the old API), use the ``Vertical(downstream=..., upstream=..., ...)`` wrapper; see :ref:`vertical-migration` below.
 5. ``kappa_specification_downstream=...`` becomes ``kappa_specification=...`` on the relevant class; use the dedicated ``PartialCollusion`` class for collusion-flavored ownership.
 6. ``custom_model_specification={name: callable}`` + ``model_downstream='other'`` becomes ``CustomConductModel(markup_fn=callable, name=name, ownership=...)``.
-7. Tax and cost-scaling kwargs (``unit_tax``, ``advalorem_tax``, ``advalorem_payer``, ``cost_scaling``, ``user_supplied_markups``) have the same names on the new classes.
+7. ``cost_scaling`` and ``user_supplied_markups`` keep the same name on the new classes. Per-unit and ad-valorem taxes (``unit_tax``, ``advalorem_tax``, ``advalorem_payer``) move from the model to the :class:`Problem` (v0.4 OQ 14); see the "Taxes and cost scaling" subsection below. The legacy per-model spelling still works and emits a ``DeprecationWarning``.
 
 Each case in detail
 -------------------
@@ -226,10 +226,20 @@ the combined vertical model.
 Taxes and cost scaling
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Tax kwargs (``unit_tax``, ``advalorem_tax``, ``advalorem_payer``,
-``cost_scaling``) keep the same names on the new classes. For single-tier
-conduct they live on the conduct class; for vertical they live on the
-``Vertical`` wrapper.
+v0.4 OQ 14 elevates tax kwargs (``unit_tax``, ``advalorem_tax``,
+``advalorem_payer``) to :class:`~pyRVtest.Problem`. Per-unit and
+ad-valorem taxes describe the data-generating process, not a firm's
+behavioral choice, so the DGP is the right home for them. Individual
+conduct models can opt out of Problem-level taxes for salience tests
+via the new ``unit_tax_salient`` and ``advalorem_tax_salient`` flags
+(both default to ``True``).
+
+The legacy per-model ``unit_tax`` / ``advalorem_tax`` /
+``advalorem_payer`` kwargs continue to work and win by precedence
+when both are set (each emits a ``DeprecationWarning`` pointing here).
+Expect them to be removed in v0.6. ``cost_scaling`` stays on the
+conduct model (or on :class:`~pyRVtest.Vertical` for bilateral
+oligopoly) because it is a behavioral primitive.
 
 v0.4 extends ``cost_scaling`` to accept either a column name in
 ``product_data`` (the v0.3 behavior, unchanged) **or** a numeric scalar
@@ -238,7 +248,7 @@ form is the foundation of the ergonomic
 :class:`~pyRVtest.RuleOfThumb` / :class:`~pyRVtest.Keystone` wrappers
 described below.
 
-**Before:**
+**Before (v0.3 — tax on every model):**
 
 .. code-block:: python
 
@@ -250,16 +260,74 @@ described below.
         cost_scaling='scale_col',
     )
 
-**After:**
+**Intermediate (v0.4 with legacy per-model taxes; deprecated, still works):**
 
 .. code-block:: python
 
     pyRVtest.Bertrand(
         ownership='firm_ids',
-        advalorem_tax='tax_rate_col',
+        advalorem_tax='tax_rate_col',  # deprecation warning
         advalorem_payer='firm',
         cost_scaling='scale_col',
     )
+
+**After (v0.4 preferred — tax on Problem, salience flag on model):**
+
+.. code-block:: python
+
+    problem = pyRVtest.Problem(
+        cost_formulation=...,
+        instrument_formulation=...,
+        product_data=product_data,
+        advalorem_tax='tax_rate_col',
+        advalorem_payer='firm',
+        models=[
+            pyRVtest.Bertrand(ownership='firm_ids', cost_scaling='scale_col'),
+            pyRVtest.Cournot(ownership='firm_ids', cost_scaling='scale_col'),
+            # Salience test: same Bertrand model, but this instance
+            # ignores the ad-valorem tax:
+            pyRVtest.Bertrand(
+                ownership='firm_ids', cost_scaling='scale_col',
+                advalorem_tax_salient=False,
+            ),
+        ],
+    )
+
+The Problem-level tax is applied to every model with the salience
+flag set to its default ``True``; the third model opts out, so its
+implied marginal cost differs even though its raw Bertrand markup is
+identical.
+
+Known-coefficient cost shifters
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+v0.4 OQ 14 also adds a ``known_coefficients`` kwarg on
+:class:`~pyRVtest.Formulation`. Cost shifters with researcher-supplied
+(non-estimated) coefficients enter the effective-price line directly:
+
+.. math::
+
+    \texttt{prices\_effective} = \frac{\tau_{\text{av}} \cdot p}
+    {1 + \lambda} - \tau_{\text{unit}}
+    - \sum_k \gamma_k \cdot x_k
+
+where :math:`(x_k, \gamma_k)` are the known-coefficient column and
+coefficient. Per-unit taxes are the leading special case
+(``known_coefficients={'tax_col': 1.0}`` is equivalent to
+``Problem(unit_tax='tax_col')``). Dearing et al. (2026) work with a
+broader class of such shifters.
+
+.. code-block:: python
+
+    cost_formulation = pyRVtest.Formulation(
+        '0 + z1',
+        known_coefficients={'input_price': 0.75, 'union_wage': 1.0},
+    )
+
+Known-coefficient shifters apply uniformly to every model (they are a
+DGP primitive, not a behavioral choice, so they carry no salience
+flag). Each column must be in ``product_data`` and must NOT appear in
+the formula string — doing so would double-count.
 
 Dearing simple-markup models (RuleOfThumb, Keystone, ConstantMarkup)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

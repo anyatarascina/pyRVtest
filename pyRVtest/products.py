@@ -154,7 +154,7 @@ class Products(object):
         Z: Data = {}
         if L == 1:
             Z_l, Z_formulation_l, Z_data_l = (
-                instrument_formulation._build_matrix(product_data)  # type: ignore[attr-defined]
+                instrument_formulation._build_matrix(product_data)  # type: ignore[union-attr]
             )
             for z in Z_formulation_l:
                 if z in w_data:

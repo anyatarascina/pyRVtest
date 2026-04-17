@@ -207,6 +207,77 @@ markups continues to work unchanged; ``RuleOfThumb(phi=...)`` is the
 ergonomic shorthand for the common case where :math:`\varphi` is the same
 across all products.
 
+Problem-level taxes and salience testing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+v0.4 OQ 14 moved per-unit and ad-valorem taxes from the conduct model
+to :class:`pyRVtest.Problem`. Taxes describe the DGP, not a firm's
+behavioral choice, so they belong on the Problem::
+
+    pyRVtest.Problem(
+        cost_formulation=...,
+        instrument_formulation=...,
+        product_data=product_data,
+        unit_tax='tax_col',           # (NEW)
+        advalorem_tax='vat_col',      # (NEW)
+        advalorem_payer='consumer',   # (NEW)
+        models=[
+            pyRVtest.Bertrand(ownership='firm_ids'),
+            pyRVtest.Cournot(ownership='firm_ids'),
+            # Salience test: this Bertrand ignores the Problem-level
+            # unit_tax while the first Bertrand sees it.
+            pyRVtest.Bertrand(
+                ownership='firm_ids', unit_tax_salient=False,
+            ),
+        ],
+    )
+
+``unit_tax_salient`` / ``advalorem_tax_salient`` (both default ``True``)
+let individual models opt out of Problem-level taxes. This is the
+machinery for salience tests: comparing a salient-tax and
+non-salient-tax specification of the same underlying conduct class
+under identical data. When no Problem-level tax is set the flag is a
+no-op.
+
+The legacy per-model ``unit_tax`` / ``advalorem_tax`` /
+``advalorem_payer`` kwargs still work and win by precedence when both
+are set, but emit a once-per-session
+:class:`DeprecationWarning` pointing at the Problem-level replacement.
+They will be removed in v0.6.
+
+Known-coefficient cost shifters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:class:`pyRVtest.Formulation` accepts a ``known_coefficients={col:
+gamma, ...}`` dict of cost shifters that enter the effective-price
+line with researcher-supplied (non-estimated) coefficients::
+
+    cost_formulation = pyRVtest.Formulation(
+        '0 + w',
+        known_coefficients={'input_price': 0.75, 'union_wage': 1.0},
+    )
+
+Concretely, :meth:`Problem.solve` computes
+
+.. math::
+
+    \texttt{prices\_effective} = \frac{\tau_{\text{av}} \cdot p}
+    {1 + \lambda} - \tau_{\text{unit}}
+    - \sum_k \gamma_k \cdot x_k
+
+where :math:`(x_k, \gamma_k)` come from ``known_coefficients``.
+Per-unit taxes are the leading special case: passing
+``Problem(unit_tax='tax_col')`` and
+``Formulation('0 + w', known_coefficients={'tax_col': 1.0})`` produce
+identical marginal-cost estimates (the test suite pins the parity).
+Dearing et al. (2026) work with a broader class of such shifters.
+
+Known-coefficient shifters apply uniformly to every model — they are a
+DGP primitive, not a behavioral choice, so there is no per-model
+salience flag. The column must be in ``product_data`` (checked at
+:meth:`Problem.__init__`) and must not also appear in the formula
+string (redundant and ambiguous).
+
 A typical v0.4 problem setup::
 
     import pyRVtest

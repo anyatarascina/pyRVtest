@@ -95,7 +95,7 @@ The canonical data flow:
 
 ## Deprecation policy
 
-Three backward-compatibility surfaces exist on the v0.4 branch:
+Four backward-compatibility surfaces exist on the v0.4 branch:
 
 1. **`ModelFormulation`** — the v0.3 string-based conduct specifier
    (`model_downstream='bertrand'`, etc.). Deprecated in v0.4 and v0.5;
@@ -113,6 +113,16 @@ Three backward-compatibility surfaces exist on the v0.4 branch:
    both `'sigma'` and `'rho'` in the same dict raises `TypeError`. Note
    the `NestedLogitBackend` class constructor keeps the `sigma=[...]`
    kwarg name because its math follows the AFSSZ L-level convention.
+
+4. **Per-model `unit_tax` / `advalorem_tax` / `advalorem_payer`** on
+   `ConductModel` / `Vertical` / `ModelFormulation`. Deprecated in v0.4
+   (OQ 14); removed in v0.6. Move the tax column to
+   `Problem(..., unit_tax='col', advalorem_tax='col',
+   advalorem_payer='firm'|'consumer')`. Use `unit_tax_salient=False` /
+   `advalorem_tax_salient=False` on individual models for salience-test
+   opt-outs. When both Problem-level and model-level taxes are set, the
+   model-level value wins (legacy precedence) and emits a
+   `DeprecationWarning` naming the conflict.
 
 **Deprecation-warning hygiene.** Each deprecation site fires once per Python
 session, identified by a `(class, field_name)`-style tuple on a class-level
