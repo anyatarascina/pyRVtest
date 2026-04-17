@@ -25,6 +25,7 @@ from .markups import build_ownership, _compute_markups
 from .data import read_critical_values_tables
 from .products import Products
 from .results import ProblemResults, Progress
+from .solve.orthogonalize import qr_residualize as _qr_residualize, residualize as _residualize_stage
 
 # v0.4 step 18: per-module logger. Emits INFO-level progress messages that
 # previously went through pyblp's ``output()`` helper. Users can silence this
@@ -90,17 +91,6 @@ def _normalize_demand_params_rho(demand_params: dict) -> dict:
         # compatibility (NestedLogitBackend, _construct_demand_backend, etc.).
         normalized['sigma'] = normalized['rho']
     return normalized
-
-
-def _qr_residualize(Y: Array, X: Array) -> Array:
-    """Project out X from Y via QR decomposition (equivalent to OLS residuals, without statsmodels overhead).
-
-    Works for 1D or 2D Y. If X has no columns, Y is returned unchanged.
-    """
-    if X.shape[1] == 0:
-        return Y
-    Q, _ = np.linalg.qr(X, mode='reduced')
-    return Y - Q @ (Q.T @ Y)
 
 
 def _apply_conduct_to_fields(
@@ -1250,50 +1240,13 @@ class Problem(Container, StringRepresentation):
         )
 
     def _prepare_orthogonal_variables(self, M: int, N: int, markups_effective: list, marginal_cost: Array):
-        """Absorb fixed effects and residualize markups and marginal costs w.r.t. cost shifters."""
-        markups_orthogonal = np.zeros((M, N), dtype=options.dtype)
-        marginal_cost_orthogonal = np.zeros((M, N), dtype=options.dtype)
+        """Absorb fixed effects and residualize markups and marginal costs w.r.t. cost shifters.
 
-        # When an endogenous cost component is present, its coefficient was estimated via IV and the correction
-        # has already been applied to marginal_cost. The OLS projection therefore uses only the exogenous columns
-        # of w so that tau_list corresponds to the exogenous cost-shifter coefficients.
-        if self.endogenous_cost_component is not None:
-            endog_col_idx = next(
-                i for i, f in enumerate(self._w_formulation)
-                if str(f) == self.endogenous_cost_component
-            )
-            exog_col_indices = [i for i in range(self.products.w.shape[1]) if i != endog_col_idx]
-            w_for_ols = self.products.w[:, exog_col_indices]
-        else:
-            w_for_ols = self.products.w
-
-        tau_list = np.zeros((M, w_for_ols.shape[1]), dtype=options.dtype)
-        omega = np.zeros((M, N), dtype=options.dtype)
-
-        if self._absorb_cost_ids is not None:
-            logger.info("Absorbing cost-side fixed effects ...")
-            w_for_ols, _ = self._absorb_cost_ids(w_for_ols)
-            for m in range(M):
-                value, _ = self._absorb_cost_ids(markups_effective[m])
-                markups_orthogonal[m] = np.squeeze(value)
-                value, _ = self._absorb_cost_ids(marginal_cost[m])
-                marginal_cost_orthogonal[m] = np.squeeze(value)
-        else:
-            for m in range(M):
-                markups_orthogonal[m] = np.squeeze(markups_effective[m])
-                marginal_cost_orthogonal[m] = np.squeeze(marginal_cost[m])
-
-        if w_for_ols.any():
-            Q_w, R_w = np.linalg.qr(w_for_ols, mode='reduced')
-            for m in range(M):
-                markups_orthogonal[m] = markups_orthogonal[m] - Q_w @ (Q_w.T @ markups_orthogonal[m])
-                mc_vec = marginal_cost_orthogonal[m]
-                tau_list[m] = np.linalg.solve(R_w, Q_w.T @ mc_vec)
-                omega[m] = mc_vec - Q_w @ (Q_w.T @ mc_vec)
-        else:
-            omega = marginal_cost_orthogonal
-
-        return markups_orthogonal, omega, tau_list
+        Thin delegation to :func:`pyRVtest.solve.orthogonalize.residualize`
+        after the v0.4 step 8a extraction. Kept as a method for
+        backward-compatible access from subclasses / tests.
+        """
+        return _residualize_stage(self, M, N, markups_effective, marginal_cost)
 
     def _compute_instrument_results(
             self, instrument: int, M: int, N: int, omega: Array,
