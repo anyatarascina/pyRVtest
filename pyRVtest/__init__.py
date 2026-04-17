@@ -24,7 +24,7 @@ from .models import (
 )
 from .problem import Problem, Models
 from .products import Products
-from .results import ProblemResults
+from .results import PanelResults, ProblemResults
 # v0.4 step 11: public build_passthrough helper re-exported at the package level.
 from .solve.passthrough import build_passthrough
 # v0.4 step 23: agent-guide exporter for AI assistants and new contributors.
@@ -35,7 +35,7 @@ __all__ = [
     # v0.3 public API (unchanged)
     'data', 'options', 'build_ownership', 'build_markups', 'construct_passthrough_matrix',
     'evaluate_first_order_conditions', 'read_pickle', 'Formulation', 'ModelFormulation', 'Problem', 'Models',
-    'Products', 'ProblemResults', '__version__',
+    'Products', 'ProblemResults', 'PanelResults', '__version__',
     # v0.4 subpackage namespaces (populated in later migration steps)
     'backends', 'instruments', 'models', 'solve',
     # v0.4 step 5a: class-based ConductModel API.
