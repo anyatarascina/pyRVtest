@@ -287,7 +287,12 @@ class Container(abc.ABC):
     models: RecArray
     _w_formulation: Tuple[ColumnFormulation, ...]
     _Z_formulation: Tuple[ColumnFormulation, ...]
-    Dict_Z_formulation: Dict[Union[str, tuple], Tuple[Optional[Array], Any]] = {}
+    # v0.4 step 6a: Dict_Z_formulation is a PER-INSTANCE mutable dict. Pre-v0.4
+    # it was a class-level attribute with ``= {}`` at the class body, which
+    # meant two concurrent Problem instances shared the same dict (the second
+    # instance's Z column formulations were appended to the first's). See the
+    # per-instance assignment in ``Container.__init__`` below.
+    Dict_Z_formulation: Dict[Union[str, tuple], Tuple[Optional[Array], Any]]
 
     @abc.abstractmethod
     def __init__(self, products: RecArray, models: RecArray) -> None:
@@ -295,6 +300,9 @@ class Container(abc.ABC):
         self.products = products
         self.models = models
         self._w_formulation = self.products.dtype.fields['w'][2]
+        # Instance-level dict; any updates below mutate only this Problem's
+        # dict, not a class-shared one.
+        self.Dict_Z_formulation = {}
 
         i = 0
         while 'Z{0}'.format(i) in self.products.dtype.fields:
@@ -353,7 +361,10 @@ class Problem(Container, StringRepresentation):
     unique_product_ids: Array
     T: int
     N: int
-    Dict_K: Dict[Union[str, tuple], Tuple[Optional[Array]]] = {}
+    # v0.4 step 6a: Dict_K is a PER-INSTANCE mutable dict. See the matching
+    # comment on Container.Dict_Z_formulation — the class-level ``= {}``
+    # made two concurrent Problems share instrument counts.
+    Dict_K: Dict[Union[str, tuple], Tuple[Optional[Array]]]
     M: int
     EC: int
     H: int
@@ -497,6 +508,10 @@ class Problem(Container, StringRepresentation):
         self.N = self.products.shape[0]
         self.T = self.unique_market_ids.size
         self.L = len(self.instrument_formulation) if hasattr(self.instrument_formulation, '__len__') else 1
+        # v0.4 step 6a: initialize Dict_K as an instance attribute. The prior
+        # class-level `Dict_K = {}` meant two concurrent Problem instances
+        # would share the dict and accumulate each other's instrument counts.
+        self.Dict_K = {}
         for instrument in range(self.L):
             self.Dict_K.update({"K{0}".format(instrument): self.products["Z{0}".format(instrument)].shape[1]})
         self.M = len(self._models) if self.markups[0] is None else np.shape(self.markups)[0]
