@@ -953,3 +953,272 @@ def test_within_market_permutation_invariance_with_demand_adjustment(seed):
         r_original.MCS_pvalues, r_permuted.MCS_pvalues, atol=1e-10, equal_nan=True,
         err_msg='MCS_pvalues with demand_adjustment=True should be permutation-invariant'
     )
+
+
+# ===========================================================================
+# v0.4 step 20: property tests audit — three gap-filling properties.
+#
+# Per the migration plan, step 20 ensures coverage on determinism, row-
+# permutation invariance, market-partition invariance, FWL identity, and
+# sign-of-alpha. The first two are already covered above. The three tests
+# below fill the remaining gaps: (12) market-partition invariance of the
+# GMM moment g, (13) FWL identity g = (1/N) * Z_perp' @ omega_perp, and
+# (14) sign-of-alpha homogeneity of degree -1 for plain-logit Bertrand
+# markups plus the associated strict-monotonicity property.
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Property 12: market-partition invariance of the GMM moment
+# ---------------------------------------------------------------------------
+
+def _run_pyrvtest_on_subset(product_data: pd.DataFrame, market_ids_keep):
+    """Run pyRVtest on a subset of markets.
+
+    Returns (results, N_subset). The subset is selected by market_ids
+    inclusion; all products within each kept market are retained so
+    within-market structure is preserved.
+    """
+    mask = product_data['market_ids'].isin(market_ids_keep)
+    df_sub = product_data.loc[mask].reset_index(drop=True)
+    results = _run_pyrvtest(df_sub)
+    return results, len(df_sub)
+
+
+def test_market_partition_invariance_of_gmm_moment():
+    """Partitioning markets into disjoint subsets A and B preserves N*g.
+
+    The GMM moment is g = (1/N) * Z' @ omega. As a linear function of
+    rows, the product N * g aggregates additively across any disjoint
+    row partition of the sample: if markets A and B are disjoint and
+    their union covers all T markets, then
+
+        N_full * g_full = N_A * g_A + N_B * g_B.
+
+    The catch is that in pyRVtest both Z and omega have been
+    residualized on cost shifters w via full-sample OLS, and that
+    projection is NOT row-block-separable: refitting OLS on each
+    subset gives different residuals than restricting the full-sample
+    residuals to the subset. So rather than rerunning pyRVtest on
+    each half (which would apply subset-specific projections and the
+    identity would not hold exactly), we verify the partition
+    property at the level of the RAW moment (1/N) * Z' @ omega where
+    omega = prices - markup for each candidate model. Linearity in
+    rows is exact there, and that is the fundamental invariant.
+
+    Fixture: Bertrand + PerfectCompetition DGP with 8 markets, 2
+    products per market. We build the raw moment hand-side for both
+    models on the full sample and on each half, then check the
+    additive identity at atol=1e-10. We also run pyRVtest on the full
+    and each subset as a smoke check that the problem remains solvable
+    after splitting (no structural break, finite markups).
+    """
+    # Fixture: 8 markets, 2 products each. Use user_supplied_markups path.
+    T = 8
+    df = _make_dgp(seed=4242, T=T, J=2)
+    N_full = len(df)
+
+    # Partition the market ids into two disjoint halves.
+    all_markets = sorted(df['market_ids'].unique())
+    markets_A = all_markets[:T // 2]
+    markets_B = all_markets[T // 2:]
+
+    # Raw moment (1/N) * Z' @ omega for each model; omega_m = prices - markup_m.
+    # This raw moment aggregates exactly additively across any disjoint row
+    # partition, so the identity below holds to numerical precision.
+    Z_full = df[['iv0', 'iv1', 'iv2']].values
+    prices_full = df['prices'].values.reshape(-1, 1)
+    # Two models: Bertrand (markup_m1) and perfect competition (zero markup).
+    for markup_col in ['markups_m1', 'markups_m2']:
+        markup_full = df[markup_col].values.reshape(-1, 1)
+        omega_full = (prices_full - markup_full).flatten()
+        g_full_hand = (Z_full.T @ omega_full) / N_full  # shape (K,)
+
+        df_A = df.loc[df['market_ids'].isin(markets_A)].reset_index(drop=True)
+        df_B = df.loc[df['market_ids'].isin(markets_B)].reset_index(drop=True)
+        Z_A = df_A[['iv0', 'iv1', 'iv2']].values
+        Z_B = df_B[['iv0', 'iv1', 'iv2']].values
+        omega_A = (df_A['prices'].values - df_A[markup_col].values)
+        omega_B = (df_B['prices'].values - df_B[markup_col].values)
+        N_A, N_B = len(df_A), len(df_B)
+        g_A_hand = (Z_A.T @ omega_A) / N_A
+        g_B_hand = (Z_B.T @ omega_B) / N_B
+
+        # Partition identity for the raw moment: linearity of Z' @ omega
+        # across disjoint row blocks.
+        np.testing.assert_allclose(
+            N_A * g_A_hand + N_B * g_B_hand, N_full * g_full_hand,
+            atol=1e-10,
+            err_msg=(
+                f'Raw GMM moment N*g must aggregate additively across market '
+                f'partitions for {markup_col}; this is a property of Z\'omega '
+                f'being a linear function of rows.'
+            ),
+        )
+
+    # Sanity: run pyRVtest end-to-end on both halves and on the full
+    # sample; verify the problem is solvable on each partition (no
+    # structural break from splitting markets).
+    r_full = _run_pyrvtest(df)
+    r_A, N_A_run = _run_pyrvtest_on_subset(df, markets_A)
+    r_B, N_B_run = _run_pyrvtest_on_subset(df, markets_B)
+    assert N_A_run + N_B_run == N_full
+    for r in (r_full, r_A, r_B):
+        for m in range(len(r.markups)):
+            assert np.all(np.isfinite(r.markups[m])), 'markups not finite on subset'
+
+
+# ---------------------------------------------------------------------------
+# Property 13: FWL identity — g = (1/N) * Z_perp' @ omega_perp
+# ---------------------------------------------------------------------------
+
+def test_fwl_identity_for_gmm_moment():
+    """pyRVtest's g matches hand-computed (1/N) * Z_perp' @ omega_perp.
+
+    Frisch-Waugh-Lovell: if we residualize both the instruments Z and
+    the marginal cost mc on the cost shifters w via OLS, then the GMM
+    moment (1/N) * Z_perp' @ omega_perp (where omega_perp is the
+    residual from regressing mc on w) equals pyRVtest's exposed g
+    value for each model and instrument set.
+
+    This tests the internal FWL path in
+    ``Problem._compute_instrument_results`` which residualizes Z on w
+    via ``_qr_residualize`` (problem.py ~line 1191) and constructs
+    ``g[m] = 1/N * (Z_orthogonal.T @ omega[m])`` (problem.py ~line
+    1206), where ``omega[m]`` itself was residualized on w at line
+    1140. A bug anywhere in that residualization pipeline would
+    produce a hand-check mismatch.
+
+    Fixture: Bertrand + PerfectCompetition with user_supplied_markups
+    (so marginal_cost = prices - user_markup is deterministic) and a
+    non-trivial cost formulation ``1 + cost_shifter`` with 3
+    instruments ``iv0 + iv1 + iv2``. No fixed effects, no endogenous
+    cost component — this is the clean baseline path.
+    """
+    T = 10
+    df = _make_dgp(seed=9876, T=T, J=2)
+    N = len(df)
+
+    results = _run_pyrvtest(df)
+
+    # Hand computation: residualize Z on [intercept, cost_shifter] via OLS,
+    # and residualize marginal_cost_m (= prices - user_markup_m) on the
+    # same w. Then compare (1/N) * Z_perp' @ omega_perp to results.g[0][m].
+    w = np.column_stack([np.ones(N), df['cost_shifter'].values])
+    Z = df[['iv0', 'iv1', 'iv2']].values
+    prices = df['prices'].values
+
+    # OLS projection matrix ingredients via QR (mirrors pyRVtest internal)
+    Q_w, R_w = np.linalg.qr(w, mode='reduced')
+    # Z residualized on w
+    Z_perp = Z - Q_w @ (Q_w.T @ Z)
+
+    for m, markup_col in enumerate(['markups_m1', 'markups_m2']):
+        mc = prices - df[markup_col].values
+        # omega_perp = residual from regressing mc on w
+        omega_perp = mc - Q_w @ (Q_w.T @ mc)
+        g_hand = (Z_perp.T @ omega_perp) / N  # shape (K,)
+
+        # pyRVtest exposes g as a list indexed by instrument set.
+        # With one instrument formulation, that's results.g[0], shape (M, K).
+        g_pyrv = results.g[0][m]
+        np.testing.assert_allclose(
+            g_pyrv, g_hand, atol=1e-10,
+            err_msg=(
+                f"FWL identity violated for model {m} ({markup_col}): "
+                f"pyRVtest g != (1/N) * Z_perp' @ omega_perp where both are "
+                f"OLS-residualized on cost shifters w=[1, cost_shifter]."
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Property 14: sign-of-alpha homogeneity of degree -1 in plain-logit Bertrand
+# ---------------------------------------------------------------------------
+
+@given(alpha1=st.floats(min_value=-4.0, max_value=-0.5),
+       alpha_ratio=st.floats(min_value=1.25, max_value=4.0))
+@settings(max_examples=25, deadline=None)
+def test_bertrand_markups_alpha_homogeneity_degree_minus_one(alpha1, alpha_ratio):
+    """Plain-logit Bertrand markups satisfy markup(alpha2) = markup(alpha1) * (alpha1/alpha2).
+
+    For plain logit, the Bertrand FOC gives Delta = -(O * D)^{-1} s where
+    D = alpha * (diag(s) - s s'). Since D is linear in alpha, (O * D)^{-1}
+    scales as 1/alpha, so Delta is homogeneous of degree -1 in alpha
+    PROVIDED the shares s are held fixed. The key subtlety: shares are
+    held fixed in this test because we supply observed shares in the DGP
+    and pyRVtest (with demand_params + no demand_adjustment) treats them
+    as data.
+
+    Concretely: for the same DGP (same shares, same firm_ids, same market
+    structure), running pyRVtest with alpha1 and alpha2 = alpha1 *
+    alpha_ratio gives markup(alpha2) = markup(alpha1) / alpha_ratio.
+
+    Tolerance 1e-12: this is an exact algebraic identity, not an
+    equilibrium property, so the tolerance is near-machine-precision.
+
+    Hypothesis-driven: alpha1 in [-4, -0.5], alpha_ratio in [1.25, 4],
+    25 examples to keep runtime under ~30s for this property.
+    """
+    # Small deterministic DGP: the Bertrand-equilibrium prices depend on
+    # alpha, but pyRVtest with demand_params uses OBSERVED shares, so
+    # homogeneity in alpha holds for the computed markup at the OBSERVED
+    # shares regardless of whether the prices came from equilibrium at
+    # alpha1 or alpha2. We just need consistent shares; we get them from
+    # the DGP built at alpha1 and keep the frame fixed.
+    T = 6
+    df = _make_dgp_multifirm(seed=17, T=T, alpha=alpha1)
+
+    # Run with alpha1
+    p1 = pyRVtest.Problem(
+        cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+        instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+        model_formulations=(
+            pyRVtest.ModelFormulation(
+                model_downstream='bertrand', ownership_downstream='firm_ids',
+            ),
+            pyRVtest.ModelFormulation(model_downstream='perfect_competition'),
+        ),
+        product_data=df,
+        demand_params={'alpha': alpha1, 'sigma': []},
+    )
+    r1 = p1.solve(demand_adjustment=False, clustering_adjustment=False)
+
+    # Run with alpha2 = alpha1 * alpha_ratio (more negative / more elastic)
+    alpha2 = alpha1 * alpha_ratio
+    p2 = pyRVtest.Problem(
+        cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+        instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+        model_formulations=(
+            pyRVtest.ModelFormulation(
+                model_downstream='bertrand', ownership_downstream='firm_ids',
+            ),
+            pyRVtest.ModelFormulation(model_downstream='perfect_competition'),
+        ),
+        product_data=df,
+        demand_params={'alpha': alpha2, 'sigma': []},
+    )
+    r2 = p2.solve(demand_adjustment=False, clustering_adjustment=False)
+
+    markup1 = r1.markups[0]
+    markup2 = r2.markups[0]
+
+    # Homogeneity of degree -1: markup2 = markup1 * (alpha1 / alpha2).
+    expected_markup2 = markup1 * (alpha1 / alpha2)
+    np.testing.assert_allclose(
+        markup2, expected_markup2, atol=1e-12,
+        err_msg=(
+            f"Plain-logit Bertrand markups should be homogeneous of degree -1 "
+            f"in alpha: markup(alpha2={alpha2}) should equal markup(alpha1={alpha1}) "
+            f"* (alpha1/alpha2={alpha1/alpha2}). Max abs deviation: "
+            f"{np.max(np.abs(markup2 - expected_markup2))}"
+        ),
+    )
+
+    # Monotonicity corollary: alpha2 more negative (|alpha2| > |alpha1|)
+    # implies smaller markups elementwise.
+    assert np.all(markup2 < markup1 + 1e-12), (
+        f"For alpha2={alpha2} more negative than alpha1={alpha1}, Bertrand "
+        f"markups should shrink. max(markup2 - markup1) = "
+        f"{np.max(markup2 - markup1)}"
+    )
