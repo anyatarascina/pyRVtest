@@ -3,13 +3,118 @@
 **To:** Lorenzo Magnolfi, Marco Duarte
 **From:** Christopher Sullivan
 **Re:** pyRVtest development — cumulative changes since CClean-fixes
-**Last updated:** 2026-04-16
+**Last updated:** 2026-04-17
 
 This is a running memo of pyRVtest changes that affect methodology, results, or coauthor-visible API. I will keep adding to the top as things change. Read the "Status right now" block for the current state. Each dated section below documents a specific change and its blast radius.
 
 ---
 
-## Status right now (2026-04-16 very late, post step 3 + split)
+## Status right now (2026-04-17, post steps 4 + 5)
+
+**Branches:**
+- `CClean-fixes` at `e921649` on origin — Step 0 protection (frozen)
+- `v0.4-refactor` at `ebb8779` on origin — steps 0 + 1 + 2 + 3 + 4 + 5 all landed
+
+**Tag:** `v0.3.3-stable` still the nuclear-revert anchor at `47b4457`.
+**Tests (on v0.4-refactor):** **248 pass + 3 skipped** (DMSS yogurt placeholders pending Lorenzo's data). Full step-0 snapshot suite + first-stage-correction + property tests + 5e parity all green.
+
+**Headline — step 4:** The demand-adjustment unification is complete. `Problem.solve(demand_adjustment=True)` now routes through a single `compute_demand_adjustment` function in `pyRVtest/solve/demand_adjustment.py` generic over a `DemandBackend`. The two inline methods (`_compute_analytical_demand_adjustment`, `_compute_demand_adjustment_gradient`) that had three bugs in b3b08a3 are **deleted**.
+
+**Headline — step 5:** pyRVtest has a class-based conduct API:
+
+```python
+pyRVtest.Problem(
+    ...,
+    models=[
+        pyRVtest.Bertrand(ownership='firm_ids'),
+        pyRVtest.PerfectCompetition(),
+    ],
+)
+```
+
+Old `ModelFormulation` + `model_formulations=` keeps working with a once-per-session `DeprecationWarning`. Migration guide at `docs/migrating_to_v0.4.rst`. Removal scheduled for v0.6.
+
+### What coauthors need to know
+
+**Correctness changes in step 4 that may affect published / in-flight results:**
+
+1. **Endogenous-cost gamma gradient now computed for `demand_params` users.** Pre-v0.4 `Problem._compute_analytical_demand_adjustment` silently returned `gradient_gamma_per_instrument=None`, disabling the endogenous-cost correction whenever `demand_params` was used (instead of `demand_results`). The PyBLP path computed it correctly. Post-v0.4 both paths compute it. **If you ran `demand_params` + `endogenous_cost_component` + `demand_adjustment=True` under v0.3.x, your TRV/F/MCS were missing the gamma-gradient correction; rerun under v0.4.**
+
+2. **Tax / cost-scaling factor now applied to markup gradient.** The inline analytical path did NOT apply the `advalorem_tax_adj / (1 + cost_scaling)` factor to `gradient_markups`. PyBLP path did. Step 4i applies the factor uniformly in the unified function. **Fixtures without taxes or cost_scaling are unaffected (factor = 1). Users with nontrivial `advalorem_tax` or `cost_scaling` columns: your prior `demand_params` + `demand_adjustment=True` output was missing this factor; rerun under v0.4.**
+
+3. **Plain logit / single-scalar-rho nested logit estimated in pyblp now auto-routes to the analytical backend.** `Problem` detects K2=0 pyblp results and uses `LogitBackend` (plain logit) or `NestedLogitBackend(sigma=[rho])` (single-rho nested) for exact `d(D)/d(theta)` rather than pyblp's finite-diff. Per-nest rho (Cardell-Nevo) and BLP stay on `PyBLPBackend` with finite-diff. **Nested-logit users with a scalar rho: your prior TRV/F/MCS shifted by O(1e-10) to O(1e-8) from the finite-diff → analytical switch. Documented in the updated `first_stage_pyblp_path` snapshot.**
+
+**User-facing API change in step 5:**
+
+4. **Class-based conduct models.** New:
+
+   ```python
+   pyRVtest.Bertrand(ownership='firm_ids')
+   pyRVtest.Cournot(ownership='firm_ids')
+   pyRVtest.Monopoly(ownership='firm_ids')
+   pyRVtest.PerfectCompetition()
+   pyRVtest.MixCournotBertrand(ownership='firm_ids', mix_flag='mix_col')
+   pyRVtest.PartialCollusion(ownership='firm_ids', kappa_specification='collusion_row')
+   pyRVtest.CustomConductModel(markup_fn=my_fn, ownership='firm_ids', name='my_model')
+   pyRVtest.Vertical(
+       downstream=pyRVtest.Bertrand(ownership='firm_ids'),
+       upstream=pyRVtest.Monopoly(ownership='manufacturer_ids'),
+       vertical_integration='vi_col',
+   )
+   ```
+
+   Pass to `Problem` via `models=[...]`. Everything else (tax kwargs, `user_supplied_markups`, etc.) keeps the same names.
+
+   Old code still works with a `DeprecationWarning` on first `ModelFormulation()` call. Migration guide covers every case: `docs/migrating_to_v0.4.rst`.
+
+5. **What's not affected:** `Formulation`, `build_markups`, `build_ownership`, `construct_passthrough_matrix`, `evaluate_first_order_conditions`, `read_pickle`, `ProblemResults`, `Problem`, `demand_results`/`demand_params` kwargs, every field on `ProblemResults` (markups, TRV, F, MCS_pvalues, cost_param, taus, ...). Only `ModelFormulation` is deprecated; nothing else.
+
+### What we still need from Lorenzo (Step 0d, unchanged since session 3)
+
+- **Data:** where the DMSS yogurt product_data lives (path / loader / script).
+- **Specification:** which table/column from the DMSS paper to pin — demand side (logit / nested logit / BLP), instruments, cost side, FEs, conduct pairs, adjustment flags.
+- **Expected values:** pinned TRV, F, MCS-p from the paper to 4-5 significant figures.
+- **Tolerance:** default `rtol=1e-4, atol=1e-6`; tighten if the paper reports more digits.
+
+Scaffold at `tests/replication/test_dmss_yogurt.py` unchanged; un-skip the three tests after populating constants.
+
+### Next step
+
+**Step 6:** fix `Dict_K` (class-attribute → instance-attribute bug that makes two concurrent `Problem` instances share state) + add `rho`-canonical naming in `demand_params` with a `sigma` deprecation alias (aligns pyRVtest's nested-logit parameter name with pyblp's). Small step, 2 sub-commits, no expected snapshot changes.
+
+---
+
+## 2026-04-17 — v0.4 migration steps 4 and 5 landed
+
+(Detailed session handover: `.claude/handovers/2026-04-17-session5-step5-complete.md`. Step-4 specifics in `.claude/handovers/2026-04-16-session4-step4-complete.md`.)
+
+### Step 4 — unify demand adjustment behind the backend protocol (11 commits, 4a through 4i with correctness follow-ups)
+
+Delivered:
+
+- Single `compute_demand_adjustment(backend, problem, M, N, markups, advalorem_tax_adj, cost_scaling, marginal_cost_base)` in `pyRVtest/solve/demand_adjustment.py`. Generic over any `SupportsDemandAdjustment` backend.
+- `_residualize_on_xd` helper (the DMSS eq. 77 2SLS profile-out) extracted and shared by all backends.
+- `LogitBackend` and `NestedLogitBackend` now implement `SupportsDemandAdjustment` (analytical `d(xi)/d(theta)`, `d(D)/d(theta)`).
+- `_nested_logit_jacobian_derivative` finally validated against finite-diff — 8 parametrized tests covering 1-level and 2-level nested logit.
+- `Problem.__init__` constructs `self._demand_backend` at init. Auto-routing: plain logit and single-scalar-rho nested logit from `demand_results` go to the analytical backend for exact `d(D)/d(theta)`; per-nest rho and BLP stay on `PyBLPBackend` (finite-diff is the right tool there).
+- Two silent bugs closed: (a) `gradient_gamma_per_instrument=None` for `demand_params` users (capability fix), (b) tax/cost-scaling factor missing from markup gradient for `demand_params` users.
+- Permutation-invariance property test with `demand_adjustment=True`.
+- 519 lines of now-dead inline code removed from `problem.py`.
+
+### Step 5 — class-based ConductModel API (6 commits, 5a through 5e with a mid-course 5b')
+
+Delivered:
+
+- `pyRVtest/models/` package populated with: `ConductModel` base, `Bertrand`/`Cournot`/`Monopoly`/`PerfectCompetition` (standard.py), `MixCournotBertrand` (mixed.py), `PartialCollusion` (collusion.py, inherits Bertrand), `CustomConductModel` (custom.py), `Vertical` composer (vertical.py).
+- `Problem(models=[...])` kwarg. Mutually exclusive with `model_formulations=`.
+- `ConductModel`/`Vertical` is the canonical internal representation; `ModelFormulation` is translated to the class form at `Problem.__init__` via `from_model_formulation`.
+- `ModelFormulation.__init__` emits `DeprecationWarning` on first construction per session (class-level flag, no global warnings state mutation).
+- Migration guide at `docs/migrating_to_v0.4.rst` with before/after examples for every case.
+- 62 new tests: 41 unit (class math vs legacy string dispatch at atol=1e-14), 10 integration (class API vs legacy API on shared DGP), 4 deprecation-behavior, 6 step-0 parity (class API byte-identical on every snapshot scenario), plus 1 module-import tracking.
+
+---
+
+
 
 **Branches:**
 - `CClean-fixes` at `e921649` on origin — Step 0 protection (frozen)
