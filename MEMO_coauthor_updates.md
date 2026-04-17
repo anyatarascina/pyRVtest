@@ -3,9 +3,64 @@
 **To:** Lorenzo Magnolfi, Marco Duarte
 **From:** Christopher Sullivan
 **Re:** pyRVtest development — cumulative changes since CClean-fixes
-**Last updated:** 2026-04-17
+**Last updated:** 2026-04-17 (late)
 
 This is a running memo of pyRVtest changes that affect methodology, results, or coauthor-visible API. I will keep adding to the top as things change. Read the "Status right now" block for the current state. Each dated section below documents a specific change and its blast radius.
+
+---
+
+## Status right now (2026-04-17 late, post steps 6 / 7 / 11 / 13 / 15 / 17 / 20 / 22 / 23 / 24.5)
+
+**Branch:** `v0.4-refactor` at `15e1005` on origin (plus session handover commit).
+**Tests:** **388 passed + 3 skipped** (was 259 + 3 at end of prior session).
+**Steps done:** 16 of 25. Remaining unblocked: 8, 9, 10, 14, 16, 18, 19, 21, 24, 25. Blocked: 0d (Lorenzo's yogurt data), 12 (Dearing paper).
+
+### What coauthors need to know (new this session)
+
+**No new correctness changes** in steps 6 / 7 / 11 / 13 / 15 / 17 / 20 / 22 / 23 / 24.5 beyond what step 4 already covered. All math is consistent with what landed previously; these steps extend the public API, harden tests, and add docs.
+
+**One long-standing bug fixed (step 6a):** `Problem.Dict_K` and `Container.Dict_Z_formulation` were class-level mutable dicts. Two concurrent `Problem` instances in the same Python session would share state and accumulate each other's instrument-set counts. Now instance-level. If you ever constructed multiple Problems in one script and the second one's K0/K1 counts looked wrong, that's why.
+
+**One user-facing deprecation (step 6b):** `demand_params['rho']` is now the canonical nested-logit parameter name (aligns with pyblp). `demand_params['sigma']` still works as a deprecated alias with a once-per-session `DeprecationWarning`. Removal: v0.6. Internal backend classes (`NestedLogitBackend`) keep the `sigma=[...]` constructor kwarg unchanged (AFSSZ L-level math convention).
+
+### New public API you can use now
+
+**Conduct instruments** (step 13): `pyRVtest.instruments.product.rival_sums`, `differentiation_ivs`, `blp_instruments`, and `pyRVtest.instruments.labor.hausman`, `bartik`, `concentration_hhi`. Standard BLP / Hausman / Bartik / HHI helpers for building Z matrices. All accept DataFrame / structured recarray / dict-like `product_data`.
+
+**Passthrough inspection** (step 11): `pyRVtest.build_passthrough(problem, model_index, market_id=None)`. Returns the Villas-Boas passthrough matrix for a vertical model, either per-market or as a dict across all markets. Diagnostic for the upstream-markup computation.
+
+**Analytical nested-logit Hessian** (step 7): `NestedLogitBackend.compute_hessian` now uses a closed-form for plain logit and 1-level nested logit (matching the AFSSZ L=1 case pyblp supports). Multi-level falls back to finite-diff. No user-facing code change, but your vertical-integration results with nested logit are now O(eps²) more accurate than before. Validated three ways: Clairaut symmetry (pure math property), cross-check against `pyblp.compute_demand_hessians` at atol=1e-6, and a new snapshot fixture in `tests/snapshots/nested_logit_vertical.json` for future regression protection.
+
+### Documentation shipped
+
+- `docs/migrating_to_v0.4.rst` — full before/after migration guide (step 5d, previous session; now also covers the rho↔sigma rename from step 6b).
+- `docs/custom_demand.rst` (step 15) — UserSuppliedBackend worked example for custom demand systems.
+- `AGENTS.md` at project root + `docs/agent_guide.rst` (step 23) — architecture tour + deprecation policy + where-to-start-here for new contributors or AI assistants.
+- `pyRVtest.show_agent_guide()` — prints the guide to stdout, for quick reference in a REPL.
+
+### Test-suite growth
+
+From 259 + 3 skipped to 388 + 3 skipped. The notable additions:
+
+- 11 Hessian-validation tests (Clairaut symmetry + pyblp cross-check + vertical snapshot).
+- 18 instrument-helper unit tests.
+- 65 parametrized public-API-pin assertions across 32 modules (zero gaps found — confirms the incremental `__all__` discipline held throughout v0.4).
+- 3 property tests (market-partition moment linearity, FWL identity, Bertrand α-homogeneity).
+- 6 `build_passthrough` tests.
+- 10 `show_agent_guide` / `AGENTS.md`-shape tests.
+- Plus mypy-strict, deprecation, state-isolation, rho-alias, custom-demand example tests (~15 more).
+
+### Minimal CI
+
+`.github/workflows/ci.yml` (step 24.5) now runs pytest on every push / PR against `main`, `CClean-fixes`, and `v0.4-refactor`. Single job (Ubuntu + Python 3.11); multi-version matrix deferred to v0.5. Mypy and doctest steps stubbed out pending steps 17 completion and step 21 landing.
+
+### What we still need from Lorenzo
+
+Unchanged since session 3: DMSS yogurt data + pinned TRV/F/MCS values for step 0d. Scaffold at `tests/replication/test_dmss_yogurt.py`.
+
+### Next session work
+
+Per the session-6 handover in `.claude/handovers/2026-04-17-session6-nine-steps.md`: 6 more sessions to complete v0.4. Big remaining: step 8 (split Problem.solve into solve/*.py stages), step 14 (labor-side support — directly unlocks AFSSZ / scalable-labor research), step 16 (AFSSZ dogfood, release-blocking). End-game: step 24 (CHANGELOG) + step 25 (tag v0.4).
 
 ---
 

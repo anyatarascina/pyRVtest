@@ -291,7 +291,7 @@ with common constructions:
   concentration-based HHI instruments, and Hausman-style wage
   instruments for labor-side applications.
 
-These land incrementally in v0.4 steps 13a–13c. Use them as a starting
+These landed in v0.4 step 13 (single commit). Use them as a starting
 point for your own Z matrix; glue them into a
 :class:`pyRVtest.Formulation` via ordinary numpy/pandas manipulation.
 
