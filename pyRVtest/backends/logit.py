@@ -251,28 +251,167 @@ def _nested_logit_jacobian_derivative(alpha: float, sigma: List[float], s: Array
 
 def compute_analytical_hessian(alpha: float, sigma: List[float], s: Array,
                                nesting: List[Array]) -> Array:
-    """Compute the (J, J, J) demand Hessian d^2s_j/(dp_k dp_l) for a single market."""
+    """Compute the (J, J, J) demand Hessian d^2s_j/(dp_k dp_l) for a single market.
+
+    Uses a closed-form ``dD/ds`` for plain logit (``sigma == []`` or all-zero
+    sigma) and 1-level nested logit (single non-zero sigma). For 2+ nesting
+    levels, falls back to a centered finite difference of the Jacobian w.r.t.
+    shares (v0.4 step 7 scope limitation).
+
+    The Hessian is assembled via the chain rule
+
+        H[j, k, l] = sum_r (dD[j, k] / ds[r]) * D[r, l]
+
+    where ``D = dS/dp`` is the demand Jacobian and ``dD/ds`` is the
+    derivative of that Jacobian w.r.t. the share vector.
+    """
     J = len(s)
-    eps = 1e-7
 
-    if len(sigma) == 0 or all(sig == 0 for sig in sigma):
-        D_func = lambda s_: _logit_jacobian(alpha, s_)
+    # Filter out zero sigmas: matches the convention in
+    # compute_analytical_jacobian (zero sigma => plain logit at that level).
+    effective_sigma = [sig for sig in sigma if sig > 0]
+    L_eff = len(effective_sigma)
+
+    if L_eff == 0:
+        D = _logit_jacobian(alpha, s)
+        dD_ds = _logit_dD_ds(alpha, s)
+    elif L_eff == 1:
+        # Pick the nesting array aligned with the single non-zero sigma.
+        # Assumes the non-zero sigma's position in `sigma` maps to the same
+        # position in `nesting` (the standard convention in this module).
+        nest_idx = next(i for i, sig in enumerate(sigma) if sig > 0)
+        nest_ids = nesting[nest_idx]
+        rho = effective_sigma[0]
+        D = _nested_logit_jacobian(alpha, effective_sigma, s, [nest_ids])
+        dD_ds = _nested_logit_one_level_dD_ds(alpha, rho, s, nest_ids)
     else:
+        # L >= 2: keep the centered finite-difference fallback.
         D_func = lambda s_: _nested_logit_jacobian(alpha, sigma, s_, nesting)
-
-    D = D_func(s)
-
-    dD_ds = np.zeros((J, J, J))
-    for r in range(J):
-        s_plus = s.copy()
-        s_plus[r] += eps / 2
-        s_minus = s.copy()
-        s_minus[r] -= eps / 2
-        dD_ds[:, :, r] = (D_func(s_plus) - D_func(s_minus)) / eps
+        D = D_func(s)
+        eps = 1e-7
+        dD_ds = np.zeros((J, J, J))
+        for r in range(J):
+            s_plus = s.copy()
+            s_plus[r] += eps / 2
+            s_minus = s.copy()
+            s_minus[r] -= eps / 2
+            dD_ds[:, :, r] = (D_func(s_plus) - D_func(s_minus)) / eps
 
     hessian = np.einsum('jkr,rl->jkl', dD_ds, D)
 
     return hessian
+
+
+def _logit_dD_ds(alpha: float, s: Array) -> Array:
+    """Closed-form dD/ds for plain logit.
+
+    For ``D[j, k] = alpha * (s_j * delta_{jk} - s_j * s_k)``,
+
+        dD[j, k] / ds[r] = alpha * (delta_{jr} * delta_{jk}
+                                    - delta_{jr} * s_k
+                                    - delta_{kr} * s_j)
+
+    Returns a (J, J, J) tensor with axes (j, k, r).
+    """
+    J = len(s)
+    eye = np.eye(J)
+    out = np.zeros((J, J, J))
+
+    # Term 1: alpha * delta_{jr} * delta_{jk}  -> nonzero only when j == k == r.
+    diag_idx = np.arange(J)
+    out[diag_idx, diag_idx, diag_idx] = alpha
+
+    # Term 2: -alpha * delta_{jr} * s_k. Nonzero when j == r; value -alpha * s_k.
+    # Shape broadcast: (J, J, J) with axes (j, k, r).
+    out -= alpha * eye[:, None, :] * s[None, :, None]
+
+    # Term 3: -alpha * delta_{kr} * s_j. Nonzero when k == r; value -alpha * s_j.
+    out -= alpha * eye[None, :, :] * s[:, None, None]
+
+    return out
+
+
+def _nested_logit_one_level_dD_ds(alpha: float, rho: float, s: Array,
+                                  nest_ids: Array) -> Array:
+    """Closed-form dD/ds for 1-level nested logit.
+
+    The Jacobian is ``D[j, k] = alpha * s_j * M[j, k]`` with
+
+        M[j, k] = (1/(1-rho)) * delta_{jk}  -  s_k
+                  -  (rho/(1-rho)) * I_same(j,k) * (s_k / S_g(k))
+
+    where ``S_g(k)`` is the sum of shares in ``k``'s nest. Differentiating
+    w.r.t. s_r and using the product rule on ``s_j * M[j, k]`` gives
+
+        dD[j,k]/ds[r] = alpha * ( delta_{jr} * M[j, k]
+                                 + s_j * dM[j, k]/ds[r] )
+
+    with
+
+        dM[j, k]/ds[r] = - delta_{kr}
+                        - c * I_same(j,k) * [ delta_{kr} / S_g(k)
+                                             - s_k * I_same(r,k) / S_g(k)^2 ]
+
+    where ``c = rho/(1-rho)`` and ``I_same(a, b)`` is 1 if ``a`` and ``b``
+    share a nest, else 0. The ``I_same(r, k)`` factor makes the last piece
+    active exactly when both ``j`` and ``r`` share ``k``'s nest.
+
+    Returns a (J, J, J) tensor with axes (j, k, r).
+    """
+    J = len(s)
+    eye = np.eye(J)
+
+    same_nest = (nest_ids[:, None] == nest_ids[None, :])  # (J, J)
+
+    # Nest-sum per product: S_g(k) = sum of shares in k's nest.
+    nest_sum = np.zeros(J)
+    for g in np.unique(nest_ids):
+        mask = nest_ids == g
+        nest_sum[mask] = s[mask].sum()
+
+    c = rho / (1.0 - rho)
+    inv_1m = 1.0 / (1.0 - rho)
+
+    # M[j, k] — same expression used inside _nested_logit_jacobian,
+    # reconstructed here for clarity. D = alpha * s[:, None] * M.
+    cond_share = s / nest_sum  # s_{k|g(k)}
+    M = np.zeros((J, J))
+    np.fill_diagonal(M, inv_1m)
+    M = M - s[None, :] - c * same_nest * cond_share[None, :]
+
+    # ---- Build dM/ds, shape (J, J, J) with axes (j, k, r). ----
+    dM = np.zeros((J, J, J))
+
+    # Piece A: -delta_{kr} (independent of j). Nonzero when k == r.
+    dM -= eye[None, :, :]  # (1, J, J) broadcast over j
+
+    # Piece B: -c * I_same(j,k) * delta_{kr} / S_g(k).
+    # Nonzero when k == r; value depends on (j, k) via same_nest and S_g(k).
+    #   shape of (same_nest / nest_sum): (J, J) indexed as (j, k)
+    B_jk = same_nest / nest_sum[None, :]  # (J, J)
+    dM -= c * B_jk[:, :, None] * eye[None, :, :]
+
+    # Piece C: + c * I_same(j,k) * s_k * I_same(r,k) / S_g(k)^2.
+    # Nonzero when j, r both share k's nest.
+    #   same_nest[:, k] gives the k'th column — who shares k's nest.
+    #   We need same_nest_{j,k} (axis jk) AND same_nest_{r,k} (axis rk).
+    # same_nest_rk: for each (r, k), 1 if r in nest(k). Same matrix as same_nest,
+    # indexed transposed: same_nest_rk[r, k] = same_nest[r, k].
+    s_over_S2 = s / (nest_sum ** 2)  # (J,), indexed by k
+    dM += c * (same_nest[:, :, None] * same_nest[None, :, :].swapaxes(1, 2)
+               * s_over_S2[None, :, None])
+
+    # ---- Assemble dD/ds = alpha * (delta_{jr} * M[j, k] + s_j * dM[j, k]/ds[r]). ----
+    dD_ds = np.zeros((J, J, J))
+
+    # Term 1: alpha * delta_{jr} * M[j, k]. Nonzero when j == r.
+    # Put M[j, k] on axes (j, k) and delta_{jr} on (j, r):
+    dD_ds += alpha * eye[:, None, :] * M[:, :, None]
+
+    # Term 2: alpha * s_j * dM/ds.
+    dD_ds += alpha * s[:, None, None] * dM
+
+    return dD_ds
 
 
 def _infer_nesting_columns(product_data: Mapping, L: int) -> List[str]:

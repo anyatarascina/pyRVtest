@@ -651,3 +651,101 @@ class TestComputeMarkupsAcceptsDataFrameProductData:
         assert markups[0] is not None
         assert markups[0].shape == (N, 1)
         assert np.all(np.isfinite(markups[0]))
+
+
+class TestAnalyticalNestedLogitHessian:
+    """v0.4 step 7: analytical dD/ds for plain and 1-level nested logit
+    must match the prior finite-diff implementation on random fixtures.
+
+    For the plain-logit case, target atol=1e-8. For the 1-level nested
+    case, target atol=1e-7 (the finite-diff reference is itself noisy
+    at O(eps) around eps=1e-7). The 2-level case falls back to
+    finite-diff and is only checked for basic shape / finiteness.
+    """
+
+    @staticmethod
+    def _finite_diff_hessian(alpha, sigma, s, nesting, eps=1e-7):
+        """Reference: the pre-step-7 implementation (centered finite-diff)."""
+        from pyRVtest.backends.logit import _logit_jacobian, _nested_logit_jacobian
+        J = len(s)
+        if len(sigma) == 0 or all(sig == 0 for sig in sigma):
+            D_func = lambda s_: _logit_jacobian(alpha, s_)
+        else:
+            D_func = lambda s_: _nested_logit_jacobian(alpha, sigma, s_, nesting)
+        D = D_func(s)
+        dD_ds = np.zeros((J, J, J))
+        for r in range(J):
+            sp = s.copy(); sp[r] += eps / 2
+            sm = s.copy(); sm[r] -= eps / 2
+            dD_ds[:, :, r] = (D_func(sp) - D_func(sm)) / eps
+        return np.einsum('jkr,rl->jkl', dD_ds, D)
+
+    @staticmethod
+    def _random_shares(rng, J):
+        """Draw a (J,) share vector with shares summing to < 1 (room for s0)."""
+        w = rng.dirichlet(np.ones(J + 1))
+        return w[:J]
+
+    @pytest.mark.parametrize("seed,J", [(0, 3), (1, 4), (2, 5), (3, 6), (4, 4)])
+    def test_plain_logit_matches_finite_diff(self, seed, J):
+        from pyRVtest.backends.logit import compute_analytical_hessian
+        rng = np.random.default_rng(seed)
+        s = self._random_shares(rng, J)
+        alpha = -2.0 - rng.uniform()
+
+        H_new = compute_analytical_hessian(alpha, [], s, [])
+        H_ref = self._finite_diff_hessian(alpha, [], s, [])
+
+        assert H_new.shape == (J, J, J)
+        assert np.allclose(H_new, H_ref, atol=1e-8)
+
+    def test_plain_logit_matches_finite_diff_zero_sigma(self):
+        """sigma=[0.0] is treated as plain logit (same convention as the
+        Jacobian); the analytical branch must still fire."""
+        from pyRVtest.backends.logit import compute_analytical_hessian
+        rng = np.random.default_rng(7)
+        J = 5
+        s = self._random_shares(rng, J)
+        alpha = -2.5
+        nest_ids = np.array([0, 0, 1, 1, 1])
+
+        H_new = compute_analytical_hessian(alpha, [0.0], s, [nest_ids])
+        H_ref = self._finite_diff_hessian(alpha, [0.0], s, [nest_ids])
+        assert np.allclose(H_new, H_ref, atol=1e-8)
+
+    @pytest.mark.parametrize(
+        "seed,J,rho,nest_ids",
+        [
+            (10, 4, 0.3, np.array([0, 0, 1, 1])),
+            (11, 6, 0.5, np.array([0, 0, 0, 1, 1, 1])),
+            (12, 4, 0.7, np.array([0, 1, 0, 1])),
+            (13, 6, 0.1, np.array([0, 1, 2, 0, 1, 2])),
+            (14, 6, 0.9, np.array([0, 0, 1, 1, 2, 2])),
+        ],
+    )
+    def test_one_level_nested_matches_finite_diff(self, seed, J, rho, nest_ids):
+        from pyRVtest.backends.logit import compute_analytical_hessian
+        rng = np.random.default_rng(seed)
+        s = self._random_shares(rng, J)
+        alpha = -2.0
+
+        H_new = compute_analytical_hessian(alpha, [rho], s, [nest_ids])
+        H_ref = self._finite_diff_hessian(alpha, [rho], s, [nest_ids])
+
+        assert H_new.shape == (J, J, J)
+        assert np.allclose(H_new, H_ref, atol=1e-7)
+
+    def test_two_level_still_works(self):
+        """Two-level nested logit falls back to finite-diff; verify the
+        function runs and produces a valid (J, J, J) tensor."""
+        from pyRVtest.backends.logit import compute_analytical_hessian
+        rng = np.random.default_rng(100)
+        J = 6
+        s = self._random_shares(rng, J)
+        alpha = -2.0
+        nest1 = np.array([0, 0, 1, 1, 2, 2])
+        nest2 = np.array([0, 0, 0, 0, 1, 1])
+
+        H = compute_analytical_hessian(alpha, [0.3, 0.6], s, [nest1, nest2])
+        assert H.shape == (J, J, J)
+        assert np.all(np.isfinite(H))
