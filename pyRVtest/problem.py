@@ -17,7 +17,7 @@ from . import options
 from .exceptions import ValidationError
 from .formulation import Absorb, Formulation, ModelFormulation
 from .markups import build_ownership
-from .models import _PRODUCT_SIDE_MODEL_NAMES
+from .models import _LABOR_SIDE_MODEL_NAMES, _PRODUCT_SIDE_MODEL_NAMES
 from .data import read_critical_values_tables
 from .products import Products
 from .results import ProblemResults, Progress
@@ -273,7 +273,15 @@ def _validate_labor_sign_conventions(
 
 
 def _validate_labor_models(models: Sequence[Any]) -> None:
-    """Reject product-side models under market_side='labor' per plan §4.5."""
+    """Reject product-side models under market_side='labor' per plan §4.5.
+
+    :class:`CustomConductModel` requires an explicit ``side='labor'``
+    opt-in: its user-supplied ``markup_fn`` implicitly picks a sign
+    convention (unlike :class:`PerfectCompetition`, whose zero output is
+    genuinely side-neutral), so silently accepting it on either side
+    would let a product-side formula slip into a labor problem
+    unnoticed.
+    """
     from .models import ConductModel, CustomConductModel, Vertical
     bad: list[tuple[int, str]] = []
     for i, m in enumerate(models):
@@ -286,7 +294,26 @@ def _validate_labor_models(models: Sequence[Any]) -> None:
                     bad.append((i, f"Vertical.{tier_name}={name}"))
             continue
         if isinstance(m, CustomConductModel):
-            # Custom models are neither product nor labor; users opt in knowingly.
+            # Custom models implicitly pick a sign convention via the
+            # user's markup_fn; require an explicit side='labor' opt-in.
+            if m.side != 'labor':
+                received = 'default (product)' if m.side is None else repr(m.side)
+                raise ValidationError(
+                    f"Expected every CustomConductModel passed under "
+                    f"market_side='labor' to carry an explicit "
+                    f"side='labor' opt-in, because a user-supplied "
+                    f"markup_fn implicitly picks a sign convention. "
+                    f"Received models[{i}]=CustomConductModel with "
+                    f"side={received}. "
+                    f"Fix: if your markup_fn is written for the "
+                    f"labor-side (upward-sloping supply, markdown) "
+                    f"convention, pass "
+                    f"CustomConductModel(markup_fn=..., side='labor'); "
+                    f"otherwise use a labor-side conduct class "
+                    f"(Monopsony, BertrandWages, CournotEmployment, "
+                    f"NashBargaining) or switch market_side back to "
+                    f"'product'."
+                )
             continue
         if not isinstance(m, ConductModel):
             continue
@@ -302,6 +329,60 @@ def _validate_labor_models(models: Sequence[Any]) -> None:
             f"Fix: replace with the labor-side analogue "
             f"(Monopsony, BertrandWages, CournotEmployment, NashBargaining), "
             f"or switch market_side back to 'product' (the default)."
+        )
+
+
+def _validate_product_models(models: Sequence[Any]) -> None:
+    """Reject labor-side models (and mis-sided custom models) under product mode.
+
+    Symmetric check to :func:`_validate_labor_models`: a
+    :class:`CustomConductModel` constructed with ``side='labor'`` must
+    not be passed to a product-side problem. Labor-side conduct classes
+    (:class:`Monopsony`, :class:`BertrandWages`,
+    :class:`CournotEmployment`, :class:`NashBargaining`) are likewise
+    rejected here so the product/labor boundary is enforced symmetrically
+    at init time. :class:`PerfectCompetition` stays side-neutral.
+    """
+    from .models import ConductModel, CustomConductModel, Vertical
+    bad: list[tuple[int, str]] = []
+    for i, m in enumerate(models):
+        if isinstance(m, Vertical):
+            for tier_name, conduct in (('downstream', m.downstream), ('upstream', m.upstream)):
+                if conduct is None:
+                    continue
+                name = getattr(conduct, '_model_name', '')
+                if name in _LABOR_SIDE_MODEL_NAMES:
+                    bad.append((i, f"Vertical.{tier_name}={name}"))
+            continue
+        if isinstance(m, CustomConductModel):
+            if m.side == 'labor':
+                raise ValidationError(
+                    f"Expected CustomConductModel under the default "
+                    f"market_side='product' to carry side='product' or "
+                    f"side=None. "
+                    f"Received models[{i}]=CustomConductModel with "
+                    f"side='labor'. "
+                    f"Fix: drop side='labor' (or set side='product') if "
+                    f"your markup_fn is written for the classic "
+                    f"downstream-markup convention, or switch the "
+                    f"Problem to market_side='labor' if the formula is "
+                    f"for the upward-sloping labor-supply convention."
+                )
+            continue
+        if not isinstance(m, ConductModel):
+            continue
+        name = getattr(m, '_model_name', '')
+        if name in _LABOR_SIDE_MODEL_NAMES:
+            bad.append((i, name))
+    if bad:
+        offenders = ', '.join(f"models[{i}]={n}" for i, n in bad)
+        raise ValidationError(
+            f"Expected every entry of models to be a product-side "
+            f"conduct model under the default market_side='product'. "
+            f"Received labor-side model(s): {offenders}. "
+            f"Fix: replace with the product-side analogue (Bertrand, "
+            f"Cournot, Monopoly), or pass market_side='labor' to run "
+            f"the labor-supply testing path."
         )
 
 
@@ -824,8 +905,11 @@ class Problem(Container, StringRepresentation):
         # (and vice versa). Defensive: ``models`` may be ``None`` if the
         # caller supplied precomputed markup_data; the check below only
         # fires when we actually have conduct-model instances to inspect.
-        if market_side == 'labor' and models is not None:
-            _validate_labor_models(models)
+        if models is not None:
+            if market_side == 'labor':
+                _validate_labor_models(models)
+            else:
+                _validate_product_models(models)
 
         # Validate demand_params
         if demand_params is not None and demand_results is not None:

@@ -18,6 +18,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 from numpy.typing import NDArray
 
+from ..exceptions import ValidationError
 from .base import ConductModel
 
 
@@ -40,6 +41,23 @@ class CustomConductModel(ConductModel):
         usual pyblp ownership construction pipeline.
     name : str, optional
         Label used in results output / repr.
+    side : {'product', 'labor', None}, optional
+        Sign-convention opt-in for cross-side validation. Unlike
+        :class:`~pyRVtest.PerfectCompetition` (zero markup == zero
+        markdown, genuinely side-neutral), a user-supplied
+        ``markup_fn`` implicitly picks a sign convention. This flag
+        makes that choice explicit so that a product-side formula
+        cannot silently be used on a labor problem (or vice versa).
+
+        * ``'product'`` (or ``None``, the default) — the formula is
+          written for the classic downstream-markup convention
+          (``p - MC``). Accepted on ``market_side='product'`` only.
+        * ``'labor'`` — the formula is written for the upward-sloping
+          labor-supply convention (``w - MRP``, markdown). Accepted on
+          ``market_side='labor'`` only.
+
+        Mismatches raise :class:`~pyRVtest.exceptions.ValidationError`
+        at ``Problem.__init__``.
 
     Examples
     --------
@@ -63,6 +81,7 @@ class CustomConductModel(ConductModel):
             markup_fn: Callable[[_NDArray, _NDArray, _NDArray], _NDArray],
             ownership: Optional[str] = None,
             name: Optional[str] = None,
+            side: Optional[str] = None,
             **kwargs: Any,
     ) -> None:
         if not callable(markup_fn):
@@ -74,9 +93,29 @@ class CustomConductModel(ConductModel):
                 f"Fix: pass a Python function or lambda that takes three "
                 f"per-market arguments and returns the markup vector."
             )
+        if side is not None and side not in ('product', 'labor'):
+            raise ValidationError(
+                f"Expected side to be one of 'product', 'labor', or None. "
+                f"Received {side!r}. "
+                f"Fix: pass side='product' (the default) for a classic "
+                f"downstream-markup formula, side='labor' for an upward-"
+                f"sloping labor-supply markdown formula, or omit the "
+                f"argument to default to the product-side convention."
+            )
         super().__init__(ownership=ownership, **kwargs)
         self.markup_fn = markup_fn
         self.name = name or 'custom'
+        self.side: Optional[str] = side
+
+    def __repr__(self) -> str:
+        parts = [f'ownership={self.ownership!r}']
+        if self.kappa_specification is not None:
+            parts.append(f'kappa_specification={self.kappa_specification!r}')
+        if self.user_supplied_markups is not None:
+            parts.append(f'user_supplied_markups={self.user_supplied_markups!r}')
+        if self.side is not None:
+            parts.append(f'side={self.side!r}')
+        return f'{type(self).__name__}({", ".join(parts)})'
 
     def _compute_markup(self, O: _NDArray, D: _NDArray, s: _NDArray) -> _NDArray:
         markup = self.markup_fn(O, D, np.asarray(s))

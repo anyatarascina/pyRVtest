@@ -343,10 +343,13 @@ sign (`ds/dw > 0`) is a backend-level check and activates when
 
 **Cross-side rejection.** Passing a product-side model (Bertrand,
 Cournot, Monopoly, MixCournotBertrand, PartialCollusion) inside a
-labor-mode `Problem` raises `ValidationError` at init.
-`PerfectCompetition` is side-neutral (zero markup / markdown) and is
-accepted on both sides. `CustomConductModel` is also accepted because
-the user opts in knowingly.
+labor-mode `Problem` raises `ValidationError` at init, and the symmetric
+check rejects labor-side models under the default product mode.
+`PerfectCompetition` is genuinely side-neutral (zero markup / markdown)
+and is accepted on both sides without opt-in. `CustomConductModel`
+requires an explicit `side='labor'` opt-in under `market_side='labor'`
+(and rejects `side='labor'` under `market_side='product'`) because the
+user's `markup_fn` implicitly picks a sign convention.
 
 **Status of `LaborSupplyBackend`.** `pyRVtest/backends/labor/nested_logit_labor.py`
 ships a skeleton in v0.4: constructor, `n_parameters` / `theta_names`

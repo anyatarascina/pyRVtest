@@ -274,10 +274,42 @@ labor-mode data.
 
 Cross-side rejection: passing a product-side model (e.g.
 :class:`~pyRVtest.Bertrand`) under ``market_side='labor'`` raises
-:class:`~pyRVtest.exceptions.ValidationError`.
-:class:`~pyRVtest.PerfectCompetition` is side-neutral and accepted on
-both sides. :class:`~pyRVtest.CustomConductModel` is also accepted
-(the user opts in knowingly).
+:class:`~pyRVtest.exceptions.ValidationError`, and passing a labor-side
+model under the default ``market_side='product'`` is likewise rejected.
+:class:`~pyRVtest.PerfectCompetition` is genuinely side-neutral (zero
+markup equals zero markdown) and is accepted on both sides without
+opt-in.
+
+:class:`~pyRVtest.CustomConductModel` is NOT side-neutral. A user-
+supplied ``markup_fn`` implicitly picks a sign convention, so running a
+product-side formula inside a labor-mode ``Problem`` is a silent bug
+waiting to happen. ``CustomConductModel`` therefore requires an explicit
+``side='labor'`` opt-in when used under labor mode:
+
+.. code-block:: python
+
+    def my_markdown(O, D, s):
+        # formula written for upward-sloping labor supply
+        ...
+
+    problem = pyRVtest.Problem(
+        ...,
+        models=[
+            pyRVtest.Monopsony(ownership='firm_ids'),
+            pyRVtest.CustomConductModel(
+                markup_fn=my_markdown,
+                side='labor',           # opt-in: formula is labor-side
+            ),
+        ],
+        market_side='labor',
+    )
+
+Omitting ``side='labor'`` under ``market_side='labor'`` raises
+:class:`~pyRVtest.exceptions.ValidationError` at init. The symmetric
+check applies to ``market_side='product'``: passing
+``CustomConductModel(..., side='labor')`` to a product-side Problem also
+raises. Valid values are ``'product'``, ``'labor'``, and ``None``
+(``None`` defaults to product-side).
 
 Skeleton :class:`~pyRVtest.backends.LaborSupplyBackend` (v0.4 step 14b):
 class shape, ``n_parameters`` / ``theta_names``, and constructor are
