@@ -39,4 +39,7 @@ docs/notebooks/my_testing_results
 # environment related files
 .venv
 envs
-venv.claude/worktrees/
+venv
+
+# claude-code agent worktrees (created on-demand, not tracked)
+.claude/worktrees/
