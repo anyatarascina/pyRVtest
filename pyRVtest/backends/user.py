@@ -61,6 +61,24 @@ class UserSuppliedBackend:
         If None and n_parameters > 0, perturbed raises
         NotImplementedError with a message asking the user to supply
         this callback.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest.backends import UserSuppliedBackend
+    >>> # Stacked (N, J_max) Jacobian across two 2-product markets.
+    >>> jac = np.array([[-1.0, 0.1], [0.1, -1.0], [-0.8, 0.2], [0.2, -0.8]])
+    >>> market_ids = np.array([0, 0, 1, 1])
+    >>> backend = UserSuppliedBackend(jacobian=jac, market_ids=market_ids)
+    >>> backend.n_parameters
+    0
+    >>> backend.theta_names
+    []
+    >>> backend.compute_jacobian(market_id=0)
+    array([[-1. ,  0.1],
+           [ 0.1, -1. ]])
+    >>> backend.compute_hessian(market_id=0) is None
+    True
     """
 
     def __init__(

@@ -165,7 +165,7 @@ def bartik(
     ...     's':          [10.0, 20.0, 30.0, 40.0],
     ... })
     >>> bartik(df, 'w', 's')
-    array([ 30.,  53.33333333,  70.,  80.])
+    array([30.        , 53.33333333, 70.        , 80.        ])
     """
     w = _column(product_data, weight_column).astype(float, copy=False)
     s = _column(product_data, shock_column).astype(float, copy=False)

@@ -10,6 +10,18 @@ F_CRITICAL_VALUES_SIZE_RHO : `str`
     Location of a CSV file containing critical values for size for each combination of :math:`\rho` and number of
     instruments.
 
+Examples
+--------
+>>> from pyRVtest import data
+>>> data.F_CRITICAL_VALUES_POWER_RHO.endswith('.csv')
+True
+>>> data.F_CRITICAL_VALUES_SIZE_RHO.endswith('.csv')
+True
+>>> power, size = data.read_critical_values_tables()
+>>> power.dtype.names
+('K', 'rho', 'r_50', 'r_75', 'r_95')
+>>> size.dtype.names
+('K', 'rho', 'r_075', 'r_10', 'r_125')
 """
 
 from pathlib import Path
@@ -28,7 +40,17 @@ _critical_values_cache: Optional[Tuple[NDArray[Any], NDArray[Any]]] = None
 
 def read_critical_values_tables() -> Tuple[NDArray[Any], NDArray[Any]]:
     """Read in the critical values for size and power from the corresponding csv file. These will be used to evaluate
-    the strength of the instruments. Results are cached after the first read."""
+    the strength of the instruments. Results are cached after the first read.
+
+    Examples
+    --------
+    >>> from pyRVtest.data import read_critical_values_tables
+    >>> power, size = read_critical_values_tables()
+    >>> power.shape[0] > 0
+    True
+    >>> size.shape[0] > 0
+    True
+    """
     global _critical_values_cache
     if _critical_values_cache is not None:
         return _critical_values_cache

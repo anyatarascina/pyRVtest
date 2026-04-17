@@ -50,6 +50,25 @@ class NestedLogitBackend(LogitBackend):
     they key on ``self._sigma`` (which ``LogitBackend.__init__`` defaults
     to ``[]`` and this class overrides with the filtered user-supplied
     list).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyRVtest.backends import NestedLogitBackend
+    >>> product_data = {
+    ...     'market_ids': np.array([0, 0, 0, 1, 1, 1]),
+    ...     'shares': np.array([0.2, 0.2, 0.2, 0.3, 0.2, 0.2]),
+    ...     'prices': np.array([1.0, 1.5, 2.0, 1.2, 1.8, 2.4]),
+    ...     'nesting_ids': np.array([1, 1, 2, 1, 2, 2]),
+    ... }
+    >>> backend = NestedLogitBackend(
+    ...     alpha=-1.0, sigma=[0.5], product_data=product_data,
+    ...     nesting_ids_columns=['nesting_ids'],
+    ... )
+    >>> backend.n_parameters
+    2
+    >>> backend.theta_names
+    ['alpha', 'sigma[0]']
     """
 
     def __init__(

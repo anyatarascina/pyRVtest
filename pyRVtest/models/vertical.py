@@ -63,6 +63,21 @@ class Vertical:
     user_supplied_markups : str, optional
         Column name of pre-computed total markups; if supplied, bypasses
         the conduct math entirely (for both tiers).
+
+    Examples
+    --------
+    >>> from pyRVtest import Vertical, Bertrand, Monopoly
+    >>> v = Vertical(
+    ...     downstream=Bertrand(ownership='firm_ids'),
+    ...     upstream=Monopoly(ownership='manufacturer_ids'),
+    ...     vertical_integration='vi_col',
+    ... )
+    >>> type(v.downstream).__name__
+    'Bertrand'
+    >>> type(v.upstream).__name__
+    'Monopoly'
+    >>> v.vertical_integration
+    'vi_col'
     """
 
     def __init__(

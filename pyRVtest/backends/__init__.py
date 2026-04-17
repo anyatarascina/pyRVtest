@@ -8,6 +8,14 @@ skeleton lands in step 14.
 
 See `.claude/plans/v0.4-refactor.md` §4.1 for the module layout and §3
 for the PyBLPBackend prototype design.
+
+Examples
+--------
+>>> from pyRVtest import backends
+>>> 'LogitBackend' in backends.__all__
+True
+>>> 'PyBLPBackend' in backends.__all__
+True
 """
 
 from .base import DemandBackend, SupportsDemandAdjustment

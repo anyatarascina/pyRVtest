@@ -37,8 +37,9 @@ jobs:
       - name: Run pytest
         run: python -m pytest tests/ -q
 
+      - name: Run doctest (v0.4 step 21)
+        run: python -m pytest --doctest-modules pyRVtest -q
+
       # Deferred to v0.5:
       # - name: mypy (full strict audit pending step 17)
       #   run: mypy pyRVtest
-      # - name: doctest (pending step 21)
-      #   run: python -m pytest --doctest-modules pyRVtest

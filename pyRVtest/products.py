@@ -55,6 +55,27 @@ class Products(object):
         Instruments, :math: `Z`.
     w : `ndarray`
         Cost-shifters, :math: `w`.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> import pyRVtest
+    >>> df = pd.DataFrame({
+    ...     'market_ids': [0, 0, 1, 1],
+    ...     'shares':     [0.3, 0.3, 0.4, 0.4],
+    ...     'prices':     [1.0, 2.0, 1.5, 2.5],
+    ...     'w_shifter':  [0.1, 0.2, 0.3, 0.4],
+    ...     'iv':         [0.5, 0.7, 0.9, 1.1],
+    ... })
+    >>> products = pyRVtest.Products(
+    ...     cost_formulation=pyRVtest.Formulation('0 + w_shifter'),
+    ...     instrument_formulation=pyRVtest.Formulation('0 + iv'),
+    ...     product_data=df,
+    ... )
+    >>> products.shares.shape
+    (4, 1)
+    >>> products.prices.shape
+    (4, 1)
     """
 
     market_ids: Array

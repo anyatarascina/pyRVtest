@@ -9,6 +9,16 @@ this subpackage corresponds to a stage of the RV testing pipeline:
   endogenous_cost.py   - IV correction for scale economies
   demand_adjustment.py - generic over DemandBackend (step 4)
   test_engine.py       - RV, F, MCS, psi (step 8)
+
+Examples
+--------
+>>> from pyRVtest import solve
+>>> solve.__all__
+[]
+>>> # build_passthrough is re-exported at the package root, not here:
+>>> from pyRVtest import build_passthrough
+>>> callable(build_passthrough)
+True
 """
 
 __all__: list[str] = []

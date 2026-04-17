@@ -44,7 +44,16 @@ if TYPE_CHECKING:
 
 @dataclass
 class Progress:
-    """Structured information passed from Problem.solve to ProblemResults."""
+    """Structured information passed from Problem.solve to ProblemResults.
+
+    Examples
+    --------
+    >>> from pyRVtest.results import Progress
+    >>> from dataclasses import fields
+    >>> field_names = {f.name for f in fields(Progress)}
+    >>> {'problem', 'markups', 'F', 'MCS_pvalues'}.issubset(field_names)
+    True
+    """
     problem: 'Problem'
     markups: Array
     markups_downstream: Array
@@ -111,6 +120,15 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         F_cv_power_list: `ndarray`
             Vector of critical values for power for each pairwise F-statistic.
 
+    Examples
+    --------
+    >>> from pyRVtest import ProblemResults  # doctest: +SKIP
+    >>> # ProblemResults instances are returned by Problem.solve(); they are
+    >>> # not meant to be constructed directly. See docs/tutorial.rst for an
+    >>> # end-to-end example. A representative session is:
+    >>> results = problem.solve()  # doctest: +SKIP
+    >>> print(results)  # doctest: +SKIP
+    >>> results.TRV  # doctest: +SKIP
     """
 
     problem: Array
@@ -204,6 +222,12 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         path: `str or Path`
             File path to which these results will be saved.
 
+        Examples
+        --------
+        >>> results.to_pickle('/tmp/rv_results.pkl')  # doctest: +SKIP
+        >>> # Reload with pyRVtest.read_pickle:
+        >>> import pyRVtest  # doctest: +SKIP
+        >>> loaded = pyRVtest.read_pickle('/tmp/rv_results.pkl')  # doctest: +SKIP
         """
         with open(path, 'wb') as handle:
             pickle.dump(self, handle)

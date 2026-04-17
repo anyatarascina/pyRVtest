@@ -70,6 +70,19 @@ class ConductModel:
     mix_flag : str, optional
         Column name for the boolean Bertrand/Cournot mix indicator.
         Required by ``MixCournotBertrand``.
+
+    Examples
+    --------
+    ``ConductModel`` is abstract; subclasses (``Bertrand``, ``Cournot``,
+    etc.) implement the math. Instances of subclasses carry the shared
+    config:
+
+    >>> from pyRVtest import Bertrand, ConductModel
+    >>> m = Bertrand(ownership='firm_ids')
+    >>> isinstance(m, ConductModel)
+    True
+    >>> m.ownership
+    'firm_ids'
     """
 
     def __init__(

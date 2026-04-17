@@ -114,6 +114,16 @@ demand_adjustment_weight : `str`
     used in estimation and gave incorrect first-stage corrections per DMSS. See CClean-fixes
     memo, item on "first-stage correction weight matrix."
 
+Examples
+--------
+>>> from pyRVtest import options
+>>> options.digits
+7
+>>> options.demand_adjustment_weight in ('W', 'updated_W')
+True
+>>> import numpy as np
+>>> options.dtype is np.float64
+True
 """
 
 import numpy as _np

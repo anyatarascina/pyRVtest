@@ -57,6 +57,22 @@ class DemandBackend(Protocol):
     theta_names
         Human-readable names for each parameter in the flat vector.
         Used in error messages and for symbolic debugging.
+
+    Examples
+    --------
+    ``DemandBackend`` is a ``runtime_checkable`` protocol, so concrete
+    backends can be tested with ``isinstance``:
+
+    >>> import numpy as np
+    >>> from pyRVtest.backends import DemandBackend, LogitBackend
+    >>> product_data = {
+    ...     'market_ids': np.array([0, 0, 1, 1]),
+    ...     'shares': np.array([0.3, 0.3, 0.4, 0.4]),
+    ...     'prices': np.array([1.0, 2.0, 1.5, 2.5]),
+    ... }
+    >>> backend = LogitBackend(alpha=-1.0, product_data=product_data)
+    >>> isinstance(backend, DemandBackend)
+    True
     """
 
     # --- identification ---
@@ -120,6 +136,20 @@ class SupportsDemandAdjustment(Protocol):
     Users supplying a bare Jacobian can still run the RV test without
     demand adjustment; if they want adjustment, they must supply the
     full backend-adjustment API separately.
+
+    Examples
+    --------
+    Backends announce their support via ``isinstance`` against the
+    protocol. ``UserSuppliedBackend`` deliberately opts out:
+
+    >>> import numpy as np
+    >>> from pyRVtest.backends import SupportsDemandAdjustment, UserSuppliedBackend
+    >>> backend = UserSuppliedBackend(
+    ...     jacobian=np.array([[-1.0]]),
+    ...     market_ids=np.array([0]),
+    ... )
+    >>> isinstance(backend, SupportsDemandAdjustment)
+    False
     """
 
     def demand_moments(self) -> Tuple[_NDArray, _NDArray, _NDArray]:
