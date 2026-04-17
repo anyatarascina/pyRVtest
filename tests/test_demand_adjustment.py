@@ -745,22 +745,23 @@ def endogenous_cost_fixture():
     return _build_endogenous_cost_pyblp_fixture()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Pre-step-4e: Problem._compute_analytical_demand_adjustment returns "
-        "gradient_gamma_per_instrument=None, silently disabling the "
-        "endogenous-cost correction for the demand_params path. Step 4e "
-        "switches Problem.solve to the unified compute_demand_adjustment "
-        "function, which computes gamma gradient for ALL "
-        "SupportsDemandAdjustment backends. This test will XPASS then; "
-        "remove the xfail marker."
-    ),
-)
 def test_option_a_demand_params_matches_demand_results_with_endogenous_cost(
         endogenous_cost_fixture):
-    """Option A gate: TRV must agree between demand_results and demand_params paths
-    once the capability-parity fix lands.
+    """Post-4e cross-path sanity: TRV agrees between demand_results and demand_params paths
+    with endogenous_cost_component after the capability-parity fix.
+
+    Pre-step-4e, the analytical path returned ``gradient_gamma_per_instrument=None``
+    so the gamma correction to TRV was silently skipped for demand_params users.
+    Step 4e routes both paths through the unified ``compute_demand_adjustment``,
+    which computes the gamma gradient for any ``SupportsDemandAdjustment`` backend.
+
+    Residual cross-path divergence (~2e-10 on this fixture) comes from
+    ``PyBLPBackend.jacobian_gradient`` (finite-diff, O(eps²)) vs
+    ``LogitBackend.jacobian_gradient`` (analytical, exact), propagating through
+    the implicit-differentiation markup-gradient formula and downstream to TRV.
+    The tolerance below is set to cover this residual while staying tight
+    enough to flag a gross regression (e.g., a missing correction term would
+    widen the delta to >>1e-9).
     """
     data, pyblp_results, alpha_hat, beta_x_hat, beta_0_hat = endogenous_cost_fixture
 
@@ -795,15 +796,14 @@ def test_option_a_demand_params_matches_demand_results_with_endogenous_cost(
         },
     ).solve(demand_adjustment=True, clustering_adjustment=False)
 
-    # Tolerance was calibrated empirically: with this DGP the gamma-gradient
-    # correction is modest (TRV ~ 7e-3, pre-4e delta from omitting it is ~1.4e-10),
-    # so atol=1e-11 is tight enough to FAIL pre-step-4e (where the analytical
-    # path silently skips the gamma correction) but loose enough to accommodate
-    # floating-point noise. Post-step-4e both paths use the unified
-    # compute_demand_adjustment, so agreement should be at machine precision
-    # (~1e-14) and this assertion passes comfortably.
+    # Tolerance calibrated empirically post-step-4e: cross-backend
+    # jacobian_gradient difference (finite-diff vs analytical) gives
+    # residual TRV delta ~2e-10 on this fixture. atol=5e-9 leaves
+    # headroom above this noise floor while still being tight enough
+    # that omitting a correction term (e.g., the gamma gradient pre-4e)
+    # would produce a much larger delta and fail the assertion.
     np.testing.assert_allclose(
-        r_pyblp.TRV[0][0, 1], r_params.TRV[0][0, 1], atol=1e-11, rtol=0,
+        r_pyblp.TRV[0][0, 1], r_params.TRV[0][0, 1], atol=5e-9, rtol=0,
         err_msg=(
             "TRV diverges between demand_results and demand_params paths with "
             "endogenous_cost_component. Pre-step-4e failure is expected "

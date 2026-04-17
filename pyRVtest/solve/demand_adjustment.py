@@ -253,10 +253,10 @@ def compute_demand_adjustment(
     if finite_diff_models:
         eps = options.finite_differences_epsilon
         for k in range(n_theta):
-            markups_up = _perturb_and_rebuild_markups(
+            markups_up, _, _ = _perturb_and_rebuild_markups(
                 backend, problem, k, +eps / 2, _compute_markups
             )
-            markups_dn = _perturb_and_rebuild_markups(
+            markups_dn, _, _ = _perturb_and_rebuild_markups(
                 backend, problem, k, -eps / 2, _compute_markups
             )
             for m in finite_diff_models:

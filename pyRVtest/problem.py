@@ -401,6 +401,13 @@ class Problem(Container, StringRepresentation):
         self.markups = markups
         self.endogenous_cost_component = endogenous_cost_component
 
+        # v0.4 step 4e: construct the demand backend exactly once at Problem
+        # init. Downstream code (Problem.solve, _perturb_and_build_markups,
+        # the unified compute_demand_adjustment in solve/demand_adjustment.py)
+        # uses this single object. `None` only when neither demand_results nor
+        # demand_params was supplied (e.g., user_supplied_markups-only path).
+        self._demand_backend = self._construct_demand_backend()
+
         self.unique_market_ids = np.unique(self.products.market_ids.flatten())
         self.unique_nesting_ids = np.unique(self.products.nesting_ids.flatten())
         self.unique_product_ids = np.unique(self.products.product_ids.flatten())
@@ -624,16 +631,24 @@ class Problem(Container, StringRepresentation):
         gradient_markups = H_prime_wd = H = h_i = h = None
         gradient_gamma_per_instrument = None
         if demand_adjustment:
-            if self.demand_params is not None:
-                gradient_markups, H_prime_wd, H, h_i, h = (
-                    self._compute_analytical_demand_adjustment(M, N, markups, advalorem_tax_adj, cost_scaling)
-                )
-                gradient_gamma_per_instrument = None
-            else:
-                mc_base_for_grad = marginal_cost_base if self.endogenous_cost_component is not None else None
-                gradient_markups, H_prime_wd, H, h_i, h, gradient_gamma_per_instrument = (
-                    self._compute_demand_adjustment_gradient(N, advalorem_tax_adj, cost_scaling, mc_base_for_grad)
-                )
+            # v0.4 step 4e: single code path via the unified function in
+            # solve/demand_adjustment.py. Replaces the former split into
+            # _compute_analytical_demand_adjustment (demand_params) and
+            # _compute_demand_adjustment_gradient (demand_results). Also
+            # closes the silent capability gap where the analytical path
+            # returned gradient_gamma_per_instrument=None, silently
+            # disabling the endogenous-cost correction for demand_params
+            # users.
+            from .solve.demand_adjustment import compute_demand_adjustment
+            mc_base_for_grad = (
+                marginal_cost_base if self.endogenous_cost_component is not None else None
+            )
+            (
+                gradient_markups, H_prime_wd, H, h_i, h, gradient_gamma_per_instrument
+            ) = compute_demand_adjustment(
+                self._demand_backend, self, M, N, markups,
+                advalorem_tax_adj, cost_scaling, mc_base_for_grad,
+            )
 
         g_list = [None] * L
         Q_list = [None] * L
@@ -717,8 +732,61 @@ class Problem(Container, StringRepresentation):
                         "finite-difference gradient requires a demand system to perturb."
                     )
 
+    def _construct_demand_backend(self):
+        """Build the backend from demand_results or demand_params at Problem init time.
+
+        v0.4 step 4e: single construction point for the backend. Returns `None` when
+        neither demand_results nor demand_params is supplied (user_supplied_markups-only
+        path). Otherwise:
+          - `demand_results is not None` -> `PyBLPBackend(demand_results)`.
+          - `demand_params is not None` with non-empty nonzero sigma -> `NestedLogitBackend`.
+          - `demand_params is not None` with empty or all-zero sigma -> `LogitBackend`.
+
+        Demand-adjustment state (beta, x_columns, demand_instrument_columns, W_demand)
+        is forwarded when present so `SupportsDemandAdjustment` methods work. The raw
+        `product_data` (not the structured `Products` recarray) is passed because the
+        backends need access to arbitrary columns like `nesting_ids`, `x1`, etc.
+        """
+        if self.demand_results is not None:
+            from .backends.pyblp import PyBLPBackend
+            return PyBLPBackend(self.demand_results)
+
+        if self.demand_params is not None:
+            dp = self.demand_params
+            sigma_nonzero = [s for s in dp.get('sigma', []) if s > 0]
+            shared_kwargs = dict(
+                alpha=dp['alpha'],
+                product_data=self._product_data_raw,
+                beta=dp.get('beta'),
+                x_columns=dp.get('x_columns'),
+                demand_instrument_columns=dp.get('demand_instrument_columns'),
+                W_demand=dp.get('W_demand'),
+            )
+            if sigma_nonzero:
+                from .backends.nested_logit import NestedLogitBackend
+                return NestedLogitBackend(
+                    sigma=dp.get('sigma', []),
+                    nesting_ids_columns=dp.get('nesting_ids_columns'),
+                    **shared_kwargs,
+                )
+            from .backends.logit import LogitBackend
+            return LogitBackend(**shared_kwargs)
+
+        return None
+
     def _perturb_and_build_markups(self):
-        """Call _compute_markups with current demand_results and model specifications."""
+        """Call _compute_markups with current demand_results and model specifications.
+
+        v0.4 step 4e note: kept unchanged (NOT routed through `self._demand_backend`)
+        so that inline ``_compute_demand_adjustment_gradient`` — which mutates
+        ``self.demand_results._sigma`` / ``._pi`` / ``._beta`` / ``._rho`` directly
+        and then calls this method — sees the perturbed state. If this method
+        were to use the cached backend Jacobian, the inline finite-diff loop
+        would return the cached (pre-mutation) value. The unified
+        ``compute_demand_adjustment`` function has its own backend-aware
+        ``_perturb_and_rebuild_markups`` that uses ``backend.perturbed(...)``
+        context manager, which invalidates the cache safely.
+        """
         demand_jacobian = None
         if self.demand_params is not None:
             from .demand_jacobian import compute_analytical_jacobian
