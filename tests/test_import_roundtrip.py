@@ -99,14 +99,20 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.backends.user', ['UserSuppliedBackend']),
     ('pyRVtest.backends.labor', []),
     ('pyRVtest.backends.labor.nested_logit_labor', []),
-    ('pyRVtest.models', []),
-    ('pyRVtest.models.standard', []),
-    ('pyRVtest.models.vertical', []),
-    ('pyRVtest.models.mixed', []),
-    ('pyRVtest.models.collusion', []),
-    ('pyRVtest.models.constant', []),
-    ('pyRVtest.models.labor', []),
-    ('pyRVtest.models.custom', []),
+    # v0.4 step 5a: populated __all__ (was empty in step 1 skeleton).
+    ('pyRVtest.models', [
+        'ConductModel', 'Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition',
+        'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel',
+        'Vertical',
+    ]),
+    ('pyRVtest.models.base', ['ConductModel']),  # v0.4 step 5a
+    ('pyRVtest.models.standard', ['Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition']),
+    ('pyRVtest.models.vertical', ['Vertical']),
+    ('pyRVtest.models.mixed', ['MixCournotBertrand']),
+    ('pyRVtest.models.collusion', ['PartialCollusion']),
+    ('pyRVtest.models.constant', []),  # step 12
+    ('pyRVtest.models.labor', []),  # step 14
+    ('pyRVtest.models.custom', ['CustomConductModel']),
     ('pyRVtest.instruments', []),
     ('pyRVtest.instruments.product', []),
     ('pyRVtest.instruments.labor', []),
