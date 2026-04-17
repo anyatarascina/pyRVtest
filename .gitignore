@@ -39,4 +39,4 @@ docs/notebooks/my_testing_results
 # environment related files
 .venv
 envs
-venv
+venv.claude/worktrees/
