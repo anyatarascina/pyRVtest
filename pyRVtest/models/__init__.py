@@ -56,8 +56,13 @@ from .vertical import Vertical
 # Frozen sets of model names used by Problem(market_side=...) to reject
 # cross-side specifications at init time. Defined here (next to the class
 # imports they name) so additions stay in lockstep with model registrations.
+#
+# ``perfect_competition`` is side-neutral: it yields zero markup /
+# markdown either way and is the natural null on both sides. It lives in
+# neither set so the cross-side check accepts it under both
+# market_side='product' and market_side='labor'.
 _PRODUCT_SIDE_MODEL_NAMES = frozenset({
-    'bertrand', 'cournot', 'monopoly', 'perfect_competition',
+    'bertrand', 'cournot', 'monopoly',
     'mix_cournot_bertrand', 'partial_collusion',
 })
 _LABOR_SIDE_MODEL_NAMES = frozenset({

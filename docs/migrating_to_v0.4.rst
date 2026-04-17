@@ -324,6 +324,72 @@ The ``NestedLogitBackend`` class (if you construct one directly) still uses
 the AFSSZ L-level convention where ``sigma_l`` is a per-level parameter.
 Only the user-facing ``demand_params`` dict changed names.
 
+Labor-side (v0.4 step 14, new)
+------------------------------
+
+v0.4 adds ``Problem(market_side='labor')`` for labor-supply conduct
+testing. This is entirely additive — the default ``market_side='product'``
+is byte-identical to pre-v0.4 behavior. The labor path is opt-in.
+
+Labor conduct classes live in ``pyRVtest.models.labor`` and are
+re-exported at the top level:
+
+* :class:`pyRVtest.Monopsony` — single-firm wage-setter.
+* :class:`pyRVtest.BertrandWages` — wage-setting Bertrand.
+* :class:`pyRVtest.CournotEmployment` — employment-setting Cournot.
+* :class:`pyRVtest.NashBargaining` — raises ``NotImplementedError`` in
+  v0.4; formula deferred to v0.5 when labor data is available.
+
+Minimal labor problem:
+
+.. code-block:: python
+
+    problem = pyRVtest.Problem(
+        cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+        instrument_formulation=pyRVtest.Formulation('0 + iv0'),
+        product_data=labor_df,          # columns: wages, employment, ...
+        models=[
+            pyRVtest.Monopsony(user_supplied_markups='markdown_m1'),
+            pyRVtest.PerfectCompetition(user_supplied_markups='markdown_m2'),
+        ],
+        market_side='labor',
+    )
+    results = problem.solve()
+
+Column-name defaults for labor mode are ``'wages'`` and ``'employment'``;
+override either via ``column_names``:
+
+.. code-block:: python
+
+    pyRVtest.Problem(
+        ...,
+        market_side='labor',
+        column_names={'price': 'my_wage_col', 'shares': 'my_emp_col'},
+    )
+
+Sign validation at ``Problem.__init__`` requires ``wages > 0`` and
+``employment > 0`` on every row. Violations raise
+:class:`pyRVtest.ValidationError` with the expected / received / fix
+format. A zero-wage row is the most common product-side-sign-convention
+leak into labor-side data and is caught immediately.
+
+Product-side models (:class:`~pyRVtest.Bertrand`,
+:class:`~pyRVtest.Cournot`, :class:`~pyRVtest.Monopoly`,
+:class:`~pyRVtest.MixCournotBertrand`,
+:class:`~pyRVtest.PartialCollusion`) are rejected at init under
+``market_side='labor'``. :class:`~pyRVtest.PerfectCompetition` and
+:class:`~pyRVtest.CustomConductModel` are accepted on both sides.
+
+The :class:`pyRVtest.backends.LaborSupplyBackend` ships as a v0.4
+skeleton: constructor and protocol members exist, but
+``compute_jacobian`` / ``compute_hessian`` raise
+:class:`NotImplementedError`. Users who need a working labor-supply
+backend in v0.4 should wrap their own with
+:class:`~pyRVtest.backends.UserSuppliedBackend`.
+
+See :doc:`agent_guide` for the longer narrative and the full protocol
+surface.
+
 ``models=`` vs ``model_formulations=``
 --------------------------------------
 

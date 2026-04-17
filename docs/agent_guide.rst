@@ -60,7 +60,7 @@ The directory layout is::
     │   ├── logit.py         # LogitBackend + analytical helpers
     │   ├── nested_logit.py  # NestedLogitBackend
     │   ├── user.py          # UserSuppliedBackend
-    │   └── labor/           # Labor-side backends (skeleton)
+    │   └── labor/           # Labor-side backends (LaborSupplyBackend skeleton, step 14b)
     ├── models/              # ConductModel class hierarchy
     │   ├── base.py          # ConductModel abstract base
     │   ├── standard.py      # Bertrand, Cournot, Monopoly, PerfectCompetition
@@ -69,7 +69,7 @@ The directory layout is::
     │   ├── custom.py        # CustomConductModel
     │   ├── vertical.py      # Vertical composer
     │   ├── constant.py      # Placeholder (step 12)
-    │   ├── labor.py         # Placeholder (step 14)
+    │   ├── labor.py         # Monopsony, BertrandWages, CournotEmployment, NashBargaining (step 14a)
     │   └── _adapter.py      # Legacy ModelFormulation bridge
     ├── solve/               # Per-phase pipeline stages
     │   ├── demand_adjustment.py  # DMSS 2024 eq. 77 (step 4d)
@@ -181,6 +181,63 @@ A typical v0.4 problem setup::
     )
     results = problem.solve()
     print(results)
+
+Labor-side usage
+----------------
+
+``Problem(market_side='labor')`` switches pyRVtest to labor-supply
+testing: upward-sloping supply (``ds/dw > 0``), markdowns rather than
+markups, and the four labor conduct classes. The flip is localized to
+``Problem.__init__`` — the rest of the pipeline is unchanged. Landed in
+v0.4 step 14.
+
+Labor conduct classes (``pyRVtest.models.labor``):
+
+* :class:`pyRVtest.Monopsony` — single-firm wage-setter; sign-flipped
+  analogue of :class:`~pyRVtest.Monopoly`.
+* :class:`pyRVtest.BertrandWages` — wage-setting Bertrand; sign-flipped
+  analogue of :class:`~pyRVtest.Bertrand`.
+* :class:`pyRVtest.CournotEmployment` — employment-setting Cournot;
+  sign-flipped analogue of :class:`~pyRVtest.Cournot`.
+* :class:`pyRVtest.NashBargaining` — surplus-split bargaining over wages.
+  The markdown formula is deferred to v0.5 when labor data is
+  available; instantiation succeeds and ``_compute_markup`` raises
+  :class:`NotImplementedError` with a pointer to the plan.
+
+Column-name defaults for labor-mode are ``'wages'`` (in place of
+``'prices'``) and ``'employment'`` (in place of ``'shares'``). Override
+via ``column_names={'price': '<wage_col>', 'shares': '<employment_col>'}``.
+Unknown keys in ``column_names`` raise
+:class:`~pyRVtest.exceptions.ValidationError`.
+
+Sign-convention validation (v0.4 step 14c): every row must have
+``wages > 0`` and ``employment > 0``. Violations raise
+:class:`~pyRVtest.exceptions.ValidationError` at init time with the
+expected / received / fix format, naming the user's original column.
+Catches the most common pipeline bug on the labor side — product-side
+sign conventions (negative-alpha convention) accidentally leaking into
+labor-mode data.
+
+Cross-side rejection: passing a product-side model (e.g.
+:class:`~pyRVtest.Bertrand`) under ``market_side='labor'`` raises
+:class:`~pyRVtest.exceptions.ValidationError`.
+:class:`~pyRVtest.PerfectCompetition` is side-neutral and accepted on
+both sides. :class:`~pyRVtest.CustomConductModel` is also accepted
+(the user opts in knowingly).
+
+Skeleton :class:`~pyRVtest.backends.LaborSupplyBackend` (v0.4 step 14b):
+class shape, ``n_parameters`` / ``theta_names``, and constructor are
+wired; ``compute_jacobian`` / ``compute_hessian`` / ``perturbed`` raise
+:class:`NotImplementedError` with a v0.5 pointer. The skeleton
+deliberately does NOT implement
+:class:`~pyRVtest.backends.SupportsDemandAdjustment` — extending it
+for labor-side first-stage adjustment is an explicit v0.5 task.
+
+To run a labor-mode problem today, use ``user_supplied_markups`` on
+each conduct model (the markup / markdown is computed externally and
+pyRVtest just runs the RV + F + MCS machinery), or wrap your own
+labor-supply Jacobian inside
+:class:`~pyRVtest.backends.UserSuppliedBackend`.
 
 The ``DemandBackend`` protocol
 ------------------------------

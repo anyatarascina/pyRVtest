@@ -17,7 +17,7 @@ from . import options
 from .exceptions import ValidationError
 from .formulation import Absorb, Formulation, ModelFormulation
 from .markups import build_ownership
-from .models import _LABOR_SIDE_MODEL_NAMES, _PRODUCT_SIDE_MODEL_NAMES
+from .models import _PRODUCT_SIDE_MODEL_NAMES
 from .data import read_critical_values_tables
 from .products import Products
 from .results import ProblemResults, Progress
@@ -343,7 +343,7 @@ def _apply_labor_column_aliases(
     # but keeps the labor path working for NumPy structured arrays.
     aliased_dict = {}
     try:
-        field_names = list(product_data.dtype.names)  # type: ignore[union-attr]
+        field_names = list(product_data.dtype.names)
     except AttributeError as exc:  # pragma: no cover
         raise ValidationError(
             f"Expected product_data to be a pandas DataFrame, dict-like "
@@ -353,7 +353,7 @@ def _apply_labor_column_aliases(
             f"before passing it to Problem(..., market_side='labor')."
         ) from exc
     for name in field_names:
-        aliased_dict[name] = product_data[name]  # type: ignore[index]
+        aliased_dict[name] = product_data[name]
     aliased_dict['prices'] = extract_matrix(product_data, wage_col)
     aliased_dict['shares'] = extract_matrix(product_data, emp_col)
     return aliased_dict

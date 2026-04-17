@@ -38,7 +38,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any, Hashable, Iterator, List, Mapping, Optional
 
-import numpy as np
 from numpy.typing import NDArray
 
 
@@ -162,8 +161,8 @@ class LaborSupplyBackend:
             "The class is a skeleton: constructor and protocol members exist "
             "so Problem(market_side='labor') wiring can be validated, but "
             "the analytical Jacobian is deferred until labor-project data "
-            "is available.\n"
-            + _V05_DEFERRAL_FIX
+            "is available.\n" +
+            _V05_DEFERRAL_FIX
         )
 
     def compute_hessian(self, market_id: Hashable) -> Optional[_NDArray]:
@@ -177,8 +176,8 @@ class LaborSupplyBackend:
             "LaborSupplyBackend.compute_hessian is not implemented in v0.4. "
             "Joint product + labor conduct testing (which is where the "
             "labor Hessian matters, via cross-side vertical passthrough) "
-            "is explicitly on the v0.5+ defer list.\n"
-            + _V05_DEFERRAL_FIX
+            "is explicitly on the v0.5+ defer list.\n" +
+            _V05_DEFERRAL_FIX
         )
 
     # ------------------------------------------------------------------
@@ -196,8 +195,8 @@ class LaborSupplyBackend:
         raise NotImplementedError(
             "LaborSupplyBackend.perturbed is not implemented in v0.4. "
             "Finite-difference demand adjustment requires a working "
-            "compute_jacobian; the two must ship together.\n"
-            + _V05_DEFERRAL_FIX
+            "compute_jacobian; the two must ship together.\n" +
+            _V05_DEFERRAL_FIX
         )
         # Unreachable; present only so mypy sees a yield statement and
         # classifies the method as a generator.

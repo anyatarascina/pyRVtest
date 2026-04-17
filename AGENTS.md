@@ -50,7 +50,7 @@ pyRVtest/
 │   ├── logit.py            # LogitBackend + analytical jacobian/hessian helpers
 │   ├── nested_logit.py     # NestedLogitBackend (analytical nested-logit math)
 │   ├── user.py             # UserSuppliedBackend (bring-your-own-Jacobian)
-│   └── labor/              # Labor-side backends (skeleton for v0.4; populated v0.5+)
+│   └── labor/              # Labor-side backends (LaborSupplyBackend skeleton, step 14b)
 ├── models/
 │   ├── base.py             # ConductModel abstract base
 │   ├── standard.py         # Bertrand, Cournot, Monopoly, PerfectCompetition
@@ -59,7 +59,7 @@ pyRVtest/
 │   ├── custom.py           # CustomConductModel
 │   ├── vertical.py         # Vertical composer (bilateral oligopoly)
 │   ├── constant.py         # Placeholder: ConstantMarkup, etc. (step 12)
-│   ├── labor.py            # Placeholder: Monopsony et al. (step 14)
+│   ├── labor.py            # Monopsony, BertrandWages, CournotEmployment, NashBargaining (step 14a)
 │   └── _adapter.py         # Legacy ModelFormulation → ConductModel translation (step 5c)
 ├── solve/
 │   ├── demand_adjustment.py # Unified DMSS 2024 eq. 77 first-stage correction (step 4d)
@@ -278,7 +278,75 @@ by purpose:
 - **v0.4 class-based ConductModel API:** `ConductModel`, `Bertrand`,
   `Cournot`, `Monopoly`, `PerfectCompetition`, `MixCournotBertrand`,
   `PartialCollusion`, `CustomConductModel`, `Vertical`.
+- **v0.4 labor-side models (step 14a):** `Monopsony`, `BertrandWages`,
+  `CournotEmployment`, `NashBargaining` (raises `NotImplementedError`
+  in v0.4; full formula deferred to v0.5).
 - **v0.4 diagnostic helper:** `build_passthrough`.
 - **v0.4 agent guide exporter:** `show_agent_guide`.
 
 Anything else is internal and may change without notice.
+
+## Labor-side usage (v0.4 step 14)
+
+`Problem(market_side='labor')` switches `pyRVtest` to labor-supply
+testing: upward-sloping supply, markdowns instead of markups, and the
+four labor conduct classes above. The flip is localized to
+`Problem.__init__` — the rest of the pipeline is unchanged.
+
+```python
+import pandas as pd
+import pyRVtest
+
+df = pd.DataFrame({
+    'market_ids':  [0, 0, 1, 1],
+    'firm_ids':    [0, 1, 0, 1],
+    'wages':       [12.0, 13.5, 11.0, 14.0],   # strictly positive
+    'employment':  [0.30, 0.25, 0.35, 0.20],   # strictly positive
+    'cost_shifter': [0.5, 1.2, 0.7, 0.9],
+    'iv0': [1.1, 1.0, 0.9, 1.2],
+    'markdown_m1': [0.1, 0.1, 0.12, 0.12],
+    'markdown_m2': [0.0, 0.0, 0.0, 0.0],
+})
+
+problem = pyRVtest.Problem(
+    cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+    instrument_formulation=pyRVtest.Formulation('0 + iv0'),
+    product_data=df,
+    models=[
+        pyRVtest.Monopsony(user_supplied_markups='markdown_m1'),
+        pyRVtest.PerfectCompetition(user_supplied_markups='markdown_m2'),
+    ],
+    market_side='labor',
+)
+```
+
+Column-name defaults for labor-mode are `'wages'` (in place of `'prices'`)
+and `'employment'` (in place of `'shares'`). Override them with
+`column_names={'price': 'my_wage_col', 'shares': 'my_emp_col'}`. Invalid
+keys raise `ValidationError` with the typo surfaced in the message.
+
+**Sign-convention validation.** `wages > 0` and `employment > 0` are
+checked at `Problem.__init__` on the raw (non-aliased) columns. A
+zero-wage or negative-wage row raises `ValidationError` with the
+expected / received / fix format; the error names the user's original
+column and points at this section. The implied labor-supply Jacobian
+sign (`ds/dw > 0`) is a backend-level check and activates when
+`LaborSupplyBackend.compute_jacobian` is populated in v0.5.
+
+**Cross-side rejection.** Passing a product-side model (Bertrand,
+Cournot, Monopoly, MixCournotBertrand, PartialCollusion) inside a
+labor-mode `Problem` raises `ValidationError` at init.
+`PerfectCompetition` is side-neutral (zero markup / markdown) and is
+accepted on both sides. `CustomConductModel` is also accepted because
+the user opts in knowingly.
+
+**Status of `LaborSupplyBackend`.** `pyRVtest/backends/labor/nested_logit_labor.py`
+ships a skeleton in v0.4: constructor, `n_parameters` / `theta_names`
+honor the protocol, but `compute_jacobian` / `compute_hessian` /
+`perturbed` raise `NotImplementedError` with a pointer to v0.5. Users
+who need a working labor-supply backend today should wrap their own
+with `UserSuppliedBackend` (see `docs/custom_demand.rst`).
+
+**Deferred to v0.5.** Full `LaborSupplyBackend` math, `NashBargaining`
+formula, joint product + labor conduct testing (basic_model.tex
+framework), and full Almagro-Sood ordered-choice labor supply.

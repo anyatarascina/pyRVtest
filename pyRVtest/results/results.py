@@ -174,6 +174,11 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         self._symbols_power_list = progress.symbols_power_list
         self.cost_param = progress.cost_param
         self.tau_list_per_instrument = progress.tau_list_per_instrument
+        # v0.4 step 14d: propagate market_side from the Problem so __str__
+        # can switch to labor-side terminology (markdown / MRP / wage) when
+        # the Problem was constructed with market_side='labor'. Falls back
+        # to 'product' for older pickles that predate the attribute.
+        self._market_side: str = getattr(progress.problem, '_market_side', 'product')
 
     def __str__(self) -> str:
         """Format results information as a string."""
@@ -209,8 +214,20 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         last_table = False
         if j == (len(self.TRV) - 1):
             last_table = True
+        # v0.4 step 14d: labor-side title banner. Product-side keeps the
+        # pre-v0.4 title byte-for-byte ("Testing Results - Instruments z{0}");
+        # labor-side gets a suffix so ``print(results)`` shows the
+        # markdown / MRP / wage terminology even though the underlying
+        # statistics are identical.
+        if self._market_side == 'labor':
+            title = (
+                "Testing Results (labor: markdown / MRP / wage) - Instruments z{0}"
+                .format(j)
+            )
+        else:
+            title = "Testing Results - Instruments z{0}".format(j)
         return format_table(
-            header, subheader, *data, title="Testing Results - Instruments z{0}".format(j), include_notes=last_table,
+            header, subheader, *data, title=title, include_notes=last_table,
             line_indices=[number_models, 2 * number_models + 1]
         )
 
