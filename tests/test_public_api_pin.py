@@ -162,6 +162,7 @@ def test_audit_covers_expected_modules():
         'pyRVtest.models.vertical',
         'pyRVtest.products',
         'pyRVtest.results',
+        'pyRVtest.results.results',
         'pyRVtest.solve',
         'pyRVtest.solve.demand_adjustment',
         'pyRVtest.solve.passthrough',
