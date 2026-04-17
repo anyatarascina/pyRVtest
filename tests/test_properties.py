@@ -828,3 +828,128 @@ def test_vertical_bertrand_downstream_monopoly_upstream_smoke():
 # semantics today, but PartialCollusion as a dedicated class gets its own
 # test at step 5.
 # ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# v0.4 step 4h: within-market row-permutation invariance with demand_adjustment.
+#
+# The existing Property 4 test (user_supplied_markups fastpath) doesn't
+# exercise the step-4 demand-adjustment machinery (backend perturbation,
+# xi/H/h_i construction, gradient_markups implicit differentiation).
+# This test permutes rows within markets and asserts that TRV / F / MCS
+# from a full Problem.solve(demand_adjustment=True) are invariant. Any
+# accidental index-order dependence in the unified
+# compute_demand_adjustment function or the backends would break this.
+# ---------------------------------------------------------------------------
+
+
+def _make_demand_adjustment_dgp(seed: int = 7777, T: int = 12, J: int = 3):
+    """Plain-logit Bertrand DGP with enough structure to exercise
+    demand_adjustment=True via demand_params."""
+    rng = np.random.default_rng(seed=seed)
+    N = T * J
+    alpha = -2.0
+    beta_x = 1.0
+    market_ids = np.repeat(np.arange(T), J)
+    firm_ids = np.tile(np.arange(J), T)
+    x = rng.uniform(0.5, 1.5, size=(N, 1))
+    # Utility + random xi -> observed shares via logit inversion (not equilibrium;
+    # demand_adjustment doesn't need equilibrium, just consistent xi).
+    u = beta_x * x.flatten() + rng.normal(scale=0.3, size=N)
+    prices = rng.uniform(0.8, 2.0, size=N)
+    delta = u + alpha * prices
+    shares = np.zeros(N)
+    for t in range(T):
+        idx = np.where(market_ids == t)[0]
+        e = np.exp(delta[idx])
+        shares[idx] = e / (1.0 + e.sum())
+    # Cost shifter for the pyRVtest cost formulation.
+    z1 = rng.normal(size=N) + 1.5
+    # Conduct-testing instrument.
+    iv0 = rng.uniform(-1, 1, size=N)
+    # Demand instrument (rival x).
+    rival_x = np.zeros(N)
+    for t in range(T):
+        idx = np.where(market_ids == t)[0]
+        for j in idx:
+            others = [i for i in idx if i != j]
+            rival_x[j] = x.flatten()[others].mean()
+    intercept = np.ones(N)
+    clustering_ids = market_ids
+    return pd.DataFrame({
+        'market_ids': market_ids, 'firm_ids': firm_ids,
+        'prices': prices, 'shares': shares,
+        'x1': x.flatten(), 'intercept': intercept,
+        'rival_x': rival_x,
+        'z1': z1, 'iv0': iv0,
+        'clustering_ids': clustering_ids,
+    }), alpha, beta_x
+
+
+def _solve_with_demand_adjustment(df, alpha, beta_x):
+    """Build a Problem with demand_params + run solve(demand_adjustment=True)."""
+    import pyRVtest as pyrv
+    pyrv.options.verbose = False
+    problem = pyrv.Problem(
+        cost_formulation=pyrv.Formulation('1 + z1'),
+        instrument_formulation=pyrv.Formulation('0 + iv0'),
+        model_formulations=(
+            pyrv.ModelFormulation(
+                model_downstream='bertrand', ownership_downstream='firm_ids',
+            ),
+            pyrv.ModelFormulation(model_downstream='perfect_competition'),
+        ),
+        product_data=df,
+        demand_params={
+            'alpha': alpha, 'sigma': [],
+            'beta': np.array([0.0, beta_x]),
+            'x_columns': ['intercept', 'x1'],
+            'demand_instrument_columns': ['rival_x', 'intercept', 'x1'],
+        },
+    )
+    return problem.solve(demand_adjustment=True, clustering_adjustment=False)
+
+
+@given(seed=st.integers(min_value=1, max_value=10_000))
+@settings(max_examples=25, deadline=None)
+def test_within_market_permutation_invariance_with_demand_adjustment(seed):
+    """Permuting rows within each market must leave TRV / F / MCS invariant
+    when demand_adjustment=True.
+
+    Covers the step-4 demand-adjustment code: the unified
+    compute_demand_adjustment, the LogitBackend's demand_moments /
+    xi_gradient / jacobian_gradient, and the implicit-differentiation
+    markup gradient. A failure here would indicate an index-order
+    dependence somewhere in that pipeline.
+    """
+    df_original, alpha, beta_x = _make_demand_adjustment_dgp(seed=seed)
+
+    # Within-market permutation with a seeded RNG.
+    perm_rng = np.random.default_rng(seed=seed + 777)
+    df_permuted = df_original.copy()
+    for t in df_permuted['market_ids'].unique():
+        mask = df_permuted['market_ids'] == t
+        idx = np.where(mask)[0]
+        perm = perm_rng.permutation(idx)
+        df_permuted.iloc[idx] = df_original.iloc[perm].values
+    df_permuted = df_permuted.reset_index(drop=True)
+
+    r_original = _solve_with_demand_adjustment(df_original, alpha, beta_x)
+    r_permuted = _solve_with_demand_adjustment(df_permuted, alpha, beta_x)
+
+    np.testing.assert_allclose(
+        r_original.TRV, r_permuted.TRV, atol=1e-10, equal_nan=True,
+        err_msg=(
+            'TRV with demand_adjustment=True should be invariant to within-market '
+            'row permutation. A failure indicates index-order dependence in the '
+            'unified compute_demand_adjustment or one of the backend methods.'
+        )
+    )
+    np.testing.assert_allclose(
+        r_original.F, r_permuted.F, atol=1e-10, equal_nan=True,
+        err_msg='F with demand_adjustment=True should be permutation-invariant'
+    )
+    np.testing.assert_allclose(
+        r_original.MCS_pvalues, r_permuted.MCS_pvalues, atol=1e-10, equal_nan=True,
+        err_msg='MCS_pvalues with demand_adjustment=True should be permutation-invariant'
+    )
