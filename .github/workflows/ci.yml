@@ -65,7 +65,39 @@ jobs:
           python -c "import numpy, scipy, pyblp, pandas; print(f'numpy {numpy.__version__}  scipy {scipy.__version__}  pyblp {pyblp.__version__}  pandas {pandas.__version__}')"
 
       - name: Run pytest
-        run: python -m pytest tests/ -q
+        id: pytest
+        continue-on-error: true
+        run: |
+          python -m pytest tests/ --tb=short -q 2>&1 | tee /tmp/pytest.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Emit failure summary as annotation
+        if: always()
+        run: |
+          if [ ! -f /tmp/pytest.log ]; then
+            echo "::error::pytest.log not found"
+            exit 0
+          fi
+          echo "--- last 80 lines of pytest output ---"
+          tail -80 /tmp/pytest.log
+          SUM=$(grep -E "^=+ .*(failed|passed|error).* =+$" /tmp/pytest.log | tail -1 || true)
+          FAILS=$(grep -E "^(FAILED|ERROR) " /tmp/pytest.log | head -20 || true)
+          {
+            echo "summary: ${SUM}"
+            echo
+            echo "failed tests (first 20):"
+            echo "${FAILS}"
+            echo
+            echo "last 40 output lines:"
+            tail -40 /tmp/pytest.log
+          } > /tmp/annotation.txt
+          MSG=$(head -c 3500 /tmp/annotation.txt)
+          ENC=$(printf '%s' "$MSG" | sed 's/%/%25/g; s/\r/%0D/g' | python3 -c 'import sys; print(sys.stdin.read().replace(chr(10), "%0A"), end="")')
+          echo "::error title=pytest-failure-summary::${ENC}"
+
+      - name: Fail job if pytest failed
+        if: steps.pytest.outcome == 'failure'
+        run: exit 1
 
       - name: Run doctest (v0.4 step 21)
         run: python -m pytest --doctest-modules pyRVtest -q
