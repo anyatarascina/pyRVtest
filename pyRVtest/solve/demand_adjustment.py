@@ -28,12 +28,13 @@ from typing import Any, Callable, List, Optional, Tuple, cast
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 
 __all__ = ['_residualize_on_xd', 'compute_demand_adjustment']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 def _residualize_on_xd(

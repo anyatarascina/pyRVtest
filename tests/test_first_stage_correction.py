@@ -248,7 +248,7 @@ class TestFirstStageEquivalenceWithDemandAdjustment:
         # Must pass the full beta vector matching pyblp's X1 columns, EXCLUDING prices.
         # pyblp X1 = '1 + prices + x1'; X1 exogenous = (intercept, x1); so we need both.
         beta_0 = float(
-            pyblp_results.beta[pyblp_results.beta_labels.index("1")]
+            pyblp_results.beta[pyblp_results.beta_labels.index("1")].item()
         )
         r2 = pyRVtest.Problem(
             **common,

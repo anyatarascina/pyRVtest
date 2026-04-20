@@ -27,6 +27,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 from .. import options
 from ..solve.demand_adjustment import _residualize_on_xd
@@ -35,7 +36,7 @@ from ..solve.demand_adjustment import _residualize_on_xd
 __all__ = ['PyBLPBackend']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 # Parameter kind: identifies which PyBLP private attribute holds the parameter.
 ParamIndex = Tuple[str, int, Optional[int]]  # (kind, i, j)

@@ -39,12 +39,13 @@ from contextlib import contextmanager
 from typing import Any, Hashable, Iterator, List, Mapping, Optional
 
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 
 __all__ = ['LaborSupplyBackend']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 _V05_DEFERRAL_FIX = (
@@ -110,7 +111,7 @@ class LaborSupplyBackend:
     >>> try:
     ...     backend.compute_jacobian(market_id=0)
     ... except NotImplementedError as e:
-    ...     print('v0.5 deferral:', str(e).splitlines()[0])
+    ...     print('v0.5 deferral:', str(e).split('. ', 1)[0] + '.')
     v0.5 deferral: LaborSupplyBackend.compute_jacobian is not implemented in v0.4.
     """
 

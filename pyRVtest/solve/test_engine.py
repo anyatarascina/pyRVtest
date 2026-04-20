@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 from pyblp.utilities.basics import Array
 from scipy.linalg import inv
 from scipy.stats import norm
@@ -37,7 +38,7 @@ __all__ = [
 ]
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 logger = logging.getLogger(__name__)

@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 from ..exceptions import ValidationError
 from .base import ConductModel
@@ -25,7 +26,7 @@ from .base import ConductModel
 __all__ = ['CustomConductModel']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 class CustomConductModel(ConductModel):

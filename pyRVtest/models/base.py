@@ -35,12 +35,13 @@ from typing import Any, Callable, Optional, Set, Union
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 
 __all__ = ['ConductModel']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 # v0.4 OQ 14: once-per-session flags for the model-level tax deprecations.

@@ -37,6 +37,7 @@ from typing import Any, Callable, Optional, Union
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 from .base import ConductModel
 
@@ -44,7 +45,7 @@ from .base import ConductModel
 __all__ = ['Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 def _as_column(s: _NDArray) -> _NDArray:

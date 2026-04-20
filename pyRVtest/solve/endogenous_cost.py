@@ -19,12 +19,13 @@ from typing import Any, List, Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 
 __all__ = ['iv_correct']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 logger = logging.getLogger(__name__)

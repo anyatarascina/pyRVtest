@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 from .base import ConductModel
 
@@ -30,7 +31,7 @@ from .base import ConductModel
 __all__ = ['UserSuppliedMarkups']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 class UserSuppliedMarkups(ConductModel):

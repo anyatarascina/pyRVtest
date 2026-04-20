@@ -27,6 +27,7 @@ from typing import Any, Hashable, Iterator, List, Optional, Protocol, Tuple, run
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 
 __all__ = ['DemandBackend', 'SupportsDemandAdjustment']
@@ -35,7 +36,7 @@ __all__ = ['DemandBackend', 'SupportsDemandAdjustment']
 # dtype for id columns. NDArray[Any] = np.ndarray[Any, np.dtype[Any]], which
 # keeps the dtype axis loose. Aliased locally so the Protocol signatures are
 # concise without `from numpy.typing import NDArray` at every call site.
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 @runtime_checkable

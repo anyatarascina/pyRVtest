@@ -24,6 +24,7 @@ from typing import Any, List, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 from .. import options
 
@@ -31,7 +32,7 @@ from .. import options
 __all__ = ['qr_residualize', 'residualize']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 # v0.4 step 18 convention: per-module logger. Users can silence this

@@ -21,6 +21,7 @@ import logging
 from typing import Any, List, Tuple
 
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 from ..markups import _compute_markups
 
@@ -28,7 +29,7 @@ from ..markups import _compute_markups
 __all__ = ['compute']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 logger = logging.getLogger(__name__)

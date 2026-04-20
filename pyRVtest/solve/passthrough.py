@@ -18,6 +18,7 @@ from typing import Any, Dict, Hashable, Optional, Union
 
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 from ..exceptions import HessianUnavailableError
 from ..markups import _construct_passthrough_from_hessian
@@ -27,7 +28,7 @@ from ..models.vertical import Vertical
 __all__ = ['build_passthrough']
 
 
-_NDArray = NDArray[Any]
+_NDArray: TypeAlias = NDArray[Any]
 
 
 def build_passthrough(
