@@ -570,7 +570,15 @@ def test_dispatch_smoke_all_standard_models():
     assert np.all(cour > 0), f"Cournot markups not strictly positive: min {cour.min()}"
     assert np.all(mono > 0), f"Monopoly markups not strictly positive: min {mono.min()}"
 
-    # Monopoly dominates Bertrand
+    # Monopoly dominates Bertrand element-wise on this symmetric 2-firm DGP.
+    # NOTE (Lorenzo review 2026-04-18): element-wise dominance is not
+    # theoretically guaranteed in general — counterexamples exist under
+    # heterogeneous ownership and asymmetric demand. It holds here because
+    # the DGP is symmetric with full-ownership Monopoly. If a future
+    # migration breaks this on a new fixture, weaken to the share-weighted
+    # aggregate inequality pinned in
+    # ``test_monopoly_share_weighted_dominates_bertrand`` below (theory-
+    # guaranteed under full ownership by envelope arguments).
     assert np.all(mono >= bert - 1e-12), (
         f"Monopoly should dominate Bertrand element-wise on this symmetric DGP; "
         f"max(bertrand - monopoly) = {np.max(bert - mono)}"
@@ -592,6 +600,49 @@ def test_dispatch_smoke_all_standard_models():
     np.testing.assert_allclose(
         mono, _hand_monopoly(alpha, shares, market_ids, T),
         atol=1e-10, err_msg="pyRVtest Monopoly disagrees with hand-computed"
+    )
+
+
+def test_monopoly_share_weighted_dominates_bertrand():
+    """Share-weighted aggregate Monopoly markup >= Bertrand — theory-guaranteed fallback.
+
+    Under full Monopoly ownership, the share-weighted aggregate markup
+    :math:`\\sum_j s_j \\mu_j` is bounded below by the Bertrand
+    counterpart by an envelope argument (the monopolist's optimal price
+    vector is a feasible choice for the Bertrand oligopolists' joint
+    problem, so the aggregate profit — and therefore the share-weighted
+    aggregate markup at the equilibrium — cannot be lower under
+    Monopoly). This is strictly weaker than element-wise dominance
+    (which is asserted above in ``test_dispatch_smoke_all_standard_models``
+    on this specific symmetric DGP) but holds in general for
+    full-ownership Monopoly on any fixture.
+
+    Rationale (Lorenzo review 2026-04-18): if a future migration breaks
+    the element-wise assertion on a new fixture, this share-weighted
+    form is the principled fallback — do not relax the element-wise
+    assertion to ``np.mean(mono) >= np.mean(bert)``, which
+    counterexamples can defeat under heterogeneous ownership or
+    asymmetric demand.
+    """
+    alpha = -2.0
+    T = 6
+    df = _make_dgp_multifirm(seed=42, T=T, alpha=alpha)
+    results = _run_pyrvtest_all_models_multifirm(df, alpha)
+
+    bert = results.markups[0].flatten()
+    mono = results.markups[2].flatten()
+    shares = df['shares'].to_numpy().flatten()
+    assert bert.shape == shares.shape
+    assert mono.shape == shares.shape
+
+    share_weighted_bert = float((shares * bert).sum())
+    share_weighted_mono = float((shares * mono).sum())
+    assert share_weighted_mono >= share_weighted_bert - 1e-12, (
+        f"Share-weighted aggregate Monopoly markup "
+        f"({share_weighted_mono:.6g}) is below share-weighted Bertrand "
+        f"({share_weighted_bert:.6g}). Theory requires (sum_j s_j mu_mono_j) "
+        f">= (sum_j s_j mu_bert_j) under full Monopoly ownership on any "
+        f"fixture; this fails on the test DGP."
     )
 
 
