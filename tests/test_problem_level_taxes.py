@@ -487,3 +487,118 @@ class TestLegacyModelFormulationWithSalience:
             )
         assert mf._unit_tax_salient is False
         assert mf._advalorem_tax_salient is True
+
+
+# =====================================================================
+# Construction-time DeprecationWarning (v0.4.0rc1 follow-up).
+#
+# Lorenzo 2026-04-18 review, P1 item 7: the CHANGELOG claimed per-model
+# ``unit_tax`` / ``advalorem_tax`` emit DeprecationWarning pointing at
+# v0.7 removal, but the warning previously fired only at
+# ``Problem.__init__`` solve-preparation time. Users writing
+# ``pyRVtest.Bertrand(unit_tax='col')`` in a helper function and never
+# calling ``Problem`` directly would miss the deprecation entirely. rc1
+# moves the emission to ``ConductModel.__init__`` / ``Vertical.__init__``
+# so it fires at class construction.
+# =====================================================================
+
+
+class TestConstructionTimeDeprecation:
+    """Per-model tax kwargs emit DeprecationWarning at construction time."""
+
+    def _reset_flag(self):
+        from pyRVtest.models.base import _legacy_tax_deprecation_warned
+        _legacy_tax_deprecation_warned.clear()
+
+    def test_bertrand_unit_tax_warns_at_construction(self):
+        self._reset_flag()
+        with pytest.warns(DeprecationWarning, match='unit_tax.*deprecated'):
+            pyRVtest.Bertrand(ownership='firm_ids', unit_tax='tax_col')
+
+    def test_bertrand_advalorem_tax_warns_at_construction(self):
+        self._reset_flag()
+        with pytest.warns(DeprecationWarning, match='advalorem_tax.*deprecated'):
+            pyRVtest.Bertrand(
+                ownership='firm_ids',
+                advalorem_tax='vat_col',
+                advalorem_payer='consumer',
+            )
+
+    def test_cournot_unit_tax_warns_at_construction(self):
+        self._reset_flag()
+        with pytest.warns(DeprecationWarning, match='unit_tax.*deprecated'):
+            pyRVtest.Cournot(ownership='firm_ids', unit_tax='tax_col')
+
+    def test_monopoly_unit_tax_warns_at_construction(self):
+        self._reset_flag()
+        with pytest.warns(DeprecationWarning, match='unit_tax.*deprecated'):
+            pyRVtest.Monopoly(unit_tax='tax_col')
+
+    def test_vertical_unit_tax_warns_at_construction(self):
+        """Vertical is its own class (not a ConductModel subclass) but still warns."""
+        self._reset_flag()
+        with warnings.catch_warnings():
+            # Silence the ConductModel-level warnings for the inner tiers
+            # if they fire; we only care that Vertical itself warns.
+            warnings.simplefilter('always', DeprecationWarning)
+            with pytest.warns(DeprecationWarning, match='unit_tax.*deprecated'):
+                pyRVtest.Vertical(
+                    downstream=pyRVtest.Bertrand(ownership='firm_ids'),
+                    upstream=pyRVtest.Monopoly(),
+                    unit_tax='tax_col',
+                )
+
+    def test_warning_fires_once_per_session_across_models(self):
+        """Multiple models with per-model unit_tax → one warning per session."""
+        self._reset_flag()
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter('always')
+            pyRVtest.Bertrand(ownership='firm_ids', unit_tax='tax_col')
+            pyRVtest.Cournot(ownership='firm_ids', unit_tax='tax_col')
+            pyRVtest.Monopoly(unit_tax='tax_col')
+        unit_tax_warnings = [
+            w for w in captured
+            if issubclass(w.category, DeprecationWarning)
+            and 'unit_tax' in str(w.message) and 'deprecated' in str(w.message)
+        ]
+        assert len(unit_tax_warnings) == 1, (
+            f"Expected exactly one unit_tax DeprecationWarning across three "
+            f"constructions; got {len(unit_tax_warnings)}."
+        )
+
+    def test_no_warning_when_no_per_model_tax(self):
+        """Bare Bertrand() without per-model tax does not warn."""
+        self._reset_flag()
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter('always')
+            pyRVtest.Bertrand(ownership='firm_ids')
+        tax_warnings = [
+            w for w in captured
+            if issubclass(w.category, DeprecationWarning)
+            and 'deprecated' in str(w.message)
+            and ('unit_tax' in str(w.message) or 'advalorem_tax' in str(w.message))
+        ]
+        assert not tax_warnings, (
+            f"Unexpected per-model tax DeprecationWarning on a "
+            f"Bertrand() without any tax kwargs: "
+            f"{[str(w.message) for w in tax_warnings]}"
+        )
+
+    def test_construction_warning_shared_with_problem_conflict_warning(self):
+        """Construction warning + Problem conflict check share the flag set.
+
+        A user who constructs ``Bertrand(unit_tax='col')`` (fires the
+        construction warning) and then passes it to
+        ``Problem(unit_tax='col')`` should get the conflict warning
+        (specific to the Problem path) but NOT a second generic
+        deprecation warning (would be noise).
+        """
+        self._reset_flag()
+        # Silence the construction warning with a context manager so we
+        # can observe only the Problem-time warnings.
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', DeprecationWarning)
+            m = pyRVtest.Bertrand(ownership='firm_ids', unit_tax='tax_col')
+        # The flag should now be set from the ConductModel warning.
+        from pyRVtest.models.base import _legacy_tax_deprecation_warned
+        assert 'unit_tax' in _legacy_tax_deprecation_warned

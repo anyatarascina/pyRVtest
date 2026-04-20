@@ -30,7 +30,8 @@ deprecation alias in step 5c; users can migrate at their own pace.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Union
+import warnings
+from typing import Any, Callable, Optional, Set, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -40,6 +41,59 @@ __all__ = ['ConductModel']
 
 
 _NDArray = NDArray[Any]
+
+
+# v0.4 OQ 14: once-per-session flags for the model-level tax deprecations.
+# Keyed by the warning kind ('unit_tax', 'advalorem_tax') so a session with
+# many Bertrand instances carrying a legacy unit_tax emits one warning
+# rather than one per instance. Tests that exercise the warning reset this
+# set before the call. Shared with pyRVtest/problem.py's conflict-warning
+# path so a user who triggers BOTH the per-model deprecation (emitted here
+# at construction) and the Problem-level-vs-model-level conflict
+# (emitted at Problem.__init__) only sees the generic deprecation once.
+_legacy_tax_deprecation_warned: Set[str] = set()
+
+
+_MODEL_UNIT_TAX_DEPRECATION_MSG = (
+    "Specifying unit_tax on an individual ConductModel / ModelFormulation / "
+    "Vertical is deprecated; pass unit_tax='col' at the Problem level "
+    "instead (the DGP defines the tax; models opt out for salience tests via "
+    "unit_tax_salient=False). Model-level unit_tax continues to work through "
+    "v0.6 and will be removed in v0.7. See docs/migrating_to_v0.4.rst for "
+    "the migration recipe."
+)
+
+_MODEL_ADVALOREM_TAX_DEPRECATION_MSG = (
+    "Specifying advalorem_tax / advalorem_payer on an individual ConductModel "
+    "/ ModelFormulation / Vertical is deprecated; pass advalorem_tax='col' "
+    "and advalorem_payer='firm'|'consumer' at the Problem level instead. "
+    "Model-level advalorem_tax / advalorem_payer continue to work through "
+    "v0.6 and will be removed in v0.7. See docs/migrating_to_v0.4.rst."
+)
+
+
+def _maybe_warn_per_model_tax_deprecation(field: str, stacklevel: int = 3) -> None:
+    """Emit the v0.7-removal DeprecationWarning for per-model tax kwargs.
+
+    Fires once per Python session per ``field`` value ('unit_tax' or
+    'advalorem_tax'), using ``_legacy_tax_deprecation_warned`` as the
+    guard. Called from ``ConductModel.__init__`` and ``Vertical.__init__``
+    at construction time so users see the warning when they write
+    ``pyRVtest.Bertrand(unit_tax='col')`` — rc1 follow-up to Lorenzo's
+    2026-04-18 P1 item 7 (the warning previously fired only at
+    ``Problem.__init__`` solve-preparation time, so users wiring the
+    model in a helper function never saw it).
+    """
+    if field in _legacy_tax_deprecation_warned:
+        return
+    if field == 'unit_tax':
+        msg = _MODEL_UNIT_TAX_DEPRECATION_MSG
+    elif field == 'advalorem_tax':
+        msg = _MODEL_ADVALOREM_TAX_DEPRECATION_MSG
+    else:
+        return
+    warnings.warn(msg, DeprecationWarning, stacklevel=stacklevel)
+    _legacy_tax_deprecation_warned.add(field)
 
 
 class ConductModel:
@@ -144,6 +198,15 @@ class ConductModel:
         self.unit_tax_salient = unit_tax_salient
         self.advalorem_tax_salient = advalorem_tax_salient
         self._validate_shared_config()
+        # rc1 follow-up (Lorenzo P1 item 7, 2026-04-18): emit the
+        # per-model tax deprecation at construction time so users who
+        # write e.g. ``pyRVtest.Bertrand(unit_tax='col')`` see the
+        # v0.7-removal warning during migration, not only when the
+        # Problem is built later.
+        if unit_tax is not None:
+            _maybe_warn_per_model_tax_deprecation('unit_tax')
+        if advalorem_tax is not None:
+            _maybe_warn_per_model_tax_deprecation('advalorem_tax')
 
     def _validate_shared_config(self) -> None:
         """Shared validation applicable to all subclasses."""

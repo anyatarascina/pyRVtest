@@ -148,6 +148,13 @@ class Vertical:
         self.unit_tax_salient = unit_tax_salient
         self.advalorem_tax_salient = advalorem_tax_salient
         self._validate_shared_config()
+        # rc1 follow-up (Lorenzo P1 item 7, 2026-04-18): same construction-
+        # time deprecation-warning trigger as ConductModel.__init__.
+        from .base import _maybe_warn_per_model_tax_deprecation
+        if unit_tax is not None:
+            _maybe_warn_per_model_tax_deprecation('unit_tax')
+        if advalorem_tax is not None:
+            _maybe_warn_per_model_tax_deprecation('advalorem_tax')
 
     def _validate_shared_config(self) -> None:
         if isinstance(self.cost_scaling, bool):

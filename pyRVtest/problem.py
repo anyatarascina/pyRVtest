@@ -54,27 +54,15 @@ _DEMAND_PARAMS_SIGMA_DEPRECATION_MSG = (
 # of how many Problem() calls trigger it.
 _demand_params_sigma_deprecation_warned = False
 
-# v0.4 OQ 14: once-per-session flags for the model-level tax deprecations.
-# Kept in a set keyed by the warning kind so a user with 10 Bertrand instances
-# carrying a legacy unit_tax sees one warning rather than ten. Tests that
-# exercise the warning reset these before the call.
-_legacy_tax_deprecation_warned: set = set()
-
-_MODEL_UNIT_TAX_DEPRECATION_MSG = (
-    "Specifying unit_tax on an individual ConductModel / ModelFormulation / "
-    "Vertical is deprecated; pass unit_tax='col' at the Problem level "
-    "instead (the DGP defines the tax; models opt out for salience tests via "
-    "unit_tax_salient=False). Model-level unit_tax continues to work through "
-    "v0.6 and will be removed in v0.7. See docs/migrating_to_v0.4.rst for "
-    "the migration recipe."
-)
-
-_MODEL_ADVALOREM_TAX_DEPRECATION_MSG = (
-    "Specifying advalorem_tax / advalorem_payer on an individual ConductModel "
-    "/ ModelFormulation / Vertical is deprecated; pass advalorem_tax='col' "
-    "and advalorem_payer='firm'|'consumer' at the Problem level instead. "
-    "Model-level advalorem_tax / advalorem_payer continue to work through "
-    "v0.6 and will be removed in v0.7. See docs/migrating_to_v0.4.rst."
+# v0.4 OQ 14: the generic per-model tax deprecation warning emission +
+# shared once-per-session flag live on ``pyRVtest/models/base.py`` so
+# they fire at ``ConductModel.__init__`` / ``Vertical.__init__`` time
+# (rc1 follow-up, Lorenzo P1 item 7). Re-exported here so the
+# conflict-warning path below can share the same guard set.
+from .models.base import (
+    _legacy_tax_deprecation_warned,
+    _MODEL_UNIT_TAX_DEPRECATION_MSG,  # noqa: F401 — backward-compat re-export
+    _MODEL_ADVALOREM_TAX_DEPRECATION_MSG,  # noqa: F401 — backward-compat re-export
 )
 
 _MODEL_TAX_CONFLICT_MSG_TEMPLATE = (
