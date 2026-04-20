@@ -37,6 +37,7 @@ from scipy.stats import norm
 
 from pyblp.utilities.basics import Array, StringRepresentation
 
+from .. import options
 from ..exceptions import ValidationError
 from ..models.vertical import Vertical
 from ..output import format_table
@@ -496,11 +497,13 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             ``None`` (the string was written to ``path``).
         """
         summary = self.summary_df(alpha=alpha)
+        digits = int(options.digits)
         tex: str = summary.to_latex(
             index=False,
             escape=False,
             caption=caption,
             label=label,
+            float_format=f"%.{digits}g",
         )
         if path is not None:
             Path(path).write_text(tex)

@@ -18,6 +18,8 @@ from typing import List, TYPE_CHECKING
 
 import numpy as np
 
+from .. import options
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -35,8 +37,10 @@ def _dataframe_to_github_markdown(frame: 'pd.DataFrame') -> str:
     Parameters
     ----------
     frame : pd.DataFrame
-        The frame to render. Values are rendered via ``format(value)``
-        with ``:.6g`` for floats and ``str`` otherwise.
+        The frame to render. Floats are formatted via
+        ``f"{val:.{pyRVtest.options.digits}g}"`` (default ``6`` significant
+        digits); NaNs render as ``"NaN"``; booleans render as
+        ``"True"`` / ``"False"``; everything else goes through ``str``.
 
     Returns
     -------
@@ -50,6 +54,8 @@ def _dataframe_to_github_markdown(frame: 'pd.DataFrame') -> str:
     if len(frame) == 0:
         # GitHub renders zero-row tables correctly with just header + sep.
         return "\n".join([header, sep]) + "\n"
+    digits = int(options.digits)
+    float_fmt = f"{{val:.{digits}g}}"
     for _, row in frame.iterrows():
         cells: List[str] = []
         for col in columns:
@@ -58,7 +64,7 @@ def _dataframe_to_github_markdown(frame: 'pd.DataFrame') -> str:
                 if np.isnan(val):
                     cells.append("NaN")
                 else:
-                    cells.append(f"{val:.6g}")
+                    cells.append(float_fmt.format(val=val))
             elif isinstance(val, (bool, np.bool_)):
                 cells.append("True" if bool(val) else "False")
             else:

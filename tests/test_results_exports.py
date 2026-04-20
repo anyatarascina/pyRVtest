@@ -300,8 +300,24 @@ class TestMarkdownHelper:
         assert "True" in md
         assert "False" in md
 
-    def test_float_formatting_uses_6g(self):
+    def test_float_formatting_uses_options_digits(self):
+        """Default ``options.digits == 6`` produces 6 significant digits."""
         frame = pd.DataFrame({'x': [0.123456789]})
         md = _dataframe_to_github_markdown(frame)
         # 6 significant digits: 0.123457
         assert "0.123457" in md
+
+    def test_float_formatting_honors_options_digits_override(self):
+        """``pyRVtest.options.digits = N`` overrides the default precision."""
+        import pyRVtest
+        original = pyRVtest.options.digits
+        try:
+            pyRVtest.options.digits = 3
+            frame = pd.DataFrame({'x': [0.123456789]})
+            md = _dataframe_to_github_markdown(frame)
+            # 3 significant digits: 0.123
+            assert "0.123" in md
+            # And not the 6-digit rendering.
+            assert "0.123457" not in md
+        finally:
+            pyRVtest.options.digits = original

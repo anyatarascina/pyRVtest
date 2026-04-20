@@ -16,6 +16,7 @@ from __future__ import annotations
 import itertools
 import logging
 import math
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -60,6 +61,21 @@ def compute_instrument_results(
     instruments = problem.products["Z{0}".format(instrument)]
     K = np.shape(instruments)[1]
     K_effective = K - 1 if endog_hat is not None else K
+
+    # v0.4.0rc1: the tabulated F-statistic critical values (size and power) are
+    # defined for K=1..30. For larger instrument sets we fall back to the K=30
+    # row, which can produce conservative / stale diagnostics. Emit a
+    # ``UserWarning`` so the user knows the reported stars are approximate.
+    if K_effective > 30:
+        warnings.warn(
+            f"K_effective={K_effective} (instrument set {instrument}) exceeds "
+            f"the range of the tabulated F-statistic critical values (K=1..30). "
+            f"Falling back to the K=30 row; reported size/power stars may be "
+            f"conservative. "
+            f"Fix: use a smaller instrument set, or treat the F stars as "
+            f"indicative only in this regime.",
+            UserWarning, stacklevel=2,
+        )
 
     # Use only exogenous cost-shifter columns when an endogenous component has been IV-corrected
     if problem.endogenous_cost_component is not None:
@@ -283,7 +299,7 @@ def compute_instrument_results(
             F[i, m] = (1 - rho_squared) * unscaled_F[i, m]
 
             rho_lookup = min(np.round(np.abs(rho[i, m]), 2), 0.99)
-            K_lookup = K_effective if K_effective <= 30 else 30
+            K_lookup = min(K_effective, 30)  # warning for K>30 fired above
             ind = np.where(
                 (critical_values_size['K'] == K_lookup) & (critical_values_size['rho'] == rho_lookup)
             )[0][0]

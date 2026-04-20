@@ -35,6 +35,7 @@ from collections.abc import Hashable
 from pathlib import Path
 from typing import Dict, Iterator, List, Mapping, Optional, TYPE_CHECKING, Union
 
+from .. import options
 from ._format import _dataframe_to_github_markdown
 from .results import ProblemResults
 
@@ -327,11 +328,13 @@ class PanelResults:
             ``None`` (the string was written to ``path``).
         """
         summary = self.summary_df(alpha=alpha)
+        digits = int(options.digits)
         tex: str = summary.to_latex(
             index=False,
             escape=False,
             caption=caption,
             label=label,
+            float_format=f"%.{digits}g",
         )
         if path is not None:
             Path(path).write_text(tex)

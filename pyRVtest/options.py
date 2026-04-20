@@ -3,26 +3,45 @@ r"""Global options.
 Attributes
 ----------
 digits : `int`
-    Number of digits displayed by status updates. The default number of digits is ``7``. The number of digits can be
-    changed to, for example, ``2``, with ``pyblp.options.digits = 2``.
+    Number of significant digits used when floats are rendered in
+    :meth:`~pyRVtest.ProblemResults.to_markdown` and
+    :meth:`~pyRVtest.ProblemResults.to_latex` output, and in
+    :meth:`~pyRVtest.PanelResults.to_markdown` /
+    :meth:`~pyRVtest.PanelResults.to_latex`. The default is ``6``; change
+    with ``pyRVtest.options.digits = 4``.
+
+    The older ``format_table`` text-mode summary used by ``print(results)``
+    applies its own per-column rounding (3 digits for TRV, 1 for F,
+    3 for MCS p-values) and is not affected by this option; the ``digits``
+    option controls the DataFrame-backed exports only.
+
 verbose : `bool`
-    Whether to output status updates. By default, verbosity is turned on. Verbosity can be turned off with
-    ``pyblp.options.verbose = False``.
+    *Deprecated since v0.4; removed in v0.6.* In v0.3, this gated the
+    legacy :func:`~pyRVtest.output.output` helper. v0.4 migrated the
+    package to the standard :mod:`logging` module; this attribute no
+    longer has any effect. To control pyRVtest output, configure the
+    ``pyRVtest`` logger directly::
+
+        import logging
+        logging.getLogger('pyRVtest').setLevel(logging.WARNING)
+        # or INFO / DEBUG for more detail
+
+    Reading ``pyRVtest.options.verbose`` emits a ``DeprecationWarning``.
+    Assignment is accepted silently for backwards compatibility but has
+    no effect.
+
 verbose_tracebacks : `bool`
     Whether to include full tracebacks in error messages. By default, full tracebacks are turned off. These can be
     useful when attempting to find the source of an error message. Tracebacks can be turned on with
-    ``pyblp.options.verbose_tracebacks = True``.
+    ``pyRVtest.options.verbose_tracebacks = True``.
 verbose_output : `callable`
     Function used to output status updates. The default function is simply ``print``. The function can be changed, for
     example, to include an indicator that statuses are from this package, with
-    ``pyblp.verbose_output = lambda x: print(f"pyblp: {x}")``.
+    ``pyRVtest.verbose_output = lambda x: print(f"pyRVtest: {x}")``.
 flush_output : `bool`
     Whether to call ``sys.stdout.flush()`` after outputting a status update. By default, output is not flushed to
     standard output. To force standard output flushes after every status update, set
-    ``pyblp.options.flush_output = True``. This may be particularly desirable for R users who are calling PyBLP from
-    `reticulate <https://github.com/rstudio/reticulate>`_, since standard output is typically not automatically flushed
-    to the screen in this environment. If PyBLP is imported as ``pyblp``, this setting can be enabled in R with
-    ``pyblp$options$flush_output <- TRUE``.
+    ``pyRVtest.options.flush_output = True``.
 dtype : `dtype`
     The data type used for internal calculations, which is by default ``numpy.float64``. The other recommended option is
     ``numpy.longdouble``, which is the only extended precision floating point type currently supported by NumPy.
@@ -118,7 +137,7 @@ Examples
 --------
 >>> from pyRVtest import options
 >>> options.digits
-7
+6
 >>> options.demand_adjustment_weight in ('W', 'updated_W')
 True
 >>> import numpy as np
@@ -126,11 +145,18 @@ True
 True
 """
 
+import warnings as _warnings
+from typing import Any as _Any
+
 import numpy as _np
 
 
-digits = 7
-verbose = True
+digits = 6
+# ``verbose`` is intentionally NOT defined here so reads go through
+# ``__getattr__`` (below) and fire a DeprecationWarning. Assignment is
+# still supported (populates the module namespace directly); subsequent
+# reads then return the assigned value silently, which preserves the
+# common legacy pattern ``options.verbose = False`` without noise.
 verbose_tracebacks = False
 verbose_output = print
 flush_output = False
@@ -147,3 +173,24 @@ random_seed = 1
 # 'updated_W': the pre-v0.3.3 behavior (pyblp's "next-step" efficient weight). Set to
 # this value to reproduce pre-v0.3.3 TRV/F values for validation or replication.
 demand_adjustment_weight = 'W'
+
+
+def __getattr__(name: str) -> _Any:
+    # PEP 562 module-level attribute access. Only called when ``name`` is
+    # not already in the module namespace, which is exactly the hook we
+    # want for the deprecated ``verbose`` option: reads that have not
+    # been preceded by an assignment go through here and emit the
+    # deprecation warning.
+    if name == 'verbose':
+        _warnings.warn(
+            "pyRVtest.options.verbose is deprecated since v0.4 and has no "
+            "effect (output was migrated to the standard logging module). "
+            "Received a read of options.verbose. "
+            "Fix: configure the pyRVtest logger directly, e.g. "
+            "logging.getLogger('pyRVtest').setLevel(logging.WARNING). "
+            "Removal scheduled for v0.6.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return True
+    raise AttributeError(f"module 'pyRVtest.options' has no attribute {name!r}")
