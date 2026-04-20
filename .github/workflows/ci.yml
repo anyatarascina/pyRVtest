@@ -10,7 +10,29 @@ name: CI
 
 jobs:
   test:
+    # v0.4.0rc1 follow-up: two-version matrix so LAPACK-build-dependent
+    # numerical differences between numpy 1.x and numpy 2.x surface in CI.
+    # numpy1: the legacy-pinned environment matching what coauthors run
+    # on older numpy 1.26 / pyblp 1.1.x.
+    # numpy2: the modern environment (numpy 2.0+ / pyblp 1.2+). The
+    # `analytical_scale` snapshot xfails under numpy 2 by design; see
+    # tests/test_snapshots.py for the full diagnostic.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: numpy1
+            python-version: "3.11"
+            numpy-pin: "numpy<2"
+            pyblp-pin: "pyblp<1.2"
+          - label: numpy2
+            python-version: "3.11"
+            numpy-pin: "numpy>=2,<3"
+            pyblp-pin: "pyblp>=1.2"
+
     runs-on: ubuntu-latest
+    name: test (${{ matrix.label }})
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,21 +40,29 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements*.txt', 'setup.py') }}
+          key: ${{ runner.os }}-pip-${{ matrix.label }}-${{ hashFiles('requirements*.txt', 'setup.py') }}
           restore-keys: |
+            ${{ runner.os }}-pip-${{ matrix.label }}-
             ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
-          pip install -r requirements-dev.txt
+          # Pin numpy and pyblp to the matrix variant first so pyRVtest's
+          # pip install does not bump them.
+          pip install "${{ matrix.numpy-pin }}" "${{ matrix.pyblp-pin }}"
+          pip install -e . --upgrade-strategy only-if-needed
+          pip install -r requirements-dev.txt --upgrade-strategy only-if-needed
+
+      - name: Report resolved versions
+        run: |
+          python -c "import numpy, scipy, pyblp, pandas; print(f'numpy {numpy.__version__}  scipy {scipy.__version__}  pyblp {pyblp.__version__}  pandas {pandas.__version__}')"
 
       - name: Run pytest
         run: python -m pytest tests/ -q
