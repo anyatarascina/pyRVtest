@@ -78,21 +78,38 @@ The remaining numpy 2.x item:
   numpy >= 2.0). The endogenous_cost_component IV-correction path
   produces `F[0][0][1] ≈ 0.998` on numpy 2.x vs the
   `F[0][0][1] = 1.032` snapshot captured on numpy 1.x — a ~3% shift
-  that is too large for BLAS noise. Bisected: scipy 1.13 with numpy
-  1.26 reproduces the snapshot bit-identically, numpy 2.0 with scipy
-  1.13 produces the shift. Root-cause attribution to a specific
-  numpy 2 numerical-behavior change (dtype promotion, scalar
-  conversion, `linalg.solve` / `pinv` ordering) is deferred to
-  v0.4.0 final. All other snapshots are bit-identical across numpy
-  1 and numpy 2, so the shift is specific to the endogenous-cost
-  path. The test is marked `xfail(strict=False)` on numpy >= 2.0
-  with a detailed reason string; on numpy 1.x it continues to pass
-  at `atol=1e-10`.
+  that is too large for BLAS noise. **Root-caused (2026-04-20):**
+  fixture-level numerical sensitivity, not a pyRVtest math bug.
+  The `_build_scale_dgp` fixture produces a near-degenerate conduct
+  pair where the three sigma values feeding
+  `F_denominator = sigma[0]*sigma[1] - sigma[2]**2` are nearly
+  equal (~2.07e-3), putting the denominator (~4e-8) in the
+  catastrophic-cancellation regime. numpy 2's LAPACK QR returns a
+  slightly different — but equally orthonormal — basis for the
+  `controls = hstack([w, endog_hat])` matrix, which is itself
+  moderately ill-conditioned (cond=3582 due to near-collinearity
+  between `w` and `endog_hat`). The different Q produces `omega`
+  residuals that differ by ~1e-13; those tiny shifts amplify
+  through catastrophic cancellation into a 3% F shift. Both numpy
+  versions compute F correctly to machine precision; the
+  `atol=1e-10` snapshot tolerance is simply too tight for this
+  fixture across different-but-valid QR bases.
+
+  Candidate fixes for v0.4.0 final: (a) revise the scale DGP
+  seed/parameters so the three sigma values differ enough to avoid
+  the catastrophic-cancellation regime; (b) switch `qr_residualize`
+  to an SVD-based projection that is numerically stable under the
+  near-collinearity; (c) widen the snapshot tolerance for this
+  specific field. All other snapshots
+  (`analytical_base`, `analytical_base_fe`, `first_stage_*_path`,
+  `nested_logit_vertical`, etc.) remain bit-identical across
+  numpy 1 and numpy 2. The `xfail` reason string captures the full
+  diagnostic for future readers.
 
 ### Deferred to v0.4.0 final (tracked, not rc1-blocking)
 
-- Root-cause attribution for the `analytical_scale` F-shift on
-  numpy 2.x (see above).
+- Pick a resolution for the `analytical_scale` F-shift (fixture
+  revision, SVD-based projection, or per-field tolerance widening).
 - `PanelResults` roster-hash validation (audit B1).
 - `Problem(demand_backend=...)` public kwarg (audit B3; already flagged
   as future work in `docs/custom_demand.rst`).
