@@ -230,7 +230,7 @@ class TestDemandParamsVsPyBLP:
         pyblp_results = problem.solve(method='1s')
 
         # Extract alpha
-        alpha = float(pyblp_results.beta[pyblp_results.beta_labels.index('prices')])
+        alpha = float(pyblp_results.beta[pyblp_results.beta_labels.index('prices')].item())
 
         models = (
             pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids'),

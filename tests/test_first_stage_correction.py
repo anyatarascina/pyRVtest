@@ -119,8 +119,8 @@ def logit_dgp_and_estimation():
     problem = pyblp.Problem((X1,), product_data=data)
     pyblp_results = problem.solve(method="1s")
 
-    alpha_hat = float(pyblp_results.beta[pyblp_results.beta_labels.index("prices")])
-    beta_x_hat = float(pyblp_results.beta[pyblp_results.beta_labels.index("x1")])
+    alpha_hat = float(pyblp_results.beta[pyblp_results.beta_labels.index("prices")].item())
+    beta_x_hat = float(pyblp_results.beta[pyblp_results.beta_labels.index("x1")].item())
 
     return data, pyblp_results, alpha_hat, beta_x_hat
 

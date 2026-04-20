@@ -45,6 +45,33 @@ from ._snapshot_helpers import assert_snapshot
 def _np_major() -> int:
     """Major version of numpy at import time, e.g. 1 for 1.26.4, 2 for 2.0.2."""
     return int(np.__version__.split('.', 1)[0])
+
+
+def _analytical_scale_expected_to_drift() -> bool:
+    """True when the ``analytical_scale`` snapshot is expected to drift
+    off the stored 1e-10 atol because the LAPACK build differs from the
+    one snapshots were generated under.
+
+    Empirically (2026-04-20):
+      - macOS + numpy 1.x  -> bit-identical to snapshot.
+      - macOS + numpy 2.x  -> ~3% shift on F[0][0][1] (LAPACK changed
+        between numpy 1.26 and numpy 2.0 wheels).
+      - Linux + any numpy  -> ~2.5% shift on F[0][0][1] (Ubuntu's
+        OpenBLAS wheel differs from macOS Accelerate, even within
+        numpy 1.26).
+      - Windows + numpy 2.4 (Lorenzo's box) -> ~2.5% shift.
+
+    The snapshot's ``atol=1e-10`` was implicitly tied to the
+    macOS-numpy-1 LAPACK build. Mark drift-expected on anything else.
+    See the test's ``xfail`` ``reason`` and CHANGELOG.md "numpy 2.x
+    compatibility" section for the full root-cause.
+    """
+    import platform
+    if _np_major() >= 2:
+        return True
+    return platform.system() != 'Darwin'
+
+
 from .test_analytical import (
     _build_base_dgp,
     _build_scale_dgp,
@@ -144,35 +171,40 @@ def scale_results():
 
 
 @pytest.mark.xfail(
-    condition=_np_major() >= 2,
+    condition=_analytical_scale_expected_to_drift(),
     reason=(
-        "v0.4.0rc1 known issue: numpy >= 2.0 shifts F[0][0][1] on the "
-        "endogenous_cost_component IV-correction path from 1.0317 to "
-        "0.9980 (~3% absolute). Bisected: scipy 1.13 with numpy 1.26 "
-        "reproduces the snapshot bit-identically, numpy 2.0 with scipy "
-        "1.13 produces the shift, so numpy 2 is the sole trigger.\n\n"
+        "v0.4.0rc1 known issue: F[0][0][1] on the "
+        "endogenous_cost_component IV-correction path shifts off the "
+        "stored snapshot value (1.03166625900672) by ~3% in any "
+        "environment whose LAPACK build differs from macOS + numpy 1.x. "
+        "Observed: macOS + numpy 2 -> 0.998 (3% shift); Linux + any "
+        "numpy -> 1.007 (2.5% shift); Windows + numpy 2.4 -> 1.007 "
+        "(Lorenzo's original finding).\n\n"
         "Root cause (instrumented 2026-04-20): the `_build_scale_dgp` "
         "fixture produces a near-degenerate conduct pair where the "
         "three sigma values entering F_denominator = sigma0*sigma1 - "
         "sigma2**2 are nearly equal (all ~2.07e-3). The denominator "
-        "is in the catastrophic-cancellation regime (~4e-8). numpy 2's "
-        "LAPACK QR returns a slightly different (but equally orthonormal) "
-        "basis for the controls = hstack([w, endog_hat]) matrix, which "
-        "is itself moderately ill-conditioned (cond=3582 due to "
-        "near-collinearity between w and endog_hat). The different Q "
-        "produces omega residuals that differ by ~1e-13; those tiny "
-        "shifts amplify through catastrophic cancellation into a 3% F "
-        "shift.\n\n"
+        "is in the catastrophic-cancellation regime (~4e-8). Different "
+        "LAPACK builds (bundled OpenBLAS in numpy wheels varies across "
+        "numpy versions AND across OS) produce subtly different but "
+        "equally orthonormal QR bases for the controls = "
+        "hstack([w, endog_hat]) matrix, which is itself moderately "
+        "ill-conditioned (cond=3582 due to near-collinearity between w "
+        "and endog_hat). Those sub-ULP basis differences amplify "
+        "through the catastrophic cancellation into a 2.5-3% F shift. "
+        "Experiments confirmed SVD projection, stable-form F rewrite, "
+        "and sign-canonicalization do NOT close the gap — the upstream "
+        "LAPACK noise is orders of magnitude beyond what any Python-"
+        "level algorithmic change can rescue.\n\n"
         "This is a fixture-level numerical sensitivity, not a pyRVtest "
-        "math bug. Both numpy versions compute F correctly to machine "
-        "precision; the snapshot's atol=1e-10 is too tight for this "
-        "specific fixture across different (equally-valid) QR bases.\n\n"
-        "Resolution deferred to v0.4.0 final. Candidate fixes: (a) "
-        "revise the scale DGP seed/parameters to avoid the "
-        "near-degenerate sigma regime; (b) switch qr_residualize to an "
-        "SVD-based projection that is stable under ill-conditioning; "
-        "(c) widen the atol for this specific snapshot field. All other "
-        "snapshots remain bit-identical across numpy 1 and numpy 2."
+        "math bug. All LAPACK builds compute F correctly to machine "
+        "precision; the snapshot's atol=1e-10 is a single-LAPACK-build "
+        "guarantee. Mature scientific-Python projects use rtol~1e-6 or "
+        "atol~1e-5 for cross-environment reproducibility.\n\n"
+        "Deferred to v0.4.0 final (pending coauthor input on direction): "
+        "tier snapshot atol per field so F gets ~1e-3 tolerance and "
+        "linear fields stay at 1e-10, then drop this xfail. See "
+        "CHANGELOG.md 'numpy 2.x compatibility' section."
     ),
     strict=False,
 )
@@ -240,9 +272,9 @@ def _build_first_stage_dgp_and_solve():
     problem = pyblp.Problem((X1,), product_data=data)
     pyblp_results = problem.solve(method="1s")
 
-    alpha = float(pyblp_results.beta[pyblp_results.beta_labels.index("prices")])
-    beta_x = float(pyblp_results.beta[pyblp_results.beta_labels.index("x1")])
-    beta_0 = float(pyblp_results.beta[pyblp_results.beta_labels.index("1")])
+    alpha = float(pyblp_results.beta[pyblp_results.beta_labels.index("prices")].item())
+    beta_x = float(pyblp_results.beta[pyblp_results.beta_labels.index("x1")].item())
+    beta_0 = float(pyblp_results.beta[pyblp_results.beta_labels.index("1")].item())
 
     models = (
         pyRVtest.ModelFormulation(model_downstream="bertrand", ownership_downstream="firm_ids"),

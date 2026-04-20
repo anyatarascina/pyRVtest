@@ -146,7 +146,7 @@ class TestNestedLogitHessianMatchesPyblp:
             H_pyblp = pyblp_results.compute_demand_hessians(market_id=t0)
 
         # NestedLogitBackend's analytical Hessian with matching parameters
-        alpha = float(pyblp_results.beta[pyblp_results.beta_labels.index('prices')])
+        alpha = float(pyblp_results.beta[pyblp_results.beta_labels.index('prices')].item())
         rho_arr = np.atleast_1d(np.asarray(pyblp_results.rho).flatten())
         rho = float(rho_arr[0])
         backend = NestedLogitBackend(
@@ -178,7 +178,7 @@ class TestNestedLogitHessianMatchesPyblp:
         coincidence."""
         data, pyblp_results = pyblp_nested_logit_fixture
         market_ids = np.unique(data['market_ids'].values)[:5]
-        alpha = float(pyblp_results.beta[pyblp_results.beta_labels.index('prices')])
+        alpha = float(pyblp_results.beta[pyblp_results.beta_labels.index('prices')].item())
         rho_arr = np.atleast_1d(np.asarray(pyblp_results.rho).flatten())
         rho = float(rho_arr[0])
         backend = NestedLogitBackend(
