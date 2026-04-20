@@ -394,6 +394,21 @@ DGP primitive, not a behavioral choice, so they carry no salience
 flag). Each column must be in ``product_data`` and must NOT appear in
 the formula string — doing so would double-count.
 
+.. note::
+
+   Unlike per-model ``unit_tax`` / ``advalorem_tax``, known-coefficient
+   shifters have no per-model salience opt-out. This is deliberate: the
+   ``Problem(unit_tax=..., unit_tax_salient=False)`` pattern exists
+   because taxes are a behavioral input that firms may or may not
+   internalize, so salience is a substantive hypothesis about conduct.
+   Known-coefficient shifters are DGP primitives (per Dearing et al.
+   2026) — a union wage or a known input price is part of the cost
+   structure all firms face, not a choice variable whose salience
+   differs across conduct models. If you find yourself wanting to
+   test salience on a column, it belongs in ``Problem(unit_tax=...)``
+   with ``unit_tax_salient=False`` on the opt-out models, not in
+   ``known_coefficients``.
+
 Dearing simple-markup models (RuleOfThumb, Keystone, ConstantMarkup)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
