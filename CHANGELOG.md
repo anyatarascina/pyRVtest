@@ -373,9 +373,8 @@ v0.4 modulo one-line deprecation warnings.
 
 - See `MEMO_coauthor_updates.md` for a running, behavior-focused ledger
   of v0.4 changes that affect downstream code.
-- The v0.4 test suite is at 388 passed + 3 skipped as of `2cdf2d0`, and
-  continues to grow; steps 18 and 19 each add a dedicated test module
-  (`tests/test_logging.py`, `tests/test_error_messages.py`).
+- The v0.4 test suite is at 619 passed + 3 skipped as of v0.4.0rc1 and
+  continues to grow.
 - Data-dependent regression tests for DMSS yogurt (`step 0d`) and the
   Dearing `LearningFirmConduct` reference (`step 12`) remain blocked on
   external inputs.

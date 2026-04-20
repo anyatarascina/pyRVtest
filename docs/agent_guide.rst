@@ -80,7 +80,7 @@ The directory layout is::
     │   └── test_engine.py
     ├── instruments/         # Instrument-construction helpers
     │   ├── product.py       # BLP / differentiation / rival-sum
-    │   └── labor.py         # Bartik / Hausman / HHI
+    │   └── labor.py         # Bartik / Hausman (HHI deliberately omitted — labor-market HHI is endogenous in wages)
     └── results/
         └── __init__.py      # ProblemResults, Progress
 
@@ -304,6 +304,14 @@ A typical v0.4 problem setup::
 
 Labor-side usage
 ----------------
+
+**Status: experimental in v0.4.** The labor API ships in v0.4 but is
+explicitly marked experimental. The sign convention, column-name
+defaults, and validation behavior may adjust based on coauthor review
+before the full :class:`LaborSupplyBackend` activates in v0.5. Scripts
+written against the v0.4 labor API may need small adjustments in v0.5;
+treat labor-mode results as indicative until the v0.5 sign-convention
+sign-off and backend activation.
 
 ``Problem(market_side='labor')`` switches pyRVtest to labor-supply
 testing: upward-sloping supply (``ds/dw > 0``), markdowns rather than
@@ -613,7 +621,16 @@ adding a new deprecation, follow the same flag pattern — see
 * **v0.4 (current):** class-based API lands; legacy surfaces continue
   to work with once-per-session warnings.
 * **v0.5:** same as v0.4; continued migration window.
-* **v0.6:** legacy surfaces removed. Only the class-based API works.
+* **v0.6:** `ModelFormulation`, the `model_formulations=` kwarg, the
+  `sigma`→`rho` alias, and `pyRVtest.output.output()` removed. Only
+  the class-based API works for the non-tax surfaces.
+* **v0.7:** per-model `unit_tax` / `advalorem_tax` / `advalorem_payer`
+  kwargs on `ConductModel` / `Vertical` / `ModelFormulation` removed.
+  Tax columns must be specified once at `Problem` level with
+  `unit_tax_salient=False` / `advalorem_tax_salient=False` on
+  individual models for salience opt-outs. (One release later than the
+  other deprecations because the per-model tax pattern is common in
+  existing user code.)
 
 Testing invariants
 ------------------

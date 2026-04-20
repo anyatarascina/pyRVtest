@@ -70,7 +70,7 @@ pyRVtest/
 │   └── test_engine.py       # Final RV/F/MCS computation
 ├── instruments/
 │   ├── product.py           # BLP / differentiation / rival-sum instrument helpers
-│   └── labor.py             # Bartik / Hausman / HHI instrument helpers
+│   └── labor.py             # Bartik / Hausman instrument helpers (HHI deliberately omitted; see file-level docstring)
 └── results/
     └── __init__.py          # ProblemResults + Progress dataclass
 ```
@@ -116,8 +116,10 @@ Four backward-compatibility surfaces exist on the v0.4 branch:
 
 4. **Per-model `unit_tax` / `advalorem_tax` / `advalorem_payer`** on
    `ConductModel` / `Vertical` / `ModelFormulation`. Deprecated in v0.4
-   (OQ 14); removed in v0.6. Move the tax column to
-   `Problem(..., unit_tax='col', advalorem_tax='col',
+   (OQ 14); **removed in v0.7** (one release later than the other v0.4
+   deprecations — the per-model tax pattern is common enough in
+   existing user code to warrant an extra release of runway). Move the
+   tax column to `Problem(..., unit_tax='col', advalorem_tax='col',
    advalorem_payer='firm'|'consumer')`. Use `unit_tax_salient=False` /
    `advalorem_tax_salient=False` on individual models for salience-test
    opt-outs. When both Problem-level and model-level taxes are set, the
@@ -130,15 +132,19 @@ or module-level flag. We explicitly do NOT call
 `warnings.simplefilter('once', DeprecationWarning)` at the package level
 because that would mutate the user's global filter state.
 
-**Window:** v0.4 and v0.5 both emit deprecation warnings. v0.6 removes the
-legacy surfaces. If you are extending the deprecation window, do so only
-after discussion with Chris (the maintainer) and update this file, the
-migration guide, and the release notes in lockstep.
+**Window:** v0.4 and v0.5 both emit deprecation warnings. v0.6 removes
+`ModelFormulation`, the `model_formulations=` kwarg, the
+`sigma`→`rho` alias, and `pyRVtest.output.output()`. The per-model
+tax kwargs get an extra release of runway and are removed in v0.7. If
+you are extending the deprecation window, do so only after discussion
+with Chris (the maintainer) and update this file, the migration guide,
+and the release notes in lockstep.
 
 ## Running the test suite
 
 The test suite is the authoritative spec for everything in the package.
-There are 357 passing + 3 skipped tests on the `v0.4-refactor` branch.
+There are 619 passing + 3 skipped tests on the `v0.4-refactor` branch as
+of v0.4.0rc1.
 
 ```bash
 # Full suite (~3 min cold)
@@ -302,6 +308,16 @@ by purpose:
 Anything else is internal and may change without notice.
 
 ## Labor-side usage (v0.4 step 14)
+
+**Status: experimental in v0.4.** The labor API ships in v0.4 but is
+explicitly marked experimental — the sign convention, column-name
+defaults, and validation behavior may adjust based on coauthor review
+(Lorenzo's 2026-04-18 review handed the labor-conduct sign convention
+to Marco for a cross-check against the labor-market-conduct
+manuscript). Scripts written against the v0.4 labor API may need small
+adjustments in v0.5 when the full `LaborSupplyBackend` lands. Treat
+labor-mode results as indicative until v0.5 signs off the sign
+convention.
 
 `Problem(market_side='labor')` switches `pyRVtest` to labor-supply
 testing: upward-sloping supply, markdowns instead of markups, and the
