@@ -612,7 +612,7 @@ def _hand_compute_scale(dgp):
     omega = [None] * M
     for m in range(M):
         params = np.linalg.solve(R_2sls, Q_2sls.T @ mc_list[m])
-        gamma[m] = float(params[-1])
+        gamma[m] = float(params[-1].item())
 
     # Marginal cost after IV correction: mc_corrected = mc - gamma * endog_col (raw)
     # Then omega = residualize mc_corrected on w_exog
@@ -766,6 +766,6 @@ class TestAlgebraScaleEconomies:
         results, expected = data
         # cost_param[instrument_set][model] contains [tau_exog..., gamma]
         for m in range(2):
-            gamma_pyrvtest = float(results.cost_param[0][m][-1])
+            gamma_pyrvtest = float(results.cost_param[0][m][-1].item())
             np.testing.assert_allclose(gamma_pyrvtest, expected['gamma'][m], atol=1e-8,
                                        err_msg=f"gamma for model {m} does not match")

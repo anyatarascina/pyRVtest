@@ -498,7 +498,7 @@ def _compute_gamma_gradient(
             cp_dn, _, _ = problem._compute_iv_correction(inst, M, N, mc_dn)
             for m in range(M):
                 grad_gamma[inst][m, k] = (
-                    float(cp_up[m][-1]) - float(cp_dn[m][-1])
+                    float(cp_up[m][-1].item()) - float(cp_dn[m][-1].item())
                 ) / eps
 
     return grad_gamma
