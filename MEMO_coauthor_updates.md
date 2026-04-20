@@ -3,9 +3,106 @@
 **To:** Lorenzo Magnolfi, Marco Duarte
 **From:** Christopher Sullivan
 **Re:** pyRVtest development — cumulative changes since CClean-fixes
-**Last updated:** 2026-04-17 (end of day)
+**Last updated:** 2026-04-20 (rc1 landed + post-rc1 polish + numpy 2 investigation)
 
 This is a running memo of pyRVtest changes that affect methodology, results, or coauthor-visible API. I will keep adding to the top as things change. Read the "Status right now" block for the current state. Each dated section below documents a specific change and its blast radius.
+
+---
+
+## Status right now (2026-04-20 — v0.4.0rc1 tagged + post-rc1 polish)
+
+**Branch:** `v0.4-refactor` at `de9104b` on origin (12 commits past the pre-rc1 anchor).
+**Tag:** `v0.4.0rc1` at `cdf4781` on origin.
+**Tests (numpy 1.26.4 / pyblp 1.1.2):** **633 passed + 3 skipped.** mypy `--strict` clean across 44 source files.
+**Tests (numpy 2.0.2 / pyblp 1.2.0, fresh venv):** 631 passed + 4 skipped + 1 xfailed (`test_snapshot_analytical_scale`, documented below).
+
+### rc1 release status
+
+v0.4.0rc1 is tagged, pushed, and installable via `pip install git+https://github.com/anyatarascina/pyRVtest@v0.4.0rc1` (not yet on PyPI — publishing is a separate `tox -e release-test` / `release` step, held for v0.4.0 final). The tag captures the point where Lorenzo's P0 findings from 2026-04-18 were addressed. Subsequent commits (137f4e2 onward) are post-rc1 polish that will ride in v0.4.0 final.
+
+### What landed in rc1 + post-rc1 (chronological)
+
+Addressing Lorenzo's 2026-04-18 review items and Marco's follow-up email:
+
+| Commit | Item addressed | Source |
+|---|---|---|
+| `679dbd9` FIX | `ModelFormulation(user_supplied_markups=...)` crash; added `pyRVtest.UserSuppliedMarkups` first-class class | Lorenzo P0 #1, Marco #2 |
+| `44bb83b` REL | Version 0.4.0rc1 + `pyproject.toml` (fixes `pip install -e .` under modern pip) | Lorenzo P0 #3 |
+| `cdf4781` FEAT | K>30 critical-value UserWarning; `options.digits` wired; `options.verbose` deprecated | Marco #1, Marco #3, Lorenzo P1 #6 |
+| `137f4e2` DOC | CHANGELOG qualifier: analytical Hessian is plain logit + single-scalar-rho nested only; per-nest rho / BLP stay on pyblp finite-diff | Lorenzo Chris item #7 |
+| `b2ab59a` DOC | Labor API marked experimental (README, AGENTS.md, agent_guide); AGENTS drift sweep (HHI, test count, v0.6 vs v0.7) | Audit G1 + B4, Lorenzo |
+| `d13eb2d` FIX | `Problem(market_side='labor', demand_params=...)` now raises clean `NotImplementedError` (was silent wrong-sign trap); tax precedence documented | Lorenzo methodology, Lorenzo Chris item #5 |
+| `22a13a1` FIX | `PanelResults` roster-signature validation; panels with `[Bertrand, PC]` / `[PC, Bertrand]` now raise at construction | Lorenzo P1 #4 / audit B1 |
+| `f4b39fc` DOC | "No correctness changes" framing qualified in this memo; known-coefficient salience-opt-out note in migration guide | Lorenzo methodology |
+| `e4ff40d` TEST | Share-weighted `Monopoly ≥ Bertrand` fallback pinned as theory-guaranteed alternative to element-wise | Lorenzo methodology |
+| `176d691` FEAT | Per-model tax `DeprecationWarning` moved to `ConductModel.__init__` / `Vertical.__init__`; `Bertrand(unit_tax='col')` now warns on construction | Lorenzo P1 #7 |
+| `880cc6b` FIX | numpy 2 compatibility — jinja2 in requirements; NaN-rho guard in CV lookup; `analytical_scale` xfailed under numpy ≥ 2.0 | Lorenzo P0 #2 (partial) |
+| `de9104b` DOC | `analytical_scale` xfail reason upgraded to full root-cause (see investigation below) | — |
+
+Test suite grew from 592+3 to 633+3 (41 new regression tests across the items).
+
+### numpy 2 `analytical_scale` F-shift — the investigation
+
+Lorenzo's P0 #2 was the one remaining item after rc1. After extensive instrumentation, the issue is now fully diagnosed. Honest summary for the record:
+
+**What it is.** On the `test_snapshot_analytical_scale` snapshot, `F[0][0][1]` = 1.0316662590067232 on numpy 1.26.4 and 0.9980489511445025 on numpy 2.0.2 — a ~3% shift. All other snapshot fields (markups, TRV, Q, g, marginal_cost on paths that don't hit the same amplifier) remain bit-identical across numpy versions.
+
+**Why.** Three-step chain:
+
+1. **LAPACK build difference.** numpy 2.0 wheels ship a different bundled OpenBLAS / LAPACK build than numpy 1.26 wheels. `np.linalg.qr` dispatches to LAPACK's dgeqrf, and the new build uses different Householder reflection block sizes. Resulting `Q` matrices are equally orthonormal but don't span *exactly* the same column space — they span subspaces within `O(ε × κ)` of each other. Confirmed by bisect: numpy 1.26 + scipy 1.13 is bit-identical; numpy 2.0 + scipy 1.13 is not.
+2. **Amplification through near-collinear controls.** The `controls = hstack([w, endog_hat])` matrix in the endogenous-cost path has condition number ~3582 (near-collinearity between `w` and `endog_hat`). That turns the ULP-level LAPACK difference into a ~1% shift in the three `sigma` values driving F.
+3. **Catastrophic cancellation in F's denominator.** This specific fixture (Bertrand vs PerfectCompetition with a `log_quantity` IV correction that absorbs the markup difference) produces near-equivalent moment conditions for the two models. The three sigmas are nearly equal (~2.07e-3), so `F_den = σ₀σ₁ - σ₂² ≈ 4e-8` is in the catastrophic-cancellation regime. The ~1% σ shift is amplified to a 3% F shift by the near-degenerate geometry.
+
+**TRV is unaffected** (shift ~9e-15, machine precision) because its structure `(Q[i] - Q[m]) / sqrt(var)` is self-normalizing — numerator and denominator scale together and the LAPACK noise partially cancels. F doesn't have that cancellation.
+
+**What we tried (all failed).** Every algorithmic fix I experimented with left the 3% shift intact:
+
+| Fix | Cross-version F shift | Outcome |
+|---|---|---|
+| SVD projection instead of QR | 3.2% | No help — SVD also goes through LAPACK |
+| Algebraic `F = 2N/K · F_num / denom_sq²` (removes the algebraic F_den cancellation) | 3.3% | No help — the upstream 1% σ shift dominates |
+| Sign-canonicalize Q via `diag(R) ≥ 0` | 3.3% | No-op — signs cancel in `Q @ Q.T` |
+| Revise the DGP to avoid catastrophic cancellation | best ~0.013% | Reduces 250×, still not 1e-10 |
+
+**Theoretical takeaway, relevant to the paper.** F's denominator is a 2×2 determinant of the moment-condition covariance. It vanishes precisely when the two candidate models produce nearly identical moment conditions given Z — which is the weak-instrument regime the F-stat is designed to diagnose. So **F is inherently numerically sensitive in the regime it's built to flag.** This fixture puts F in that regime on purpose: after the `log_quantity` IV correction absorbs the markup difference, the two models are near-equivalent in moments. The ~3% cross-version shift lands F in the same "weak" star bucket for this fixture (at K=1, ρ≈0.08, both F=1.03 and F=0.998 trivially clear all size thresholds and fall below all power thresholds), so no user-facing conclusion changes here. But for a fixture with F landing near a power CV threshold at high ρ (say `r_50 = 0.3` at K=1, ρ=0.99), the numerical instability could flip a significance star across numpy versions. This is a real user-facing concern about the F-stat *as a diagnostic*, not just about our test fixture.
+
+**Where we're leaning.** Given nothing algorithmic closes the gap, the mature approach is to accept that `atol=1e-10` is a single-numpy-version guarantee and tier the snapshot tolerance by field:
+
+- Linear / pass-through fields (markups from `user_supplied_markups`, prices, shares): keep `atol=1e-10`.
+- Self-normalizing fields (TRV, Q, g): `atol=1e-8`.
+- Nonlinear-amplification fields (F, σ, ρ): `atol=1e-3`.
+
+With a two-version CI matrix (numpy 1.26 + numpy 2.x), tiered atol, and explicit documentation of the numerical-precision tier. This matches what scipy / pytorch / jax do. Not yet implemented — held for Chris's go-ahead after discussing with the team. Estimated 1-2 hours to land. If we go this route the xfail goes away and the snapshot becomes a real cross-version regression test with honest tolerance.
+
+**Alternative:** keep the xfail. Accurate but fragile — every future numpy release that bumps OpenBLAS would re-trigger investigation. Also doesn't help users in production if their data puts them near the regime.
+
+**Question for Lorenzo / Marco:** the ~3% numerical shift is always going to be there in the near-degenerate regime for any F computation on current numpy/LAPACK, regardless of fixture. The DMSS paper's F-stat is designed for the regime where it's numerically robust (well-separated models, strong instruments); the degenerate regime is exactly where the paper says F should be interpreted cautiously anyway. Is there anything in the paper's text that deserves a brief sentence acknowledging this numerical sensitivity? Or is it already implicit in the "weak-instrument" language?
+
+### Outstanding items (by owner)
+
+**Chris:**
+
+- Resolve the `analytical_scale` F-shift per above. Lean: tiered atol + 2-version CI, 1-2 hours of work.
+- Tag `v0.4.0` final after Step 16 (AFSSZ dogfood) lands clean and any API adjustments are absorbed.
+- DMQSW provenance check: email Marco / Sal / Waldfogel to confirm whether Table 4 / Table 5 of the current submission were computed before or after `b3b08a3` (the W-vs-updated_W fix). If before, those TRV/F values for demand_adjustment=True + over-identified demand were slightly off.
+- Audit post-tag queue: `Problem(demand_backend=...)` public kwarg, `CITATION.cff`, `CONTRIBUTING.md`, replication suite anchors, machine-readable exports. v0.4.0-final or v0.5.
+
+**Marco (handoffs from Lorenzo, still open from 2026-04-18):**
+
+- DMSS yogurt golden file (Step 0d). Scaffold at `tests/replication/test_dmss_yogurt.py`. Needs data path + pinned paper spec + expected TRV/F/MCS values + tolerance.
+- Labor sign-convention review on `pyRVtest/models/labor.py`. Pairwise consistency across the three classes is verified; absolute convention against the labor-market-conduct manuscript is not. Flag discrepancies before v0.5 activates `LaborSupplyBackend`.
+- `offdiag_frobenius` metric vs Dearing Remark 4 cross-check. Currently `‖P_i − P_j − diag(diag(P_i − P_j))‖_F`. Does it operationalize Remark 4 exactly?
+- `Results.summary` investigation (Marco's own item). Only `summary_df` exists; if `.summary()` is the call, it's `AttributeError`. Awaiting Marco's follow-up.
+
+**Lorenzo:**
+
+- Re-run `.claude/breaks/probe_01..07.py` from `tests/memo1-regressions` branch against `v0.4.0rc1`. Confirm carRV crash is fixed.
+- (Optional) Extend `probe_05_v03_vs_v04_parity.py` to exercise `endogenous_cost_component + demand_adjustment=True` once DMQSW replication data is accessible.
+
+**Coauthor group decision:**
+
+- DMQSW provenance (under Chris above).
+- `v0.4.0` tag timing (post-Step 16 + post-xfail resolution).
 
 ---
 
