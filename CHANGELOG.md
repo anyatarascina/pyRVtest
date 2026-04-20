@@ -149,8 +149,12 @@ v0.4 modulo one-line deprecation warnings.
   Backward compatibility: the legacy `PerfectCompetition(cost_scaling='lmbda_col')`
   pattern still works unchanged.
 - **Analytical nested-logit Hessian** (step 7). Closed-form
-  `compute_analytical_hessian` in `backends/logit.py` for plain logit and
-  1-level nested logit; multi-level nesting falls back to finite-difference.
+  `compute_analytical_hessian` in `backends/logit.py` for plain logit
+  and single-scalar-rho nested logit. Per-nest rho (Cardell-Nevo),
+  multi-level nesting, and BLP continue to use the pyblp
+  finite-difference path. AFSSZ-style specifications with per-nest rho
+  therefore do not benefit from the O(ε²) Hessian improvement; plan
+  accordingly when routing analytical vs finite-difference.
   Validated against finite-diff, PyBLP's own `compute_demand_hessians`, and
   Clairaut symmetry (8 parametrized tests plus a nested-logit-vertical
   snapshot).
@@ -271,9 +275,10 @@ v0.4 modulo one-line deprecation warnings.
 - **Unified demand-adjustment path** (step 4). The `demand_params` branch
   and the PyBLP-results branch now share a single
   `compute_demand_adjustment` function. Two ~200-line duplicate methods
-  on `Problem` deleted; auto-routing sends PyBLP logit and single-`rho`
-  nested-logit cases to the analytical path by default, with
-  finite-difference as the fallback for everything else.
+  on `Problem` deleted; auto-routing sends plain logit and
+  single-scalar-rho nested-logit cases to the analytical path by
+  default. Per-nest rho (Cardell-Nevo), multi-level nesting, and BLP
+  continue through the pyblp finite-difference fallback.
 - **`sigma` → `rho` in `demand_params`** (step 6b). `rho` is the
   canonical key; `sigma` still accepted as a deprecated alias for one
   release (raises `DeprecationWarning`).
