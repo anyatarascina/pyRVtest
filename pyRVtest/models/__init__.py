@@ -52,6 +52,7 @@ from .custom import CustomConductModel
 from .labor import BertrandWages, CournotEmployment, Monopsony, NashBargaining
 from .mixed import MixCournotBertrand
 from .standard import Bertrand, Cournot, Monopoly, PerfectCompetition
+from .user_supplied import UserSuppliedMarkups
 from .vertical import Vertical
 
 
@@ -81,6 +82,7 @@ __all__ = [
     'MixCournotBertrand',
     'PartialCollusion',
     'CustomConductModel',
+    'UserSuppliedMarkups',
     'Vertical',
     # v0.4 step 12: Dearing et al. (2026) simple-markup models.
     'RuleOfThumb',

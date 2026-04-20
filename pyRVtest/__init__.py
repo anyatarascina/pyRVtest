@@ -30,7 +30,7 @@ from .markups import (
 from .models import (
     Bertrand, BertrandWages, ConductModel, ConstantMarkup, Cournot, CournotEmployment,
     CustomConductModel, Keystone, MixCournotBertrand, Monopoly, Monopsony, NashBargaining,
-    PartialCollusion, PerfectCompetition, RuleOfThumb, Vertical,
+    PartialCollusion, PerfectCompetition, RuleOfThumb, UserSuppliedMarkups, Vertical,
 )
 from .problem import Problem, Models
 from .products import Products
@@ -50,7 +50,10 @@ __all__ = [
     'backends', 'instruments', 'models', 'solve',
     # v0.4 step 5a: class-based ConductModel API.
     'ConductModel', 'Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition',
-    'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel', 'Vertical',
+    'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel',
+    # v0.4.0rc1: first-class wrapper for pre-computed markup columns.
+    'UserSuppliedMarkups',
+    'Vertical',
     # v0.4 step 12: Dearing et al. (2026) simple-markup models.
     'RuleOfThumb', 'Keystone', 'ConstantMarkup',
     # v0.4 step 14a: labor-side conduct models.

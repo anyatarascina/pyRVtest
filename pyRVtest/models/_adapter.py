@@ -18,11 +18,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+from ..exceptions import ValidationError
 from ..formulation import ModelFormulation
 from .base import ConductModel
 from .custom import CustomConductModel
 from .mixed import MixCournotBertrand
 from .standard import Bertrand, Cournot, Monopoly, PerfectCompetition
+from .user_supplied import UserSuppliedMarkups
 from .vertical import Vertical
 
 
@@ -68,13 +70,37 @@ def from_model_formulation(
             advalorem_tax_salient=mf._advalorem_tax_salient,
         )
     # Simple (non-vertical) case: all config lives on the one class.
-    # ``model_downstream`` may be ``None`` here only when the caller relied on
-    # ``user_supplied_markups`` alone (a legacy code path we reject in
-    # ``_conduct_from_string`` with a clear error).
-    assert mf._model_downstream is not None, (
-        "ModelFormulation without model_downstream cannot be translated "
-        "to a ConductModel (use an explicit model_downstream)."
-    )
+    # v0.4.0rc1: ``ModelFormulation(user_supplied_markups='col',
+    # ownership_downstream='firm_ids')`` (no ``model_downstream``) is a
+    # production pattern from pre-v0.4 user code. Route it to the
+    # first-class ``UserSuppliedMarkups`` class instead of asserting.
+    if mf._model_downstream is None and mf._user_supplied_markups is not None:
+        return UserSuppliedMarkups(
+            markups=mf._user_supplied_markups,
+            ownership=mf._ownership_downstream,
+            kappa_specification=mf._kappa_specification_downstream,
+            unit_tax=mf._unit_tax,
+            advalorem_tax=mf._advalorem_tax,
+            advalorem_payer=mf._advalorem_payer,
+            cost_scaling=mf._cost_scaling,
+            vertical_integration=mf._vertical_integration,
+            unit_tax_salient=mf._unit_tax_salient,
+            advalorem_tax_salient=mf._advalorem_tax_salient,
+        )
+    # ``ModelFormulation.__init__`` requires either ``model_downstream``
+    # or ``user_supplied_markups``, so reaching this branch with neither
+    # set means the formulation was mutated after construction. Raise a
+    # user-facing ValidationError rather than an internal assert.
+    if mf._model_downstream is None:
+        raise ValidationError(
+            "Expected ModelFormulation to specify either model_downstream "
+            "(e.g. 'bertrand') or user_supplied_markups (a column name). "
+            "Received both as None. "
+            "Fix: pass model_downstream='bertrand' (or similar) for FOC-based "
+            "models, or user_supplied_markups='col' for pre-computed markups. "
+            "The class-based API is preferred: pyRVtest.Bertrand(...), "
+            "pyRVtest.UserSuppliedMarkups(markups='col', ...)."
+        )
     return _conduct_from_string(
         mf._model_downstream,
         ownership=mf._ownership_downstream,

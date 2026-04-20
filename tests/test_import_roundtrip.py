@@ -105,9 +105,11 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     # v0.4 step 5a: populated __all__ (was empty in step 1 skeleton).
     # v0.4 step 12: Dearing et al. (2026) simple-markup models appended.
     # v0.4 step 14a: labor-side conduct models appended.
+    # v0.4.0rc1: UserSuppliedMarkups appended.
     ('pyRVtest.models', [
         'ConductModel', 'Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition',
         'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel',
+        'UserSuppliedMarkups',
         'Vertical',
         'RuleOfThumb', 'Keystone', 'ConstantMarkup',
         'Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining',
@@ -124,6 +126,8 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
         'Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining',
     ]),
     ('pyRVtest.models.custom', ['CustomConductModel']),
+    # v0.4.0rc1: UserSuppliedMarkups wraps a pre-computed markup column.
+    ('pyRVtest.models.user_supplied', ['UserSuppliedMarkups']),
     # v0.4 step 13: instrument construction helpers populated.
     ('pyRVtest.instruments', [
         'rival_sums', 'differentiation_ivs', 'blp_instruments',
