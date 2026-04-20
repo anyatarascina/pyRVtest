@@ -298,7 +298,25 @@ def compute_instrument_results(
             unscaled_F[i, m] = N / (2 * K_effective) * F_numerator / F_denominator
             F[i, m] = (1 - rho_squared) * unscaled_F[i, m]
 
-            rho_lookup = min(np.round(np.abs(rho[i, m]), 2), 0.99)
+            # v0.4.0rc1 follow-up: guard the critical-values lookup against
+            # a NaN rho. Two model pairs with identical markups (e.g. a
+            # salience test with opt-out producing the same raw markups)
+            # push the F-stat denominator to zero, yielding NaN rho.
+            # ``np.where(rho == NaN)`` is always empty so the lookup
+            # ``[0][0]`` index used to raise ``IndexError``. Numpy 1.x
+            # happened to hit slightly different numerical values on the
+            # degenerate pair and sidestepped the crash; numpy 2.x
+            # exposes the latent bug. Return NaN critical values and a
+            # blank significance symbol — the test statistic itself is
+            # NaN in this regime, which is semantically correct.
+            rho_val = rho[i, m]
+            if np.isnan(rho_val):
+                F_cv_size[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
+                F_cv_power[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
+                symbols_size[i, m] = " "
+                symbols_power[i, m] = " "
+                continue
+            rho_lookup = min(np.round(np.abs(rho_val), 2), 0.99)
             K_lookup = min(K_effective, 30)  # warning for K>30 fired above
             ind = np.where(
                 (critical_values_size['K'] == K_lookup) & (critical_values_size['rho'] == rho_lookup)

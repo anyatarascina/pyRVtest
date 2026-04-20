@@ -4,3 +4,8 @@ scipy>=1.2.0
 sympy>=1.1.0
 statsmodels>=0.12.2
 pyblp>=1.0.0
+# v0.4.0rc1 follow-up: pandas 2.3+ routes DataFrame.to_latex through the
+# Styler API, which needs jinja2 unconditionally. Without this, the
+# ProblemResults.to_latex / PanelResults.to_latex methods raise
+# ImportError on a fresh install.
+jinja2>=3.0
