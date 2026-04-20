@@ -1,0 +1,7 @@
+# Minimal build-system declaration so `pip install -e .` works under
+# modern pip (>=23) without falling back to the legacy setuptools path.
+# Project metadata continues to live in setup.py for v0.4; migration to
+# full PEP 621 metadata is a post-v0.4 cleanup.
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"

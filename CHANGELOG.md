@@ -5,18 +5,61 @@ All notable changes to pyRVtest are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 project roughly follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — v0.4.0 (work in progress)
+## [0.4.0rc1] — 2026-04-20
 
-Version 0.4 is a substantial refactor of the package architecture. The
-primary motivations are (a) encapsulating PyBLP private-attribute access
-behind a `DemandBackend` protocol, (b) merging the two parallel
-demand-adjustment paths (PyBLP results vs. `demand_params`) into a single
-dispatch, and (c) setting up hooks for labor-side conduct testing.
-See `.claude/plans/v0.4-refactor.md` for the full design document.
+Release candidate for v0.4.0. Version 0.4 is a substantial refactor of
+the package architecture. The primary motivations are (a) encapsulating
+PyBLP private-attribute access behind a `DemandBackend` protocol, (b)
+merging the two parallel demand-adjustment paths (PyBLP results vs.
+`demand_params`) into a single dispatch, and (c) setting up hooks for
+labor-side conduct testing. See `.claude/plans/v0.4-refactor.md` for
+the full design document.
 
 Step 16 (AFSSZ dogfood on a real 910-market-year panel) is still
-outstanding and may introduce additional changes before v0.4.0 is
+outstanding and may introduce additional changes before v0.4.0 final is
 tagged. Step 16 is data-blocked (~1 week lead time on the AFSSZ panel).
+
+### rc1 fixes (coauthor break-it pass, 2026-04-18)
+
+- **`UserSuppliedMarkups` class.** Pre-computed markup columns are now a
+  first-class conduct model:
+  ```python
+  pyRVtest.UserSuppliedMarkups(markups='mkup_col', ownership='firm_ids')
+  ```
+  The legacy pattern
+  `ModelFormulation(user_supplied_markups='col', ownership_downstream='firm_ids')`
+  (no `model_downstream`) used to crash with an `AssertionError` in the
+  adapter; it now translates to `UserSuppliedMarkups` and emits the
+  standard `ModelFormulation` deprecation warning. Fixes Lorenzo's P0
+  regression against carRV's production `conduct_test.py`.
+- **K > 30 critical-value warning.** Instrument counts above 30 previously
+  fell back to the K=30 critical values silently. A `UserWarning` is now
+  emitted once per instrument set when K exceeds the tabulated range.
+- **`options.digits` wired through result formatters.** The global
+  `pyRVtest.options.digits` setting now controls numeric precision in
+  `to_markdown()` / `to_latex()` / `summary_df()` output (previously
+  hardcoded to 6 significant figures). Default value changed from 7 to
+  6 to match the prior `_dataframe_to_github_markdown` hardcoded format
+  (no user-visible change vs. pre-rc1 output at the default setting).
+- **`options.verbose` deprecated.** Reading the attribute emits a
+  `DeprecationWarning` pointing at the `logging.getLogger('pyRVtest')`
+  API that superseded it in v0.4. Assignment stays silent so the
+  widely-used `pyRVtest.options.verbose = False` pattern keeps working.
+  Removal scheduled for v0.6.
+- **`pyproject.toml` added.** Minimal build-system declaration so
+  `pip install -e .` works under modern pip (>=23) without falling back
+  to legacy setuptools.
+
+### Deferred to v0.4.0 final (tracked, not rc1-blocking)
+
+- numpy 2.x / pyblp 1.1.2 test-suite failures (7 failed / 31 errors on
+  Windows + numpy 2.4, including a 2.5% shift in the `analytical_scale`
+  snapshot). Needs investigation of pyblp-version vs numpy-version
+  attribution before committing to a pin or a code fix.
+- `PanelResults` roster-hash validation (audit B1).
+- `Problem(demand_backend=...)` public kwarg (audit B3; already flagged
+  as future work in `docs/custom_demand.rst`).
+- Per-model tax `DeprecationWarning` firing at construction time.
 
 ### Migration from v0.3.x
 
