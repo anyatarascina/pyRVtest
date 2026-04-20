@@ -115,6 +115,126 @@ class TestConstruction:
 
 
 # ---------------------------------------------------------------------------
+# Roster-signature validation (v0.4.0rc1 follow-up, audit B1 / Lorenzo P1 #4)
+#
+# Same model count but divergent roster identity used to pass __init__ and
+# then silently mislabel the ``summary_df`` / ``rejection_rates`` tables
+# (those methods pull labels from the first child). These tests pin the
+# construction-time check that compares a canonical roster signature across
+# children.
+# ---------------------------------------------------------------------------
+
+def _run_swapped_pyrvtest_base(product_data):
+    """Companion to ``_run_pyrvtest_base`` with Bertrand / PerfectCompetition
+    swapped in the model roster. Same count, same markup columns, same
+    instruments — but position-0 and position-1 are flipped, which would
+    mislabel rejection rates if aggregated alongside the base ordering.
+    """
+    import pyRVtest
+
+    model_formulations = (
+        pyRVtest.ModelFormulation(
+            model_downstream='perfect_competition',
+            user_supplied_markups='markups_m2',
+        ),
+        pyRVtest.ModelFormulation(
+            model_downstream='bertrand',
+            ownership_downstream='firm_ids',
+            user_supplied_markups='markups_m1',
+        ),
+    )
+    testing_problem = pyRVtest.Problem(
+        cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+        instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+        model_formulations=model_formulations,
+        product_data=product_data,
+        demand_results=None,
+    )
+    return testing_problem.solve(demand_adjustment=False, clustering_adjustment=False)
+
+
+class TestRosterSignatureValidation:
+    """Construction-time check: same count, divergent roster identity → raise."""
+
+    def test_swapped_roster_raises(self):
+        """A panel mixing [Bertrand, PC] and [PC, Bertrand] must raise.
+
+        Swapping positions silently mislabels the rejection-rate table
+        because ``PanelResults.summary_df`` pulls label columns from the
+        first child.
+        """
+        import warnings
+        product_data, _ = _build_base_dgp(seed=12345)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', DeprecationWarning)
+            base = _run_pyrvtest_base(product_data, clustering=False)
+            swapped = _run_swapped_pyrvtest_base(product_data)
+
+        with pytest.raises(ValueError, match='divergent identity at position 0'):
+            PanelResults(results={'base': base, 'swapped': swapped})
+
+    def test_swapped_roster_error_names_both_keys(self):
+        """Error message includes both panel keys and the diverging entries."""
+        import warnings
+        product_data, _ = _build_base_dgp(seed=12345)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', DeprecationWarning)
+            base = _run_pyrvtest_base(product_data, clustering=False)
+            swapped = _run_swapped_pyrvtest_base(product_data)
+
+        with pytest.raises(ValueError) as excinfo:
+            PanelResults(results={'A': base, 'B': swapped})
+        msg = str(excinfo.value)
+        assert "'A'" in msg and "'B'" in msg
+        # Both the base and the swapped rosters contain 'bertrand' and
+        # 'perfect_competition' string entries; the error names the
+        # divergence at position 0.
+        assert 'bertrand' in msg
+        assert 'perfect_competition' in msg
+
+    def test_same_roster_same_order_passes(self):
+        """The existing homogeneous-panel path still works (regression guard)."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', DeprecationWarning)
+            a_data, _ = _build_base_dgp(seed=12345)
+            b_data, _ = _build_base_dgp(seed=23456)
+            a = _run_pyrvtest_base(a_data, clustering=False)
+            b = _run_pyrvtest_base(b_data, clustering=False)
+        panel = PanelResults(results={'a': a, 'b': b})
+        assert len(panel) == 2
+
+    def test_missing_problem_falls_back_to_count_only(self):
+        """Stubs without ``pr.problem`` skip signature checks gracefully.
+
+        This preserves the defensive pattern used by the existing
+        ``test_mismatched_model_sets_raises`` stub and protects older
+        pickles whose ``Models`` recarray predates the current schema.
+        Rebuilding a panel from count-matched stubs without ``.problem``
+        should succeed (no crash in the signature helper) rather than
+        tripping the new check.
+        """
+        import warnings
+        product_data, _ = _build_base_dgp(seed=12345)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', DeprecationWarning)
+            real = _run_pyrvtest_base(product_data, clustering=False)
+
+        real_count = len(real.markups)
+
+        class _StubMatchingCount(ProblemResults):  # noqa: D401
+            def __init__(self) -> None:  # type: ignore[override]
+                # Match the real panel's model count but omit .problem.
+                self.markups = [np.zeros(1) for _ in range(real_count)]
+
+        stub_matching = _StubMatchingCount()
+        # No raise: count matches, signature is None for the stub so the
+        # check is skipped for that child.
+        panel = PanelResults(results={'real': real, 'stub': stub_matching})
+        assert len(panel) == 2
+
+
+# ---------------------------------------------------------------------------
 # Mapping-like access
 # ---------------------------------------------------------------------------
 

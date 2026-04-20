@@ -33,11 +33,60 @@ from __future__ import annotations
 
 from collections.abc import Hashable
 from pathlib import Path
-from typing import Dict, Iterator, List, Mapping, Optional, TYPE_CHECKING, Union
+from typing import Dict, Iterator, List, Mapping, Optional, Tuple, TYPE_CHECKING, Union
 
 from .. import options
 from ._format import _dataframe_to_github_markdown
 from .results import ProblemResults
+
+
+_RosterSignature = Tuple[Tuple[str, str, str, str, str], ...]
+
+
+def _panel_roster_signature(pr: ProblemResults) -> Optional[_RosterSignature]:
+    """Canonical roster signature for comparing panel children.
+
+    Returns a tuple of per-model 5-tuples capturing the downstream-model
+    name, upstream-model name, downstream ownership column, upstream
+    ownership column, and user-supplied-markups column name. Two
+    :class:`ProblemResults` share a roster (in the ordered,
+    position-sensitive sense that :meth:`PanelResults.rejection_rates`
+    and :meth:`PanelResults.summary_df` rely on) iff their signatures
+    are equal.
+
+    Returns ``None`` when ``pr.problem.models`` is not available or
+    lacks the expected fields (defensive against older pickles whose
+    ``Models`` recarray shape predates the current schema). In that
+    case :class:`PanelResults` falls back to the count-only check.
+    """
+    problem = getattr(pr, 'problem', None)
+    if problem is None:
+        return None
+    models = getattr(problem, 'models', None)
+    if models is None:
+        return None
+    M = int(len(pr.markups))
+    try:
+        downstream = models['models_downstream']
+        upstream = models['models_upstream']
+        firm_ids_down = models['firm_ids_downstream']
+        firm_ids_up = models['firm_ids_upstream']
+        supplied = models['user_supplied_markups_name']
+    except (IndexError, ValueError, KeyError, TypeError):
+        return None
+    signature: List[Tuple[str, str, str, str, str]] = []
+    for i in range(M):
+        try:
+            signature.append((
+                str(downstream[i]),
+                str(upstream[i]),
+                str(firm_ids_down[i]),
+                str(firm_ids_up[i]),
+                str(supplied[i]),
+            ))
+        except Exception:  # pragma: no cover — defensive fallback
+            return None
+    return tuple(signature)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -93,6 +142,7 @@ class PanelResults:
         stored: Dict[Hashable, ProblemResults] = {}
         expected_n_models: Optional[int] = None
         expected_key: Optional[Hashable] = None
+        expected_signature: Optional[_RosterSignature] = None
         for key, pr in results.items():
             if not isinstance(pr, ProblemResults):
                 raise TypeError(
@@ -103,9 +153,11 @@ class PanelResults:
                     f"then store it under this key."
                 )
             n_models = int(len(pr.markups))
+            signature = _panel_roster_signature(pr)
             if expected_n_models is None:
                 expected_n_models = n_models
                 expected_key = key
+                expected_signature = signature
             elif n_models != expected_n_models:
                 raise ValueError(
                     f"Mismatched model sets: expected all panel children to "
@@ -116,6 +168,39 @@ class PanelResults:
                     f"models and key {key!r} with {n_models}. "
                     f"Fix: rebuild the panel so every child is solved with the "
                     f"same list of candidate models."
+                )
+            elif expected_signature is not None and signature is not None \
+                    and signature != expected_signature:
+                # v0.4.0rc1 follow-up (audit B1 / Lorenzo P1 item 4): same
+                # count but different roster identity would otherwise be a
+                # silent mislabel at ``summary_df`` / ``rejection_rates``
+                # time, because those methods pull labels from the first
+                # child. Raise here so the error surfaces at construction.
+                diff_i = next(
+                    (i for i, (a, b) in enumerate(zip(expected_signature, signature))
+                     if a != b),
+                    None,
+                )
+                if diff_i is None:  # pragma: no cover — unreachable given != check
+                    diff_i = min(len(expected_signature), len(signature))
+                expected_entry = expected_signature[diff_i] if diff_i < len(expected_signature) else None
+                received_entry = signature[diff_i] if diff_i < len(signature) else None
+                raise ValueError(
+                    f"Mismatched model sets: expected all panel children to "
+                    f"share the same ordered candidate-model roster "
+                    f"(rejection-rate aggregation pulls labels from the first "
+                    f"child, so positions must match across children to avoid "
+                    f"silent mislabel). "
+                    f"Received key {expected_key!r} and key {key!r} with the "
+                    f"same number of models but divergent identity at "
+                    f"position {diff_i}: "
+                    f"{expected_key!r} -> {expected_entry!r}, "
+                    f"{key!r} -> {received_entry!r}. "
+                    f"Full signatures: "
+                    f"{expected_key!r} -> {expected_signature!r}; "
+                    f"{key!r} -> {signature!r}. "
+                    f"Fix: rebuild the panel so every child is solved with "
+                    f"the same ordered list of candidate models."
                 )
             stored[key] = pr
         self._results = stored
