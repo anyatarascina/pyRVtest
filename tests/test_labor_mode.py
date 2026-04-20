@@ -446,6 +446,46 @@ class TestLaborSupplyBackendSkeleton:
 
 
 # ---------------------------------------------------------------------------
+# demand_params + market_side='labor' guard (Lorenzo review 2026-04-18).
+#
+# LaborSupplyBackend is a v0.4 skeleton (Jacobian / Hessian deferred to
+# v0.5). Without this guard, Problem(market_side='labor', demand_params={
+# 'alpha': ...}) would either (a) silently build a product-side
+# LogitBackend from labor data or (b) raise a confusing "alpha must be
+# < 0" error for legitimate upward-sloping labor supply. This pin
+# ensures the failure mode is a clean NotImplementedError pointing at
+# v0.5.
+# ---------------------------------------------------------------------------
+
+
+def test_demand_params_on_labor_side_raises_clean_not_implemented():
+    """demand_params + market_side='labor' raises NotImplementedError naming v0.5."""
+    pyRVtest.options.verbose = False
+    df = _build_labor_product_data()
+    with pytest.raises(NotImplementedError) as excinfo:
+        pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+            instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+            product_data=df,
+            models=[
+                pyRVtest.Monopsony(user_supplied_markups='markdown_m1'),
+                pyRVtest.PerfectCompetition(user_supplied_markups='markdown_m2'),
+            ],
+            market_side='labor',
+            demand_params={'alpha': -1.0},
+        )
+    msg = str(excinfo.value)
+    # Expected / Received / Fix format per pyRVtest error-message style.
+    assert 'Expected' in msg
+    assert 'Received' in msg
+    assert 'Fix' in msg
+    # v0.5 pointer is the critical piece: users must know when to expect support.
+    assert 'v0.5' in msg
+    # Mentions a short-term workaround so the user isn't stuck.
+    assert 'user_supplied_markups' in msg or 'UserSuppliedBackend' in msg
+
+
+# ---------------------------------------------------------------------------
 # CustomConductModel side='labor' opt-in (post-step-14 correctness fix).
 #
 # Rationale: unlike PerfectCompetition (zero markup == zero markdown,

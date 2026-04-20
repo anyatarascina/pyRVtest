@@ -1089,6 +1089,28 @@ class Problem(Container, StringRepresentation):
                 "logit/nested-logit path, or demand_results=<pyblp.ProblemResults> "
                 "for pyblp-driven BLP / nested-logit estimation."
             )
+        # v0.4 step 14c (Lorenzo methodology note, 2026-04-18): demand_params
+        # drives _construct_demand_backend, which currently only builds
+        # product-side backends (LogitBackend / NestedLogitBackend). The
+        # labor-side LaborSupplyBackend is a v0.4 skeleton with deferred
+        # Jacobian / Hessian math. Combining market_side='labor' with
+        # demand_params would silently produce a product-side backend
+        # (or a confusing "alpha must be < 0" error for legitimately
+        # upward-sloping labor supply). Raise NotImplementedError here
+        # so callers see a clean v0.5 pointer rather than an AttributeError
+        # or a wrong-sign answer.
+        if demand_params is not None and market_side == 'labor':
+            raise NotImplementedError(
+                "Expected demand_params to be paired with the default "
+                "market_side='product' in v0.4. "
+                "Received demand_params with market_side='labor'. "
+                "Fix: analytical labor-supply demand estimation is deferred "
+                "to v0.5 (see pyRVtest.backends.labor.LaborSupplyBackend). "
+                "Short-term workarounds in v0.4: (a) pass "
+                "user_supplied_markups on each labor conduct model (no "
+                "demand_params needed); (b) wrap a manually computed "
+                "labor-supply Jacobian in pyRVtest.backends.UserSuppliedBackend."
+            )
         if demand_params is not None:
             if 'alpha' not in demand_params:
                 raise ValueError(

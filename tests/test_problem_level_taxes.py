@@ -296,6 +296,85 @@ class TestOverridePrecedence:
         assert r.problem.models['unit_tax_name'][0] == 'tax_col'
         assert r.problem.models['unit_tax_name'][1] == 'vat_col'
 
+    def test_tiebreaker_policy_pin(self, dgp):
+        """Tax-spec tiebreaking policy pin (Lorenzo review 2026-04-18).
+
+        Pins the exact behavior when both Problem-level and per-model
+        ``unit_tax`` / ``advalorem_tax`` are supplied:
+
+        1. Per-model wins: the model-level column is what enters the
+           effective price for that model.
+        2. Both a generic per-model-tax ``DeprecationWarning`` AND a
+           conflict-specific ``DeprecationWarning`` fire. The conflict
+           warning names BOTH columns so the user can see the silent
+           override in logs.
+        3. Other models (no per-model tax) still inherit the
+           Problem-level value.
+
+        See :ref:`tax-precedence-tiebreaker` in
+        ``docs/migrating_to_v0.4.rst`` for the user-facing statement.
+        """
+        df, alpha = dgp
+        common = _common_kwargs(df, alpha)
+        pyRVtest.options.verbose = False
+        from pyRVtest import problem as _prob
+        _prob._legacy_tax_deprecation_warned.clear()
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            r = pyRVtest.Problem(
+                **common,
+                unit_tax='vat_col',  # Problem level: 0.10
+                advalorem_tax='vat_col',  # Problem level for ad valorem too
+                advalorem_payer='firm',
+                models=[
+                    Bertrand(
+                        ownership='firm_ids',
+                        unit_tax='tax_col',  # per-model: 0.05, should win
+                        advalorem_tax='tax_col',  # per-model wins for ad-valorem too
+                        advalorem_payer='consumer',
+                    ),
+                    Cournot(ownership='firm_ids'),  # no per-model tax; inherits Problem-level
+                ],
+            ).solve(demand_adjustment=False, clustering_adjustment=False)
+
+        # (1) Per-model column wins for the first model.
+        assert r.problem.models['unit_tax_name'][0] == 'tax_col', (
+            "Per-model unit_tax must win on conflict."
+        )
+        assert r.problem.models['advalorem_tax_name'][0] == 'tax_col', (
+            "Per-model advalorem_tax must win on conflict."
+        )
+        # The second model (no per-model tax) inherits the Problem-level value.
+        assert r.problem.models['unit_tax_name'][1] == 'vat_col', (
+            "Second model without per-model unit_tax inherits Problem-level."
+        )
+        assert r.problem.models['advalorem_tax_name'][1] == 'vat_col', (
+            "Second model without per-model advalorem_tax inherits Problem-level."
+        )
+
+        # (2) Both a generic deprecation AND a conflict-specific
+        # deprecation fire. The conflict warning names BOTH columns so
+        # the user cannot silently miss the override.
+        dep_msgs = [
+            str(w.message) for w in caught
+            if issubclass(w.category, DeprecationWarning)
+        ]
+        # Generic per-model-tax deprecation (pointing to migration doc).
+        assert any('deprecated' in m for m in dep_msgs), (
+            "Expected at least one generic deprecation message."
+        )
+        # Conflict-specific warning mentions the losing Problem-level
+        # column ('vat_col') by name so the user sees what was ignored.
+        conflict_msgs = [
+            m for m in dep_msgs
+            if 'Conflicting' in m and "'tax_col'" in m and "'vat_col'" in m
+        ]
+        assert conflict_msgs, (
+            f"Expected a conflict-specific warning naming both columns. "
+            f"Got:\n" + "\n---\n".join(dep_msgs)
+        )
+
 
 # =====================================================================
 # No-op defaults.

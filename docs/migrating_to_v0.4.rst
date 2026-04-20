@@ -243,6 +243,69 @@ scheduled for removal in v0.7. ``cost_scaling`` stays on the
 conduct model (or on :class:`~pyRVtest.Vertical` for bilateral
 oligopoly) because it is a behavioral primitive.
 
+.. _tax-precedence-tiebreaker:
+
+Tiebreaker: Problem-level vs per-model taxes
+""""""""""""""""""""""""""""""""""""""""""""
+
+If a tax is specified on **both** :class:`~pyRVtest.Problem` and a conduct
+model (e.g., ``Problem(unit_tax='tax_col_A')`` plus
+``Bertrand(unit_tax='tax_col_B')``), the resolution is deterministic:
+
+* **Per-model wins.** The model-level column is what enters that
+  model's effective price; the Problem-level value is ignored for that
+  specific model.
+* **Two** ``DeprecationWarning`` **messages fire.** The first is the
+  standard per-model-tax deprecation ("Specifying unit_tax on an
+  individual ConductModel ... is deprecated"). The second is a
+  conflict-specific warning naming both columns explicitly so the
+  user cannot miss the silent override: ``"Conflicting unit_tax
+  specification: model-level unit_tax='tax_col_B' wins ... Problem-level
+  unit_tax='tax_col_A' was also set and will be ignored"``.
+* **Other models are unaffected.** Models that do not set their own
+  ``unit_tax`` still receive the Problem-level value (subject to the
+  :attr:`unit_tax_salient` opt-out).
+
+The same rules apply to ``advalorem_tax`` / ``advalorem_payer``.
+
+**Recommended migration when both are set.** Drop the per-model
+``unit_tax='...'`` argument, then decide per model whether to keep the
+Problem-level tax (do nothing) or opt out for a salience test
+(``unit_tax_salient=False``):
+
+.. code-block:: python
+
+    # Before (both set; per-model wins silently; two DeprecationWarnings fire)
+    pyRVtest.Problem(
+        ...,
+        unit_tax='tax_col',
+        models=[
+            pyRVtest.Bertrand(ownership='firm_ids', unit_tax='tax_col'),  # redundant
+            pyRVtest.Cournot(ownership='firm_ids'),                       # inherits Problem tax
+        ],
+    )
+
+    # After (Problem-level only; no warnings; same result because per-model
+    # value matched Problem-level anyway)
+    pyRVtest.Problem(
+        ...,
+        unit_tax='tax_col',
+        models=[
+            pyRVtest.Bertrand(ownership='firm_ids'),
+            pyRVtest.Cournot(ownership='firm_ids'),
+        ],
+    )
+
+    # After (salience test: Bertrand opts out; Cournot inherits)
+    pyRVtest.Problem(
+        ...,
+        unit_tax='tax_col',
+        models=[
+            pyRVtest.Bertrand(ownership='firm_ids', unit_tax_salient=False),
+            pyRVtest.Cournot(ownership='firm_ids'),
+        ],
+    )
+
 v0.4 extends ``cost_scaling`` to accept either a column name in
 ``product_data`` (the v0.3 behavior, unchanged) **or** a numeric scalar
 (new in v0.4 step 12) broadcast uniformly to every product. The scalar
@@ -506,6 +569,15 @@ skeleton: constructor and protocol members exist, but
 :class:`NotImplementedError`. Users who need a working labor-supply
 backend in v0.4 should wrap their own with
 :class:`~pyRVtest.backends.UserSuppliedBackend`.
+
+Because :class:`~pyRVtest.backends.labor.LaborSupplyBackend` is
+skeleton-only, passing ``demand_params={...}`` alongside
+``market_side='labor'`` raises :class:`NotImplementedError` with a
+pointer to v0.5 rather than silently building a product-side backend
+over labor data. Use ``user_supplied_markups`` on each labor conduct
+model (or wrap a manually computed Jacobian in
+:class:`~pyRVtest.backends.UserSuppliedBackend`) until the labor-side
+analytical path lands in v0.5.
 
 See :doc:`agent_guide` for the longer narrative and the full protocol
 surface.
