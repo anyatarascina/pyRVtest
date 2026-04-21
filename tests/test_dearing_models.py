@@ -114,14 +114,15 @@ class TestConstantMarkupValidation:
 
 
 class TestRuleOfThumbHook:
-    """RuleOfThumb._compute_markup returns zero; the Dearing math is
-    delivered by the cost_scaling post-processing in Problem.solve.
+    """RuleOfThumb hook contract: _compute_markup raises NotImplementedError
+    (markup requires prices, not in the (O, D, s) triple); the Dearing math
+    is delivered by Problem.__init__ pre-computing (phi-1)/phi * prices.
     """
 
-    def test_compute_markup_returns_zero(self):
+    def test_compute_markup_raises(self):
         r = RuleOfThumb(phi=2.0)
-        m = r._compute_markup(np.eye(3), np.eye(3), np.array([0.2, 0.3, 0.4]))
-        np.testing.assert_array_equal(m, np.zeros((3, 1)))
+        with pytest.raises(NotImplementedError, match="prices"):
+            r._compute_markup(np.eye(3), np.eye(3), np.array([0.2, 0.3, 0.4]))
 
     def test_markup_derivative_returns_zero(self):
         r = RuleOfThumb(phi=2.0)
@@ -131,10 +132,9 @@ class TestRuleOfThumbHook:
         )
         np.testing.assert_array_equal(d, np.zeros(3))
 
-    def test_phi_one_is_perfect_competition(self):
+    def test_model_name_is_constant_markup(self):
         r = RuleOfThumb(phi=1.0)
-        assert r.cost_scaling == 0.0
-        assert r._model_name == 'perfect_competition'
+        assert r._model_name == 'constant_markup'
 
 
 # =====================================================================
@@ -193,7 +193,7 @@ def _common_problem_kwargs(df, alpha):
         instrument_formulation=pyRVtest.Formulation('0 + rival_x1'),
         product_data=df,
         demand_params={
-            'alpha': alpha, 'sigma': [],
+            'alpha': alpha, 'rho': [],
             'beta': np.array([0.0, 0.4]),
             'x_columns': ['intercept', 'x1'],
             'demand_instrument_columns': ['rival_x1', 'intercept', 'x1'],
@@ -260,6 +260,46 @@ class TestRuleOfThumbEndToEnd:
         expected_mc = np.asarray(df['prices']) / 2.0
         np.testing.assert_allclose(
             r.marginal_cost[0].flatten(), expected_mc, atol=1e-14,
+        )
+
+    def test_phi_two_markup_equals_half_price(self, dgp):
+        """phi=2: markup = (phi-1)/phi * p = p/2 (not zero)."""
+        df, alpha = dgp
+        common = _common_problem_kwargs(df, alpha)
+        pyRVtest.options.verbose = False
+        r = pyRVtest.Problem(
+            **common,
+            models=[
+                RuleOfThumb(phi=2.0),
+                Bertrand(ownership='firm_ids'),
+            ],
+        ).solve(demand_adjustment=False, clustering_adjustment=False)
+        expected_markup = np.asarray(df['prices']) / 2.0
+        np.testing.assert_allclose(
+            r.markups[0].flatten(), expected_markup, atol=1e-14,
+        )
+
+    def test_phi_general_markup_formula(self, dgp):
+        """markup = (phi-1)/phi * p for arbitrary phi."""
+        df, alpha = dgp
+        common = _common_problem_kwargs(df, alpha)
+        pyRVtest.options.verbose = False
+        phi = 1.5
+        r = pyRVtest.Problem(
+            **common,
+            models=[
+                RuleOfThumb(phi=phi),
+                Bertrand(ownership='firm_ids'),
+            ],
+        ).solve(demand_adjustment=False, clustering_adjustment=False)
+        expected_markup = (phi - 1) / phi * np.asarray(df['prices'])
+        np.testing.assert_allclose(
+            r.markups[0].flatten(), expected_markup, atol=1e-14,
+        )
+        np.testing.assert_allclose(
+            r.marginal_cost[0].flatten(),
+            np.asarray(df['prices']) / phi,
+            atol=1e-14,
         )
 
     def test_rule_of_thumb_matches_legacy_cost_scaling(self, dgp):

@@ -10,10 +10,8 @@ Models
 ``RuleOfThumb(phi)`` — Example 1, pp. 7-8. Price is a fixed multiple
     :math:`\\varphi \\geq 1` of marginal cost: :math:`p = \\varphi \\cdot
     mc`, which rearranges to markup :math:`\\Delta = (\\varphi - 1) / \\varphi
-    \\cdot p`. Implemented as an ergonomic wrapper over
-    :class:`~pyRVtest.models.base.ConductModel.cost_scaling`. Setting
-    ``phi=2.0`` yields 50%-of-price markups; ``phi=1.0`` recovers
-    marginal-cost pricing (perfect competition).
+    \\cdot p`. Setting ``phi=2.0`` yields 50%-of-price markups;
+    ``phi=1.0`` recovers marginal-cost pricing (perfect competition).
 
 ``ConstantMarkup(markup)`` — Example 7, pp. 23-24. A fixed per-product
     dollar markup :math:`\\Delta_{jt} = \\zeta_j` that does not vary
@@ -26,24 +24,18 @@ Models
 Mechanism
 ---------
 
-``RuleOfThumb`` reuses the existing ``cost_scaling`` machinery.
-``cost_scaling`` was previously a column name only; v0.4 step 12a
-extends it to accept a numeric scalar. The implementation sets
-``cost_scaling = phi - 1`` so that
-``problem.py``'s effective-price / effective-markup post-processing
-(``prices_effective = tax_adj * p / (1 + cost_scaling) - unit_tax``,
-``markups_effective = tax_adj / (1 + cost_scaling) * markups``) yields
-``mc = p / phi`` when the underlying markup is zero. Hence the
-implementation inherits from :class:`~pyRVtest.PerfectCompetition` via
-the ``_model_name = 'perfect_competition'`` dispatch — the
-zero-underlying-markup plus post-processing cost division delivers the
-Dearing math.
+``RuleOfThumb`` uses the same ``constant_markup`` field in the
+``Models`` recarray as ``ConstantMarkup``. ``Problem.__init__``
+pre-computes ``(phi - 1) / phi * prices`` and stores it as the
+per-row ``constant_markup`` array for that model.
+:func:`~pyRVtest.markups.evaluate_first_order_conditions` then reads
+the field and writes it directly as the markup vector, so
+``markups = (phi - 1) / phi * p`` and ``mc = p / phi``.
 
-``ConstantMarkup`` introduces a new additive-markup mechanism. The
-existing ``cost_scaling`` factor is multiplicative (:math:`mc = p /
-(1 + \\lambda)`) and cannot express an additive markup. A new branch
+``ConstantMarkup`` introduces an additive per-product dollar markup
+that does not vary across markets. A branch
 in :func:`~pyRVtest.markups.evaluate_first_order_conditions` reads the
-per-row markup vector from a new ``constant_markup`` field threaded
+per-row markup vector from the ``constant_markup`` field threaded
 through the ``Models`` recarray, treating the model as if it had a
 user-supplied markup without the column-name requirement.
 
@@ -82,46 +74,36 @@ class RuleOfThumb(ConductModel):
     :math:`\Delta = (\varphi - 1) / \varphi \cdot p`. Equivalently, the
     implied marginal cost is :math:`mc = p / \varphi`.
 
-    Implemented as an ergonomic wrapper over the existing ``cost_scaling``
-    mechanism: ``RuleOfThumb(phi=2.0)`` internally sets
-    ``cost_scaling = phi - 1 = 1.0`` and ``_model_name =
-    'perfect_competition'``. The post-processing in ``problem.py``
-    then delivers ``mc = p / (1 + 1) = p / 2``, which is the Dearing
-    Example 1 formula for :math:`\varphi = 2`.
+    ``Problem.__init__`` pre-computes ``(phi - 1) / phi * prices`` and
+    stores it as the per-row ``constant_markup`` entry. The
+    :func:`~pyRVtest.markups.evaluate_first_order_conditions` dispatch
+    then writes it directly as the markup vector.
 
     Parameters
     ----------
     phi : float
         Markup multiplier, :math:`\varphi \geq 1`. ``phi = 1`` degenerates to
-        marginal-cost pricing (perfect competition); ``phi = 2`` yields
+        marginal-cost pricing (zero markup); ``phi = 2`` yields
         50%-of-price markups.
 
     Other Parameters
     ----------------
     Accepts all other :class:`~pyRVtest.models.base.ConductModel`
-    keyword arguments EXCEPT ``cost_scaling``, which is set internally
-    from ``phi``. Passing both ``phi`` and ``cost_scaling`` raises
+    keyword arguments EXCEPT ``cost_scaling``, which is incompatible
+    with ``RuleOfThumb``. Passing both raises
     :class:`~pyRVtest.exceptions.ValidationError`.
 
     Examples
     --------
-    >>> import numpy as np
     >>> from pyRVtest import RuleOfThumb
     >>> model = RuleOfThumb(phi=2.0)
     >>> model.phi
     2.0
-    >>> model.cost_scaling
-    1.0
     >>> model._model_name
-    'perfect_competition'
-    >>> # _compute_markup returns zero (the cost_scaling post-processing
-    >>> # delivers the Dearing math downstream).
-    >>> model._compute_markup(np.eye(2), np.eye(2), np.array([0.3, 0.3]))
-    array([[0.],
-           [0.]])
+    'constant_markup'
     """
 
-    _model_name = 'perfect_competition'
+    _model_name = 'constant_markup'
 
     def __init__(self, phi: float, **kwargs: Any) -> None:
         # Reject bool explicitly before isinstance(phi, (int, float)) accepts it.
@@ -142,28 +124,33 @@ class RuleOfThumb(ConductModel):
             )
         if 'cost_scaling' in kwargs:
             raise ValidationError(
-                f"Expected RuleOfThumb to own the cost_scaling factor "
-                f"(it is set internally from phi via cost_scaling = phi - 1). "
-                f"Received an explicit cost_scaling={kwargs['cost_scaling']!r} "
-                f"together with phi={phi!r}. "
+                f"Expected RuleOfThumb not to receive a cost_scaling argument "
+                f"(the markup (phi-1)/phi * p is computed directly from prices "
+                f"and does not use the cost_scaling mechanism). "
+                f"Received cost_scaling={kwargs['cost_scaling']!r} together "
+                f"with phi={phi!r}. "
                 f"Fix: drop the cost_scaling argument, or switch to the "
                 f"lower-level PerfectCompetition(cost_scaling=...) API."
             )
-        super().__init__(cost_scaling=float(phi) - 1.0, **kwargs)
+        super().__init__(**kwargs)
         self.phi: float = float(phi)
 
     def _compute_markup(self, O: _NDArray, D: _NDArray, s: _NDArray) -> _NDArray:
-        """Return a zero markup vector (shape ``(J, 1)``).
+        """Not callable on ``RuleOfThumb``.
 
-        The Dearing math is delivered by the ``cost_scaling`` post-processing
-        in ``problem.py``: the zero raw markup plus the ``1 / (1 + (phi - 1))
-        = 1 / phi`` scaling produces ``mc = p / phi``. This override exists
-        to satisfy the ``ConductModel._compute_markup`` contract (Liskov);
-        it is also the value consumed by the live string-dispatch path
-        through ``_model_name = 'perfect_competition'``.
+        The markup ``(phi-1)/phi * p`` requires observed prices, which are
+        not in the ``(O, D, s)`` triple. ``Problem.__init__`` pre-computes
+        the per-row vector and stores it in the ``constant_markup`` field;
+        the live dispatch path reads it via ``_model_name = 'constant_markup'``.
         """
-        J = int(np.asarray(s).shape[0])
-        return np.zeros((J, 1))
+        raise NotImplementedError(
+            f"RuleOfThumb._compute_markup is not callable directly — the "
+            f"markup (phi-1)/phi * p requires observed prices, which are not "
+            f"part of the (ownership, response_matrix, shares) triple. "
+            f"Fix: the Problem pipeline pre-computes (phi-1)/phi * prices and "
+            f"stores it in the 'constant_markup' field; call Problem.solve(...) "
+            f"rather than invoking this hook directly."
+        )
 
     def _markup_derivative(
             self, O: _NDArray, D: _NDArray, dD: _NDArray,

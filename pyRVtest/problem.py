@@ -775,10 +775,8 @@ class Models(object):
             else:
                 advalorem_tax[m] = np.zeros((N, 1))
             if config.cost_scaling is not None:
-                # v0.4 step 12: cost_scaling accepts either a column name (str)
-                # or a numeric scalar (float/int, broadcast to every row). The
-                # scalar form is what powers the ergonomic RuleOfThumb(phi) /
-                # RuleOfThumb() wrapper in pyRVtest.models.constant.
+                # cost_scaling accepts either a column name (str) or a
+                # numeric scalar (float/int, broadcast to every row).
                 if isinstance(config.cost_scaling, str):
                     cost_scaling_column[m] = config.cost_scaling
                     cost_scaling[m] = extract_matrix(product_data, config.cost_scaling)
@@ -791,11 +789,16 @@ class Models(object):
                 user_supplied_markups[m] = extract_matrix(product_data, config.user_supplied_markups)
                 user_supplied_markups_name[m] = config.user_supplied_markups
 
-            # v0.4 step 12: ConstantMarkup threads its per-row markup vector
-            # through the Models recarray as a new field. Either a scalar
-            # (broadcast to every row) or a column in product_data.
-            from .models.constant import ConstantMarkup as _ConstantMarkup
-            if isinstance(down_conduct, _ConstantMarkup):
+            # v0.4 step 12: ConstantMarkup and RuleOfThumb thread their
+            # per-row markup vectors through the Models recarray via the
+            # 'constant_markup' field.
+            from .models.constant import ConstantMarkup as _ConstantMarkup, RuleOfThumb as _RuleOfThumb
+            if isinstance(down_conduct, _RuleOfThumb):
+                # RuleOfThumb: markup = (phi-1)/phi * prices, computed here
+                # from observed prices rather than demand primitives (O, D, s).
+                prices_col = np.asarray(product_data.prices, dtype=options.dtype).reshape(-1, 1)
+                constant_markup[m] = ((down_conduct.phi - 1.0) / down_conduct.phi) * prices_col
+            elif isinstance(down_conduct, _ConstantMarkup):
                 markup_spec = down_conduct.markup
                 if isinstance(markup_spec, str):
                     extracted = extract_matrix(product_data, markup_spec)

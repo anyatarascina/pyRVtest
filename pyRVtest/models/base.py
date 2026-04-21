@@ -142,11 +142,7 @@ class ConductModel:
 
         Accepts either a column name (``str``) pointing to a per-product
         column in ``product_data``, or a numeric scalar (``float``/``int``)
-        applied uniformly to every row. The scalar form is the mechanism
-        behind the ergonomic :class:`RuleOfThumb` wrapper in
-        ``pyRVtest.models.constant`` (Dearing et al. 2026, Example 1):
-        ``RuleOfThumb(phi=2.0)`` internally sets ``cost_scaling=1.0``
-        so that the implied marginal cost is ``p / (1 + 1) = p / 2``.
+        applied uniformly to every row.
     vertical_integration : str, optional
         Column name indicating which products are vertically integrated
         (store brands, etc.). Only meaningful on the outer (combined)
