@@ -246,16 +246,16 @@ class PyBLPBackend:
 
             * **Single-scalar-rho nested logit (K2=0, r.rho.size=1)**:
               pyblp's single scalar ``rho`` matches the AFSSZ L=1 nested
-              logit ``sigma_1``. D is *nonlinear* in rho, so pyblp's
-              finite-diff has genuine O(eps^2) truncation error.
+              logit nesting parameter ``rho_1``. D is *nonlinear* in rho,
+              so pyblp's finite-diff has genuine O(eps^2) truncation error.
               ``Problem._construct_demand_backend`` auto-routes this case
-              to ``NestedLogitBackend(sigma=[rho])`` for exact
+              to ``NestedLogitBackend(rho=[rho])`` for exact
               ``d(D)/d(rho)``.
 
             * **Per-nest rho nested logit (K2=0, r.rho.size>1)**: pyblp's
               per-nest Cardell-Nevo parametrization gives per-nest
               ``rho_h`` parameters. The AFSSZ L-level formulation in
-              ``_nested_logit_jacobian`` has one ``sigma_l`` per *level*,
+              ``_nested_logit_jacobian`` has one ``rho_l`` per *level*,
               not per nest. ``Problem._construct_demand_backend`` keeps
               these on ``PyBLPBackend`` (finite-diff with O(eps^2) error
               on ``d(D)/d(rho_h)``) because the two parametrizations do

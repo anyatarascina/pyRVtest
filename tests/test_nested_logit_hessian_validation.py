@@ -150,7 +150,7 @@ class TestNestedLogitHessianMatchesPyblp:
         rho_arr = np.atleast_1d(np.asarray(pyblp_results.rho).flatten())
         rho = float(rho_arr[0])
         backend = NestedLogitBackend(
-            alpha=alpha, sigma=[rho], product_data=data,
+            alpha=alpha, rho=[rho], product_data=data,
             nesting_ids_columns=['nesting_ids'],
         )
         H_backend = backend.compute_hessian(market_id=t0)
@@ -182,7 +182,7 @@ class TestNestedLogitHessianMatchesPyblp:
         rho_arr = np.atleast_1d(np.asarray(pyblp_results.rho).flatten())
         rho = float(rho_arr[0])
         backend = NestedLogitBackend(
-            alpha=alpha, sigma=[rho], product_data=data,
+            alpha=alpha, rho=[rho], product_data=data,
             nesting_ids_columns=['nesting_ids'],
         )
         for t in market_ids:

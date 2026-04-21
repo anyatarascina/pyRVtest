@@ -129,7 +129,6 @@ model_core = [
                       kappa_specification=kappa_nonprofit),
 
     # --- Rule-of-thumb (lambda=0.5) and Bertrand with scaled costs ---
-    pyRVtest.PerfectCompetition(cost_scaling='cost_scaling_col'),
     pyRVtest.Bertrand(ownership='firm_ids', cost_scaling='cost_scaling_col'),
 
     # --- Vertical: linear pricing (Bertrand downstream + Bertrand upstream) ---
@@ -160,7 +159,7 @@ model_core = [
 # Dearing et al. (2026) simple-markup models added in v0.4 step 12.
 # Shown separately in the markup table and in their own testing problem.
 dearing_models = [
-    pyRVtest.Keystone(),                  # phi=2: price = 2 * mc
+    pyRVtest.RuleOfThumb(phi=2.0),        # phi=2: price = 2 * mc (50%-of-price markup)
     pyRVtest.RuleOfThumb(phi=3.0),        # 200%-over-cost markup
     pyRVtest.ConstantMarkup(markup=0.3),  # fixed dollar markup (Example 7)
 ]
@@ -176,7 +175,6 @@ core_names = [
     'Bertrand partial collusion (kappa=0.5)',
     'Cournot partial collusion (kappa=0.5)',
     'Non-profit Bertrand (lambda=0.7)',
-    'Rule-of-thumb (lambda=0.5)',
     'Bertrand scaled costs (lambda=0.5)',
     'Vertical Bertrand+Bertrand',
     'Vertical Bertrand+Bertrand with VI',
@@ -184,7 +182,7 @@ core_names = [
     'Single-product Bertrand (custom)',
 ]
 dearing_names = [
-    'Keystone (phi=2)',
+    'Rule-of-thumb (phi=2.0)',
     'Rule-of-thumb (phi=3.0)',
     'Constant markup (zeta=0.3)',
 ]
@@ -249,7 +247,7 @@ print("\nUserSuppliedMarkups sanity check (TRV vs. Bertrand should be ≈ 0):")
 print(usm_results)
 
 # %% Dearing et al. (2026) simple-markup models — focused test against Bertrand
-# Tests Keystone, RuleOfThumb, and ConstantMarkup against multi-product Bertrand;
+# Tests RuleOfThumb and ConstantMarkup against multi-product Bertrand;
 # under the true DGP (Bertrand), all three should be rejected.
 dearing_problem = pyRVtest.Problem(
     cost_formulation=pyRVtest.Formulation('1+z+shares'),

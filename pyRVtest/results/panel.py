@@ -241,7 +241,7 @@ class PanelResults:
         Each child's :meth:`ProblemResults.to_dataframe` is called and
         the results are concatenated vertically with a ``panel_key``
         column prepended. Existing columns (``instrument_set``,
-        ``model_i``, ``model_j``, ``TRV``, ``F``, ``MCS_pvalue``, and
+        ``model_i``, ``model_j``, ``TRV``, ``F``, ``MCS_pvalue_model_i``, and
         their labels) are passed through unchanged.
 
         Returns

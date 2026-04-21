@@ -310,8 +310,7 @@ v0.4 extends ``cost_scaling`` to accept either a column name in
 ``product_data`` (the v0.3 behavior, unchanged) **or** a numeric scalar
 (new in v0.4 step 12) broadcast uniformly to every product. The scalar
 form is the foundation of the ergonomic
-:class:`~pyRVtest.RuleOfThumb` / :class:`~pyRVtest.Keystone` wrappers
-described below.
+:class:`~pyRVtest.RuleOfThumb` wrapper described below.
 
 **Before (v0.3 — tax on every model):**
 
@@ -409,17 +408,16 @@ the formula string — doing so would double-count.
    with ``unit_tax_salient=False`` on the opt-out models, not in
    ``known_coefficients``.
 
-Dearing simple-markup models (RuleOfThumb, Keystone, ConstantMarkup)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Dearing simple-markup models (RuleOfThumb, ConstantMarkup)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-v0.4 step 12 adds three simple-markup models from Dearing, Magnolfi, Quint,
+v0.4 step 12 adds two simple-markup models from Dearing, Magnolfi, Quint,
 Sullivan, and Waldfogel (2026):
 
-* :class:`~pyRVtest.RuleOfThumb` / :class:`~pyRVtest.Keystone` —
-  Example 1: price is a fixed multiple :math:`\varphi \geq 1` of
-  marginal cost, :math:`p = \varphi \cdot mc`. ``Keystone()`` is the
-  ``phi = 2`` shorthand. Implemented as an ergonomic wrapper over the
-  existing ``cost_scaling`` machinery (now extended to accept a scalar).
+* :class:`~pyRVtest.RuleOfThumb` — Example 1: price is a fixed multiple
+  :math:`\varphi \geq 1` of marginal cost, :math:`p = \varphi \cdot mc`.
+  Implemented as an ergonomic wrapper over the existing ``cost_scaling``
+  machinery (now extended to accept a scalar).
 
 * :class:`~pyRVtest.ConstantMarkup` — Example 7: fixed per-product
   dollar markup :math:`\Delta_{jt} = \zeta_j`. Supply as a scalar
@@ -445,7 +443,7 @@ where :math:`\varphi` is the same across all products:
 
 .. code-block:: python
 
-    pyRVtest.RuleOfThumb(phi=2.0)        # or Keystone()
+    pyRVtest.RuleOfThumb(phi=2.0)
     pyRVtest.ConstantMarkup(markup=0.5)  # fixed $0.50 markup for every product
 
 User-supplied markups

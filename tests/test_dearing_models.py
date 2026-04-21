@@ -1,11 +1,11 @@
 """Tests for Dearing et al. (2026) simple-markup conduct models.
 
-Covers :class:`pyRVtest.RuleOfThumb`, :class:`pyRVtest.Keystone`, and
-:class:`pyRVtest.ConstantMarkup`, shipped in v0.4 step 12.
+Covers :class:`pyRVtest.RuleOfThumb` and :class:`pyRVtest.ConstantMarkup`,
+shipped in v0.4 step 12.
 
 Source: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026),
 "Learning Firm Conduct: Pass-Through as a Foundation for Instrument
-Relevance," Example 1 (RuleOfThumb / Keystone, pp. 7-8) and Example 7
+Relevance," Example 1 (RuleOfThumb, pp. 7-8) and Example 7
 (ConstantMarkup, pp. 23-24).
 """
 
@@ -19,7 +19,6 @@ import pyRVtest
 from pyRVtest import (
     Bertrand,
     ConstantMarkup,
-    Keystone,
     PerfectCompetition,
     RuleOfThumb,
 )
@@ -64,20 +63,6 @@ class TestRuleOfThumbValidation:
     def test_cost_scaling_conflict_raises(self):
         with pytest.raises(ValidationError, match="cost_scaling"):
             RuleOfThumb(phi=2.0, cost_scaling=0.5)
-
-
-class TestKeystoneValidation:
-    def test_no_args_required(self):
-        k = Keystone()
-        assert k.phi == 2.0
-        assert k.cost_scaling == 1.0
-
-    def test_keystone_is_ruleofthumb_two(self):
-        k = Keystone()
-        r = RuleOfThumb(phi=2.0)
-        assert k.cost_scaling == r.cost_scaling
-        assert k.phi == r.phi
-        assert k._model_name == r._model_name == 'perfect_competition'
 
 
 class TestConstantMarkupValidation:
@@ -261,7 +246,7 @@ class TestRuleOfThumbEndToEnd:
         )
 
     def test_phi_two_is_half_price_marginal_cost(self, dgp):
-        """phi=2 (Keystone): mc = price / 2."""
+        """phi=2: mc = price / 2 (50%-of-price markup)."""
         df, alpha = dgp
         common = _common_problem_kwargs(df, alpha)
         pyRVtest.options.verbose = False
@@ -276,25 +261,6 @@ class TestRuleOfThumbEndToEnd:
         np.testing.assert_allclose(
             r.marginal_cost[0].flatten(), expected_mc, atol=1e-14,
         )
-
-    def test_keystone_equals_rule_of_thumb_two(self, dgp):
-        """Keystone() end-to-end results match RuleOfThumb(phi=2.0)."""
-        df, alpha = dgp
-        common = _common_problem_kwargs(df, alpha)
-        pyRVtest.options.verbose = False
-        r_k = pyRVtest.Problem(
-            **common,
-            models=[Keystone(), Bertrand(ownership='firm_ids')],
-        ).solve(demand_adjustment=False, clustering_adjustment=False)
-        r_r = pyRVtest.Problem(
-            **common,
-            models=[RuleOfThumb(phi=2.0), Bertrand(ownership='firm_ids')],
-        ).solve(demand_adjustment=False, clustering_adjustment=False)
-        np.testing.assert_allclose(
-            r_k.marginal_cost, r_r.marginal_cost, atol=1e-14,
-        )
-        np.testing.assert_allclose(r_k.TRV, r_r.TRV, atol=1e-14)
-        np.testing.assert_allclose(r_k.F, r_r.F, atol=1e-14)
 
     def test_rule_of_thumb_matches_legacy_cost_scaling(self, dgp):
         """RuleOfThumb(phi=2.0) reproduces the legacy v0.3 pattern of

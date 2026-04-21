@@ -160,13 +160,13 @@ def _normalize_demand_params_rho(demand_params: dict) -> dict:
                 stacklevel=3,
             )
             _demand_params_sigma_deprecation_warned = True
-        # Keep the internal key as 'sigma' since downstream backend classes
-        # and the NestedLogitBackend constructor use 'sigma' (AFSSZ L-level
+        # Keep both 'rho' and 'sigma' in the normalized dict for backward
+        # compatibility; downstream code reads 'rho'. (AFSSZ L-level
         # convention). Copy the value under 'rho' too so either name works.
         normalized['rho'] = normalized['sigma']
     elif has_rho and not has_sigma:
-        # Canonical form supplied. Mirror to 'sigma' for downstream backend
-        # compatibility (NestedLogitBackend, _construct_demand_backend, etc.).
+        # Canonical form supplied. Mirror to 'sigma' for backward compatibility
+        # with any code that reads the deprecated key.
         normalized['sigma'] = normalized['rho']
     return normalized
 
@@ -778,7 +778,7 @@ class Models(object):
                 # v0.4 step 12: cost_scaling accepts either a column name (str)
                 # or a numeric scalar (float/int, broadcast to every row). The
                 # scalar form is what powers the ergonomic RuleOfThumb(phi) /
-                # Keystone() wrappers in pyRVtest.models.constant.
+                # RuleOfThumb() wrapper in pyRVtest.models.constant.
                 if isinstance(config.cost_scaling, str):
                     cost_scaling_column[m] = config.cost_scaling
                     cost_scaling[m] = extract_matrix(product_data, config.cost_scaling)
@@ -1120,21 +1120,21 @@ class Problem(Container, StringRepresentation):
             # alias for backwards compatibility; emit a DeprecationWarning once
             # per session. Mutually exclusive.
             demand_params = _normalize_demand_params_rho(demand_params)
-            sigma = demand_params.get('sigma', [])
-            if not isinstance(sigma, (list, tuple)):
+            rho = demand_params.get('rho', [])
+            if not isinstance(rho, (list, tuple)):
                 raise TypeError(
                     f"Expected demand_params['rho'] (or the deprecated alias "
                     f"'sigma') to be a list or tuple of nesting parameters. "
-                    f"Received {type(sigma).__name__}. "
+                    f"Received {type(rho).__name__}. "
                     f"Fix: pass demand_params['rho']=[] for plain logit or "
                     f"[<rho_level>, ...] for nested logit."
                 )
-            for i, s_val in enumerate(sigma):
+            for i, s_val in enumerate(rho):
                 if s_val < 0 or s_val >= 1:
                     raise ValueError(
                         f"Expected every nesting parameter in "
-                        f"demand_params['sigma'] to lie in [0, 1). "
-                        f"Received demand_params['sigma'][{i}] = {s_val} "
+                        f"demand_params['rho'] to lie in [0, 1). "
+                        f"Received demand_params['rho'][{i}] = {s_val} "
                         f"(out of range [0, 1)). "
                         f"Fix: use 0 for plain logit (Berry 1994 convention) or "
                         f"a value in [0, 1) for nested logit."
@@ -1745,8 +1745,8 @@ class Problem(Container, StringRepresentation):
             (pyblp finite-diff of ``D/alpha`` is exact because ``compute_delta``
             restores shares); per-nest rho and BLP cannot be represented by
             the analytical backends.
-          - `demand_params is not None` with non-empty nonzero sigma -> `NestedLogitBackend`.
-          - `demand_params is not None` with empty or all-zero sigma -> `LogitBackend`.
+          - `demand_params is not None` with non-empty nonzero rho -> `NestedLogitBackend`.
+          - `demand_params is not None` with empty or all-zero rho -> `LogitBackend`.
 
         Demand-adjustment state (beta, x_columns, demand_instrument_columns, W_demand)
         is forwarded when present so `SupportsDemandAdjustment` methods work. The raw
@@ -1758,7 +1758,7 @@ class Problem(Container, StringRepresentation):
 
         if self.demand_params is not None:
             dp = self.demand_params
-            sigma_nonzero = [s for s in dp.get('sigma', []) if s > 0]
+            rho_nonzero = [s for s in dp.get('rho', []) if s > 0]
             shared_kwargs = dict(
                 alpha=dp['alpha'],
                 product_data=self._product_data_raw,
@@ -1767,10 +1767,10 @@ class Problem(Container, StringRepresentation):
                 demand_instrument_columns=dp.get('demand_instrument_columns'),
                 W_demand=dp.get('W_demand'),
             )
-            if sigma_nonzero:
+            if rho_nonzero:
                 from .backends.nested_logit import NestedLogitBackend
                 return NestedLogitBackend(
-                    sigma=dp.get('sigma', []),
+                    rho=dp.get('rho', []),
                     nesting_ids_columns=dp.get('nesting_ids_columns'),
                     **shared_kwargs,
                 )
@@ -1789,15 +1789,16 @@ class Problem(Container, StringRepresentation):
           path consistent with the nested case.
 
         * **Single-scalar-rho nested logit** (``K2==0`` and ``r.rho.size==1``):
-          try routing to ``NestedLogitBackend(sigma=[rho])``. Analytical
+          try routing to ``NestedLogitBackend(rho=[rho])``. Analytical
           ``d(D)/d(rho)`` is exact; pyblp's finite-diff has genuine
           O(eps^2) truncation error because D is nonlinear in rho.
           Precision gain is material.
 
         * **Per-nest rho** (``K2==0`` and ``r.rho.size>1``): stay on
-          ``PyBLPBackend``. AFSSZ L=1 formulation has one sigma; pyblp's
-          Cardell-Nevo formulation has one rho per nest. The derivatives
-          ``d(D)/d(rho_h)`` don't match ``d(D)/d(sigma_1)``.
+          ``PyBLPBackend``. AFSSZ L=1 formulation has one rho (nesting
+          parameter); pyblp's Cardell-Nevo formulation has one rho per
+          nest. The derivatives ``d(D)/d(rho_h)`` don't match the
+          AFSSZ ``d(D)/d(rho_1)``.
 
         * **BLP** (``K2>0``): stay on ``PyBLPBackend``. No analytical
           ``d(D)/d(theta)`` through the BLP contraction mapping.
@@ -1868,7 +1869,7 @@ class Problem(Container, StringRepresentation):
         if rho_arr.size == 1:
             from .backends.nested_logit import NestedLogitBackend
             return NestedLogitBackend(
-                sigma=[float(rho_arr[0])],
+                rho=[float(rho_arr[0])],
                 nesting_ids_columns=None,  # backend infers from product_data
                 **shared_kwargs,
             )

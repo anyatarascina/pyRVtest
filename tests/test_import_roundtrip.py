@@ -111,7 +111,7 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
         'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel',
         'UserSuppliedMarkups',
         'Vertical',
-        'RuleOfThumb', 'Keystone', 'ConstantMarkup',
+        'RuleOfThumb', 'ConstantMarkup',
         'Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining',
     ]),
     ('pyRVtest.models.base', ['ConductModel']),  # v0.4 step 5a
@@ -120,7 +120,7 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.models.mixed', ['MixCournotBertrand']),
     ('pyRVtest.models.collusion', ['PartialCollusion']),
     # v0.4 step 12: Dearing et al. (2026) simple-markup models.
-    ('pyRVtest.models.constant', ['ConstantMarkup', 'Keystone', 'RuleOfThumb']),
+    ('pyRVtest.models.constant', ['ConstantMarkup', 'RuleOfThumb']),
     # v0.4 step 14a: labor conduct models populated.
     ('pyRVtest.models.labor', [
         'Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining',

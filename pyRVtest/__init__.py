@@ -29,7 +29,7 @@ from .markups import (
 # v0.4 step 14a: labor-side models added next to their product-side siblings.
 from .models import (
     Bertrand, BertrandWages, ConductModel, ConstantMarkup, Cournot, CournotEmployment,
-    CustomConductModel, Keystone, MixCournotBertrand, Monopoly, Monopsony, NashBargaining,
+    CustomConductModel, MixCournotBertrand, Monopoly, Monopsony, NashBargaining,
     PartialCollusion, PerfectCompetition, RuleOfThumb, UserSuppliedMarkups, Vertical,
 )
 from .problem import Problem, Models
@@ -55,7 +55,7 @@ __all__ = [
     'UserSuppliedMarkups',
     'Vertical',
     # v0.4 step 12: Dearing et al. (2026) simple-markup models.
-    'RuleOfThumb', 'Keystone', 'ConstantMarkup',
+    'RuleOfThumb', 'ConstantMarkup',
     # v0.4 step 14a: labor-side conduct models.
     'Monopsony', 'BertrandWages', 'CournotEmployment', 'NashBargaining',
     # v0.4 step 11: public build_passthrough helper.

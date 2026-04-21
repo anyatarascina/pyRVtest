@@ -12,12 +12,8 @@ Models
     mc`, which rearranges to markup :math:`\\Delta = (\\varphi - 1) / \\varphi
     \\cdot p`. Implemented as an ergonomic wrapper over
     :class:`~pyRVtest.models.base.ConductModel.cost_scaling`. Setting
-    ``phi=2.0`` yields 50%-of-price markups (the traditional "keystone"
-    rule); ``phi=1.0`` recovers marginal-cost pricing (perfect
-    competition).
-
-``Keystone()`` — Example 1, p. 8. The ``phi=2`` special case named after
-    Escudero (2018). A one-line subclass of :class:`RuleOfThumb`.
+    ``phi=2.0`` yields 50%-of-price markups; ``phi=1.0`` recovers
+    marginal-cost pricing (perfect competition).
 
 ``ConstantMarkup(markup)`` — Example 7, pp. 23-24. A fixed per-product
     dollar markup :math:`\\Delta_{jt} = \\zeta_j` that does not vary
@@ -30,10 +26,10 @@ Models
 Mechanism
 ---------
 
-``RuleOfThumb`` and ``Keystone`` reuse the existing ``cost_scaling``
-machinery. ``cost_scaling`` was previously a column name only; v0.4
-step 12a extends it to accept a numeric scalar. The implementation
-sets ``cost_scaling = phi - 1`` so that
+``RuleOfThumb`` reuses the existing ``cost_scaling`` machinery.
+``cost_scaling`` was previously a column name only; v0.4 step 12a
+extends it to accept a numeric scalar. The implementation sets
+``cost_scaling = phi - 1`` so that
 ``problem.py``'s effective-price / effective-markup post-processing
 (``prices_effective = tax_adj * p / (1 + cost_scaling) - unit_tax``,
 ``markups_effective = tax_adj / (1 + cost_scaling) * markups``) yields
@@ -57,7 +53,6 @@ References
 Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026), "Learning
 Firm Conduct: Pass-Through as a Foundation for Instrument Relevance."
 
-Escudero (2018), cited in Example 1 for the term "Keystone".
 """
 
 from __future__ import annotations
@@ -72,7 +67,7 @@ from ..exceptions import ValidationError
 from .base import ConductModel
 
 
-__all__ = ['ConstantMarkup', 'Keystone', 'RuleOfThumb']
+__all__ = ['ConstantMarkup', 'RuleOfThumb']
 
 
 _NDArray: TypeAlias = NDArray[Any]
@@ -98,8 +93,8 @@ class RuleOfThumb(ConductModel):
     ----------
     phi : float
         Markup multiplier, :math:`\varphi \geq 1`. ``phi = 1`` degenerates to
-        marginal-cost pricing (perfect competition); ``phi = 2`` is the
-        Keystone rule (50% markup over cost, equivalently 50% of price).
+        marginal-cost pricing (perfect competition); ``phi = 2`` yields
+        50%-of-price markups.
 
     Other Parameters
     ----------------
@@ -143,7 +138,7 @@ class RuleOfThumb(ConductModel):
                 f"p / phi does not exceed the observed price). "
                 f"Received phi = {phi!r}. "
                 f"Fix: pass phi >= 1.0 (phi=1 degenerates to marginal-cost "
-                f"pricing; phi=2 is the Keystone rule)."
+                f"pricing; phi=2 yields 50%-of-price markups)."
             )
         if 'cost_scaling' in kwargs:
             raise ValidationError(
@@ -180,30 +175,6 @@ class RuleOfThumb(ConductModel):
 
     def __repr__(self) -> str:
         return f'RuleOfThumb(phi={self.phi!r})'
-
-
-class Keystone(RuleOfThumb):
-    r"""Keystone rule: 50%-of-price markup.
-
-    Dearing et al. (2026), Example 1, p. 8. The ``phi = 2`` special case
-    of :class:`RuleOfThumb`, named after Escudero (2018). Price equals
-    twice marginal cost, i.e. the markup equals half the price.
-
-    Examples
-    --------
-    >>> from pyRVtest import Keystone
-    >>> k = Keystone()
-    >>> k.phi
-    2.0
-    >>> k.cost_scaling
-    1.0
-    """
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(phi=2.0, **kwargs)
-
-    def __repr__(self) -> str:
-        return 'Keystone()'
 
 
 class ConstantMarkup(ConductModel):

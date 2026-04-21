@@ -338,9 +338,9 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
           where available, else ``"model_{i}"``.
         - ``TRV``: pairwise Rivers-Vuong test statistic.
         - ``F``: pairwise scaled F-statistic.
-        - ``MCS_pvalue``: MCS p-value for model ``i`` in this instrument
-          set (a function of ``i`` only; duplicated across ``j`` rows
-          to keep the long form self-contained).
+        - ``MCS_pvalue_model_i``: MCS p-value for model ``i`` in this
+          instrument set (a function of ``i`` only; duplicated across
+          ``j`` rows to keep the long form self-contained).
 
         Returns
         -------
@@ -374,12 +374,12 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                         'model_j_label': model_labels[k],
                         'TRV': float(trv_mat[i, k]),
                         'F': float(f_mat[i, k]),
-                        'MCS_pvalue': float(mcs_vec[i]),
+                        'MCS_pvalue_model_i': float(mcs_vec[i]),
                     })
         return pd.DataFrame.from_records(records, columns=[
             'instrument_set', 'instrument_set_label',
             'model_i', 'model_j', 'model_i_label', 'model_j_label',
-            'TRV', 'F', 'MCS_pvalue',
+            'TRV', 'F', 'MCS_pvalue_model_i',
         ])
 
     def summary_df(self, alpha: float = 0.05) -> 'pd.DataFrame':

@@ -10,10 +10,10 @@ for user-facing clarity (tracebacks + API docs). Contents now:
     lived in `pyRVtest/demand_jacobian.py`, moved here in v0.4 step 3c;
     the shim module was removed in v0.4 step 4g.
 
-  - `LogitBackend` class: plain-logit (sigma=[]) DemandBackend wrapper
+  - `LogitBackend` class: plain-logit (rho=[]) DemandBackend wrapper
     that also implements `SupportsDemandAdjustment`. Parameter count
     = 1 (just alpha) in the plain-logit case; NestedLogitBackend
-    overrides `self._sigma` to get 1 + L parameters.
+    overrides `self._rho` to get 1 + L parameters.
 
 `NestedLogitBackend` moved to `pyRVtest/backends/nested_logit.py` and
 subclasses `LogitBackend`. Users who want nested logit do:
@@ -24,11 +24,11 @@ subclasses `LogitBackend`. Users who want nested logit do:
 
 v0.4 step 4c adds `SupportsDemandAdjustment` methods (`demand_moments`,
 `xi_gradient`, `jacobian_gradient`) to `LogitBackend`. They key on
-`self._sigma` — length-0 for plain logit, length-L for nested via
+`self._rho` — length-0 for plain logit, length-L for nested via
 `NestedLogitBackend`. `NestedLogitBackend` inherits these methods
 without overriding them (decision 2 for step 4, option ii).
 
-Based on Berry (1994) for plain logit (sigma=[]) and the general
+Based on Berry (1994) for plain logit (rho=[]) and the general
 L-level nested-logit formulas in AFSSZ equation (6).
 """
 
@@ -69,7 +69,7 @@ __all__ = [
 
 
 def compute_analytical_jacobian(
-        alpha: float, sigma: List[float], product_data: Mapping,
+        alpha: float, rho: List[float], product_data: Mapping,
         nesting_ids_columns: Optional[List[str]] = None
 ) -> Array:
     """Compute the (N, J_max) NaN-padded demand Jacobian for logit/nested logit.
@@ -78,13 +78,13 @@ def compute_analytical_jacobian(
     ----------
     alpha : float
         Price coefficient from demand estimation (typically negative).
-    sigma : list of float
+    rho : list of float
         Nesting parameters from finest to coarsest. Empty list or [0.0] for plain logit.
-        [sigma_1] for 1-level nested logit. [sigma_1, sigma_2] for 2-level, etc.
+        [rho_1] for 1-level nested logit. [rho_1, rho_2] for 2-level, etc.
     product_data : Mapping
         Product data with 'market_ids', 'shares', and nesting ID columns.
     nesting_ids_columns : list of str, optional
-        Column names for nesting IDs, ordered finest to coarsest. If None and sigma
+        Column names for nesting IDs, ordered finest to coarsest. If None and rho
         is non-empty, inferred from columns named 'nesting_ids*' in product_data.
 
     Returns
@@ -100,11 +100,11 @@ def compute_analytical_jacobian(
     ...     'market_ids': np.array([0, 0, 1, 1]),
     ...     'shares': np.array([0.3, 0.3, 0.4, 0.4]),
     ... }
-    >>> jac = compute_analytical_jacobian(alpha=-1.0, sigma=[], product_data=product_data)
+    >>> jac = compute_analytical_jacobian(alpha=-1.0, rho=[], product_data=product_data)
     >>> jac.shape
     (4, 2)
     """
-    # Validate alpha and sigma
+    # Validate alpha and rho
     if not isinstance(alpha, (int, float)) or alpha >= 0:
         raise ValueError(
             f"Expected alpha to be a negative scalar (the price coefficient from "
@@ -113,25 +113,25 @@ def compute_analytical_jacobian(
             f"Fix: pass the estimated price coefficient, which must be < 0 for "
             f"downward-sloping demand."
         )
-    if not isinstance(sigma, (list, tuple)):
+    if not isinstance(rho, (list, tuple)):
         raise TypeError(
-            f"Expected sigma to be a list or tuple of nesting parameters "
+            f"Expected rho to be a list or tuple of nesting parameters "
             f"(empty list [] for plain logit). "
-            f"Received {type(sigma).__name__}. "
-            f"Fix: pass sigma=[] for plain logit or sigma=[rho_1, ...] for nested."
+            f"Received {type(rho).__name__}. "
+            f"Fix: pass rho=[] for plain logit or rho=[rho_1, ...] for nested."
         )
-    for i, s_val in enumerate(sigma):
+    for i, s_val in enumerate(rho):
         if not isinstance(s_val, (int, float)):
             raise TypeError(
-                f"Expected every element of sigma to be a real number. "
-                f"Received sigma[{i}] of type {type(s_val).__name__}. "
+                f"Expected every element of rho to be a real number. "
+                f"Received rho[{i}] of type {type(s_val).__name__}. "
                 f"Fix: pass numeric nesting parameters in [0, 1)."
             )
         if s_val < 0 or s_val >= 1:
             raise ValueError(
-                f"Expected each sigma entry to lie in [0, 1). "
-                f"Received sigma[{i}] = {s_val} (out of range). "
-                f"Fix: use sigma = 0 for plain logit (Berry 1994 convention) or "
+                f"Expected each rho entry to lie in [0, 1). "
+                f"Received rho[{i}] = {s_val} (out of range). "
+                f"Fix: use rho = 0 for plain logit (Berry 1994 convention) or "
                 f"a value in [0, 1) for nested logit."
             )
 
@@ -143,9 +143,9 @@ def compute_analytical_jacobian(
     # Determine max products per market for NaN padding
     J_max = max(np.sum(market_ids == t) for t in markets)
 
-    # Treat sigma values of exactly 0 as plain logit (no nesting effect)
-    sigma = [s_val for s_val in sigma if s_val > 0]
-    L = len(sigma)
+    # Treat rho values of exactly 0 as plain logit (no nesting effect)
+    rho = [s_val for s_val in rho if s_val > 0]
+    L = len(rho)
 
     # Resolve nesting ID columns
     nesting_arrays = []
@@ -155,10 +155,10 @@ def compute_analytical_jacobian(
         if len(nesting_ids_columns) != L:
             raise ValueError(
                 f"Expected the number of nesting ID columns to match the number "
-                f"of non-zero sigma levels. "
+                f"of non-zero rho levels. "
                 f"Received {len(nesting_ids_columns)} columns "
-                f"({nesting_ids_columns!r}) for {L} non-zero sigma value(s). "
-                f"Fix: supply one nesting-ID column per non-zero sigma level."
+                f"({nesting_ids_columns!r}) for {L} non-zero rho value(s). "
+                f"Fix: supply one nesting-ID column per non-zero rho level."
             )
         for col in nesting_ids_columns:
             nesting_arrays.append(np.asarray(product_data[col]).flatten())
@@ -175,7 +175,7 @@ def compute_analytical_jacobian(
             D_t = _logit_jacobian(alpha, s_t)
         else:
             nesting_t = [arr[idx] for arr in nesting_arrays]
-            D_t = _nested_logit_jacobian(alpha, sigma, s_t, nesting_t)
+            D_t = _nested_logit_jacobian(alpha, rho, s_t, nesting_t)
 
         jacobian[idx[:, None], np.arange(J_t)[None, :]] = D_t
 
@@ -193,39 +193,39 @@ def _logit_jacobian(alpha: float, s: Array) -> Array:
     return alpha * (np.diag(s) - s_col @ s_col.T)
 
 
-def _nested_logit_jacobian(alpha: float, sigma: List[float], s: Array,
+def _nested_logit_jacobian(alpha: float, rho: List[float], s: Array,
                            nesting: List[Array]) -> Array:
     """Compute J x J Jacobian for general L-level nested logit.
 
     For products j, k with shares s_j, s_k, the derivative is:
 
         ds_k/dp_j = alpha * s_j * (
-            -1/(1 - sigma_1) * I(j=k)
-            + sum_{l=1}^{L} (sigma_l - sigma_{l-1}) / ((1-sigma_l)(1-sigma_{l-1}))
+            -1/(1 - rho_1) * I(j=k)
+            + sum_{l=1}^{L} (rho_l - rho_{l-1}) / ((1-rho_l)(1-rho_{l-1}))
                 * I(same nest at level l) * s_{k|nest_l}
             + s_k
         )
 
-    where sigma_0 = 0 (convention), and s_{k|nest_l} = s_k / s_{nest_l} is the
+    where rho_0 = 0 (convention), and s_{k|nest_l} = s_k / s_{nest_l} is the
     conditional share of k within its level-l nest.
     """
     J = len(s)
-    L = len(sigma)
+    L = len(rho)
 
-    sigma_ext = [0.0] + list(sigma)
+    rho_ext = [0.0] + list(rho)
 
     D = np.zeros((J, J))
 
-    # Diagonal term: +1/(1 - sigma_1) for j == k
-    np.fill_diagonal(D, 1.0 / (1.0 - sigma_ext[1]))
+    # Diagonal term: +1/(1 - rho_1) for j == k
+    np.fill_diagonal(D, 1.0 / (1.0 - rho_ext[1]))
 
     # Outer share term: -s_k for all (j, k)
     D -= s[np.newaxis, :]
 
     # Level correction terms (subtracted)
     for l in range(L):
-        sig_l = sigma_ext[l + 1]
-        sig_prev = sigma_ext[l]
+        rho_l = rho_ext[l + 1]
+        rho_prev = rho_ext[l]
 
         nest_ids_l = nesting[l]
         unique_nests = np.unique(nest_ids_l)
@@ -239,7 +239,7 @@ def _nested_logit_jacobian(alpha: float, sigma: List[float], s: Array,
 
         cond_shares = s / nest_shares
 
-        coef = (sig_l - sig_prev) / ((1.0 - sig_l) * (1.0 - sig_prev))
+        coef = (rho_l - rho_prev) / ((1.0 - rho_l) * (1.0 - rho_prev))
 
         D -= coef * same_nest * cond_shares[np.newaxis, :]
 
@@ -248,20 +248,20 @@ def _nested_logit_jacobian(alpha: float, sigma: List[float], s: Array,
     return D
 
 
-def _nested_logit_jacobian_derivative(alpha: float, sigma: List[float], s: Array,
+def _nested_logit_jacobian_derivative(alpha: float, rho: List[float], s: Array,
                                       nesting: List[Array], deriv_index: int) -> Array:
-    """Compute d(D)/d(sigma_{deriv_index}) analytically for the L-level nested logit Jacobian."""
+    """Compute d(D)/d(rho_{deriv_index}) analytically for the L-level nested logit Jacobian."""
     J = len(s)
-    L = len(sigma)
+    L = len(rho)
     m = deriv_index
 
-    sigma_ext = [0.0] + list(sigma)
-    sig_m = sigma_ext[m + 1]
+    rho_ext = [0.0] + list(rho)
+    rho_m = rho_ext[m + 1]
 
     dM = np.zeros((J, J))
 
     if m == 0:
-        np.fill_diagonal(dM, 1.0 / (1.0 - sig_m) ** 2)
+        np.fill_diagonal(dM, 1.0 / (1.0 - rho_m) ** 2)
 
     nest_ids_m = nesting[m]
     same_nest_m = nest_ids_m[:, None] == nest_ids_m[None, :]
@@ -270,7 +270,7 @@ def _nested_logit_jacobian_derivative(alpha: float, sigma: List[float], s: Array
         mask = nest_ids_m == g
         nest_shares_m[mask] = s[mask].sum()
     cond_shares_m = s / nest_shares_m
-    d_coef_m = 1.0 / (1.0 - sig_m) ** 2
+    d_coef_m = 1.0 / (1.0 - rho_m) ** 2
     dM -= d_coef_m * same_nest_m * cond_shares_m[np.newaxis, :]
 
     if m + 1 < L:
@@ -281,18 +281,18 @@ def _nested_logit_jacobian_derivative(alpha: float, sigma: List[float], s: Array
             mask = nest_ids_mp1 == g
             nest_shares_mp1[mask] = s[mask].sum()
         cond_shares_mp1 = s / nest_shares_mp1
-        d_coef_mp1 = -1.0 / (1.0 - sig_m) ** 2
+        d_coef_mp1 = -1.0 / (1.0 - rho_m) ** 2
         dM -= d_coef_mp1 * same_nest_mp1 * cond_shares_mp1[np.newaxis, :]
 
     return alpha * s[:, np.newaxis] * dM
 
 
-def compute_analytical_hessian(alpha: float, sigma: List[float], s: Array,
+def compute_analytical_hessian(alpha: float, rho: List[float], s: Array,
                                nesting: List[Array]) -> Array:
     """Compute the (J, J, J) demand Hessian d^2s_j/(dp_k dp_l) for a single market.
 
-    Uses a closed-form ``dD/ds`` for plain logit (``sigma == []`` or all-zero
-    sigma) and 1-level nested logit (single non-zero sigma). For 2+ nesting
+    Uses a closed-form ``dD/ds`` for plain logit (``rho == []`` or all-zero
+    rho) and 1-level nested logit (single non-zero rho). For 2+ nesting
     levels, falls back to a centered finite difference of the Jacobian w.r.t.
     shares (v0.4 step 7 scope limitation).
 
@@ -308,32 +308,32 @@ def compute_analytical_hessian(alpha: float, sigma: List[float], s: Array,
     >>> import numpy as np
     >>> from pyRVtest.backends.logit import compute_analytical_hessian
     >>> s = np.array([0.3, 0.3])
-    >>> h = compute_analytical_hessian(alpha=-1.0, sigma=[], s=s, nesting=[])
+    >>> h = compute_analytical_hessian(alpha=-1.0, rho=[], s=s, nesting=[])
     >>> h.shape
     (2, 2, 2)
     """
     J = len(s)
 
-    # Filter out zero sigmas: matches the convention in
-    # compute_analytical_jacobian (zero sigma => plain logit at that level).
-    effective_sigma = [sig for sig in sigma if sig > 0]
-    L_eff = len(effective_sigma)
+    # Filter out zero rhos: matches the convention in
+    # compute_analytical_jacobian (zero rho => plain logit at that level).
+    effective_rho = [r for r in rho if r > 0]
+    L_eff = len(effective_rho)
 
     if L_eff == 0:
         D = _logit_jacobian(alpha, s)
         dD_ds = _logit_dD_ds(alpha, s)
     elif L_eff == 1:
-        # Pick the nesting array aligned with the single non-zero sigma.
-        # Assumes the non-zero sigma's position in `sigma` maps to the same
+        # Pick the nesting array aligned with the single non-zero rho.
+        # Assumes the non-zero rho's position in `rho` maps to the same
         # position in `nesting` (the standard convention in this module).
-        nest_idx = next(i for i, sig in enumerate(sigma) if sig > 0)
+        nest_idx = next(i for i, r in enumerate(rho) if r > 0)
         nest_ids = nesting[nest_idx]
-        rho = effective_sigma[0]
-        D = _nested_logit_jacobian(alpha, effective_sigma, s, [nest_ids])
-        dD_ds = _nested_logit_one_level_dD_ds(alpha, rho, s, nest_ids)
+        rho_val = effective_rho[0]
+        D = _nested_logit_jacobian(alpha, effective_rho, s, [nest_ids])
+        dD_ds = _nested_logit_one_level_dD_ds(alpha, rho_val, s, nest_ids)
     else:
         # L >= 2: keep the centered finite-difference fallback.
-        D_func = lambda s_: _nested_logit_jacobian(alpha, sigma, s_, nesting)
+        D_func = lambda s_: _nested_logit_jacobian(alpha, rho, s_, nesting)
         D = D_func(s)
         eps = 1e-7
         dD_ds = np.zeros((J, J, J))
@@ -486,11 +486,11 @@ def _infer_nesting_columns(product_data: Mapping, L: int) -> List[str]:
     candidates = [c for c in all_cols if c.startswith('nesting_ids')]
     if len(candidates) < L:
         raise ValueError(
-            f"Expected at least {L} nesting-ID columns to match the {L}-level sigma "
+            f"Expected at least {L} nesting-ID columns to match the {L}-level rho "
             f"vector. "
             f"Received {len(candidates)} candidate(s): {candidates}. "
             f"Fix: pass nesting_ids_columns=[...] explicitly in demand_params, one "
-            f"entry per sigma level."
+            f"entry per rho level."
         )
 
     data_arrays = [(col, np.asarray(product_data[col]).flatten()) for col in candidates[:L + 2]]
@@ -539,7 +539,7 @@ class LogitBackend:
     at construction, the backend implements ``SupportsDemandAdjustment``.
     Without it, ``demand_moments`` / ``xi_gradient`` / ``jacobian_gradient``
     raise a clear error listing the missing fields. ``NestedLogitBackend``
-    inherits these methods by overriding ``self._sigma`` and
+    inherits these methods by overriding ``self._rho`` and
     ``self._nesting_ids_columns`` in its own ``__init__``.
 
     Examples
@@ -572,8 +572,8 @@ class LogitBackend:
     ) -> None:
         self._alpha = float(alpha)
         self._product_data = product_data
-        # Plain logit by default; NestedLogitBackend overrides.
-        self._sigma: List[float] = []
+        # Plain logit by default (empty rho); NestedLogitBackend overrides.
+        self._rho: List[float] = []  # overridden by NestedLogitBackend
         self._nesting_ids_columns: Optional[List[str]] = None
         # Demand-adjustment state. All optional; SupportsDemandAdjustment
         # methods raise if accessed before these are set.
@@ -624,7 +624,7 @@ class LogitBackend:
                 f"Expected theta_index == 0 for LogitBackend (it has 1 parameter, alpha). "
                 f"Received theta_index={theta_index}. "
                 f"Fix: call perturbed(0, delta); use NestedLogitBackend if you need "
-                f"to perturb sigma as well."
+                f"to perturb rho as well."
             )
         saved_alpha = self._alpha
         saved_cache = self._jacobian_cache
@@ -644,7 +644,7 @@ class LogitBackend:
         """Return (xi, Z_D, W_D) for the DMSS eq. (77) first-stage correction.
 
         xi is the demand residual from Berry (1994) inversion:
-        ``log(s_j) - log(s_0) - X_D beta - alpha p - sum_l sigma_l log(s_{j|g_l})``.
+        ``log(s_j) - log(s_0) - X_D beta - alpha p - sum_l rho_l log(s_{j|g_l})``.
         Z_D and W_D come from the stored demand-adjustment state.
         """
         self._require_demand_adjustment_state()
@@ -656,7 +656,7 @@ class LogitBackend:
         X_D = self._build_X_D()
         Z_D = self._build_Z_D()
         xi = np.log(shares) - np.log(s0) - X_D @ self._beta - self._alpha * prices
-        for sig, log_wn in zip(self._sigma, self._log_within_nest_shares(shares, market_ids)):
+        for sig, log_wn in zip(self._rho, self._log_within_nest_shares(shares, market_ids)):
             xi = xi - sig * log_wn
         W_D = self._compute_W_D(Z_D, N)
         return xi, Z_D, W_D
@@ -664,16 +664,16 @@ class LogitBackend:
     def xi_gradient(self) -> Array:
         """Return ∂xi/∂theta profiled on X_D (2SLS residualize on exogenous regressors).
 
-        Shape ``(N, 1 + L)`` where ``L == len(self._sigma)``. For plain logit (L=0)
+        Shape ``(N, 1 + L)`` where ``L == len(self._rho)``. For plain logit (L=0)
         this is ``(-prices,)`` residualized. For nested logit the additional columns
-        are ``-log(s_{j|g_l})`` for each nesting level l.
+        are ``-log(s_{j|g_l})`` for each nesting level ``l``.
         """
         self._require_demand_adjustment_state()
         shares = np.asarray(self._product_data['shares']).flatten()
         prices = np.asarray(self._product_data['prices']).flatten()
         market_ids = np.asarray(self._product_data['market_ids']).flatten()
         N = prices.shape[0]
-        L = len(self._sigma)
+        L = len(self._rho)
         dxi_dtheta = np.zeros((N, 1 + L))
         dxi_dtheta[:, 0] = -prices
         for level, log_wn in enumerate(self._log_within_nest_shares(shares, market_ids)):
@@ -687,17 +687,17 @@ class LogitBackend:
         """Return ∂D/∂theta for one market, shape ``(J_t, J_t, 1 + L)``.
 
         The alpha column uses ``D / alpha`` (D is linear in alpha).
-        Sigma columns use the analytical derivative
-        ``_nested_logit_jacobian_derivative(alpha, sigma, s_t, nesting_t, l)``.
+        Rho columns use the analytical derivative
+        ``_nested_logit_jacobian_derivative(alpha, rho, s_t, nesting_t, l)``.
         """
         mids = np.asarray(self._product_data['market_ids']).flatten()
         idx = np.where(mids == market_id)[0]
         shares = np.asarray(self._product_data['shares']).flatten()
         s_t = shares[idx]
         J_t = idx.shape[0]
-        L = len(self._sigma)
+        L = len(self._rho)
         grad = np.zeros((J_t, J_t, 1 + L))
-        # d(D)/d(alpha) = D/alpha (D = alpha * f(s, sigma))
+        # d(D)/d(alpha) = D/alpha (D = alpha * f(s, rho))
         D_t = self.compute_jacobian(market_id=market_id)
         grad[:, :, 0] = D_t / self._alpha
         if L > 0:
@@ -710,7 +710,7 @@ class LogitBackend:
                 nesting_t.append(arr[idx])
             for level in range(L):
                 grad[:, :, 1 + level] = _nested_logit_jacobian_derivative(
-                    self._alpha, self._sigma, s_t, nesting_t, level
+                    self._alpha, self._rho, s_t, nesting_t, level
                 )
         return grad
 
@@ -772,11 +772,10 @@ class LogitBackend:
     ) -> List[Array]:
         """``log(s_{j|g_l})`` vectors, one per nesting level.
 
-        Returns a list of length ``L = len(self._sigma)``. For plain logit
-        (L=0) returns ``[]``. Matches the inline loop in
-        ``Problem._compute_analytical_demand_adjustment``.
+        Returns a list of length ``L = len(self._rho)``. For plain logit
+        (L=0) returns ``[]``.
         """
-        L = len(self._sigma)
+        L = len(self._rho)
         if L == 0:
             return []
         cols = self._nesting_ids_columns

@@ -68,7 +68,7 @@ The directory layout is::
     │   ├── collusion.py     # PartialCollusion
     │   ├── custom.py        # CustomConductModel
     │   ├── vertical.py      # Vertical composer
-    │   ├── constant.py      # RuleOfThumb, Keystone, ConstantMarkup (step 12)
+    │   ├── constant.py      # RuleOfThumb, ConstantMarkup (step 12)
     │   ├── labor.py         # Monopsony, BertrandWages, CournotEmployment, NashBargaining (step 14a)
     │   └── _adapter.py      # Legacy ModelFormulation bridge
     ├── solve/               # Per-phase pipeline stages
@@ -176,10 +176,6 @@ mechanical conduct classes.
   markup FOC so that the ``cost_scaling`` post-processing in
   ``Problem.solve`` yields the Dearing math.
 
-* :class:`pyRVtest.Keystone` — the ``phi = 2`` special case (50% markup
-  over cost, equivalently 50% of price). A one-line subclass of
-  :class:`RuleOfThumb`.
-
 * :class:`pyRVtest.ConstantMarkup` — fixed per-product dollar markup
   :math:`\Delta_{jt} = \zeta_j` (Dearing Example 7, pp. 23-24). The
   markup is a model primitive, not an FOC output; pass either a scalar
@@ -195,7 +191,6 @@ Quick examples::
         models=[
             pyRVtest.Bertrand(ownership='firm_ids'),
             pyRVtest.RuleOfThumb(phi=2.0),          # Dearing Example 1
-            pyRVtest.Keystone(),                    # phi=2 shorthand
             pyRVtest.ConstantMarkup(markup=0.5),    # scalar dollar markup
             pyRVtest.ConstantMarkup(markup='eta'),  # per-product dollar markup
         ],

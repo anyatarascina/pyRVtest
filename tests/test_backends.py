@@ -83,7 +83,7 @@ class TestPyBLPBackendBasics:
         assert isinstance(backend, SupportsDemandAdjustment)
 
     def test_alpha_is_enumerated(self, pyblp_logit_results):
-        """For the logit DGP (alpha non-zero, no sigma/pi/rho), theta == ['alpha']."""
+        """For the logit DGP (alpha non-zero, no rho/pi), theta == ['alpha']."""
         backend = PyBLPBackend(pyblp_logit_results)
         assert backend.n_parameters >= 1
         assert 'alpha' in backend.theta_names
@@ -288,29 +288,29 @@ class TestNestedLogitBackend:
 
     def test_satisfies_core_protocol(self):
         data = _synthetic_nested_logit_data()
-        backend = NestedLogitBackend(alpha=-2.0, sigma=[0.3], product_data=data)
+        backend = NestedLogitBackend(alpha=-2.0, rho=[0.3], product_data=data)
         assert isinstance(backend, DemandBackend)
 
     def test_n_parameters_is_two_for_single_nest(self):
         data = _synthetic_nested_logit_data()
-        backend = NestedLogitBackend(alpha=-2.0, sigma=[0.3], product_data=data)
+        backend = NestedLogitBackend(alpha=-2.0, rho=[0.3], product_data=data)
         assert backend.n_parameters == 2
-        assert backend.theta_names == ['alpha', 'sigma[0]']
+        assert backend.theta_names == ['alpha', 'rho[0]']
 
     def test_jacobian_matches_module_function(self):
         data = _synthetic_nested_logit_data()
         from pyRVtest.backends.logit import compute_analytical_jacobian
-        alpha, sigma = -2.0, [0.3]
-        backend = NestedLogitBackend(alpha=alpha, sigma=sigma, product_data=data)
-        expected = compute_analytical_jacobian(alpha, sigma, data, nesting_ids_columns=['nesting_ids'])
+        alpha, rho = -2.0, [0.3]
+        backend = NestedLogitBackend(alpha=alpha, rho=rho, product_data=data)
+        expected = compute_analytical_jacobian(alpha, rho, data, nesting_ids_columns=['nesting_ids'])
         actual = backend.compute_jacobian()
         np.testing.assert_allclose(actual, expected, atol=1e-14, equal_nan=True)
 
-    def test_perturbed_shifts_sigma(self):
+    def test_perturbed_shifts_rho(self):
         data = _synthetic_nested_logit_data()
-        backend = NestedLogitBackend(alpha=-2.0, sigma=[0.3], product_data=data)
+        backend = NestedLogitBackend(alpha=-2.0, rho=[0.3], product_data=data)
         before = backend.compute_jacobian().copy()
-        with backend.perturbed(1, 0.05):  # perturb sigma[0]
+        with backend.perturbed(1, 0.05):  # perturb rho[0]
             during = backend.compute_jacobian()
             assert not np.allclose(during, before, atol=1e-14, equal_nan=True)
         after = backend.compute_jacobian()
@@ -664,14 +664,14 @@ class TestAnalyticalNestedLogitHessian:
     """
 
     @staticmethod
-    def _finite_diff_hessian(alpha, sigma, s, nesting, eps=1e-7):
+    def _finite_diff_hessian(alpha, rho, s, nesting, eps=1e-7):
         """Reference: the pre-step-7 implementation (centered finite-diff)."""
         from pyRVtest.backends.logit import _logit_jacobian, _nested_logit_jacobian
         J = len(s)
-        if len(sigma) == 0 or all(sig == 0 for sig in sigma):
+        if len(rho) == 0 or all(r == 0 for r in rho):
             D_func = lambda s_: _logit_jacobian(alpha, s_)
         else:
-            D_func = lambda s_: _nested_logit_jacobian(alpha, sigma, s_, nesting)
+            D_func = lambda s_: _nested_logit_jacobian(alpha, rho, s_, nesting)
         D = D_func(s)
         dD_ds = np.zeros((J, J, J))
         for r in range(J):
@@ -699,8 +699,8 @@ class TestAnalyticalNestedLogitHessian:
         assert H_new.shape == (J, J, J)
         assert np.allclose(H_new, H_ref, atol=1e-8)
 
-    def test_plain_logit_matches_finite_diff_zero_sigma(self):
-        """sigma=[0.0] is treated as plain logit (same convention as the
+    def test_plain_logit_matches_finite_diff_zero_rho(self):
+        """rho=[0.0] is treated as plain logit (same convention as the
         Jacobian); the analytical branch must still fire."""
         from pyRVtest.backends.logit import compute_analytical_hessian
         rng = np.random.default_rng(7)

@@ -183,17 +183,17 @@ def _assemble_problem(df: pd.DataFrame, demand_params: dict) -> pyRVtest.Problem
 
 
 
-class TestLogitBackendSigmaFiltering:
-    """NestedLogitBackend filters sigmas of exactly 0 at construction."""
+class TestLogitBackendRhoFiltering:
+    """NestedLogitBackend filters rho values of exactly 0 at construction."""
 
-    def test_zero_sigmas_are_dropped(self):
+    def test_zero_rhos_are_dropped(self):
         df = _make_logit_fixture(with_nesting=True)
         backend = NestedLogitBackend(
-            alpha=-1.5, sigma=[0.0, 0.3, 0.0], product_data=df,
+            alpha=-1.5, rho=[0.0, 0.3, 0.0], product_data=df,
             nesting_ids_columns=['nesting_ids'],
         )
-        assert backend._sigma == [0.3], (
-            "NestedLogitBackend should filter sigmas of exactly 0 at construction"
+        assert backend._rho == [0.3], (
+            "NestedLogitBackend should filter rho values of exactly 0 at construction"
         )
 
 
@@ -771,7 +771,7 @@ class TestNestedLogitJacobianDerivative:
 #      Analytical D/alpha is exact. Precision gain is modest but real.
 #
 #   2. Single-scalar-rho nested logit (K2=0, r.rho.size=1): routes to
-#      NestedLogitBackend(sigma=[rho]). pyblp's scalar rho matches AFSSZ
+#      NestedLogitBackend(rho=[rho]). pyblp's scalar rho matches AFSSZ
 #      L=1 sigma. D is NONLINEAR in rho, so finite-diff has O(eps^2)
 #      error; analytical is exact. Material precision gain.
 #
@@ -928,7 +928,7 @@ class TestDemandResultsRouting:
                 f"{type(backend).__name__}."
             )
 
-    def test_routed_nested_logit_holds_correct_alpha_and_sigma(
+    def test_routed_nested_logit_holds_correct_alpha_and_rho(
             self, nested_logit_problem):
         """Routed NestedLogitBackend must hold the same alpha and rho as pyblp."""
         rv_problem, nl_results = nested_logit_problem
@@ -943,8 +943,8 @@ class TestDemandResultsRouting:
             ]
         )
         assert abs(backend._alpha - expected_alpha) < 1e-14
-        assert len(backend._sigma) == 1
-        assert abs(backend._sigma[0] - float(rho_arr[0])) < 1e-14
+        assert len(backend._rho) == 1
+        assert abs(backend._rho[0] - float(rho_arr[0])) < 1e-14
 
 
 # ===========================================================================

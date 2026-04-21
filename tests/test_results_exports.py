@@ -84,7 +84,7 @@ class TestToDataFrame:
         expected = [
             'instrument_set', 'instrument_set_label',
             'model_i', 'model_j', 'model_i_label', 'model_j_label',
-            'TRV', 'F', 'MCS_pvalue',
+            'TRV', 'F', 'MCS_pvalue_model_i',
         ]
         assert list(df.columns) == expected
 
@@ -129,7 +129,7 @@ class TestToDataFrame:
         df = base_results.to_dataframe()
         for i in df['model_i'].unique():
             sub = df[df['model_i'] == i]
-            assert sub['MCS_pvalue'].nunique() == 1
+            assert sub['MCS_pvalue_model_i'].nunique() == 1
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +230,21 @@ class TestToLatex:
         # double-escaped variant.
         tex = base_results.to_latex()
         assert r"\begin{tabular}" in tex
+
+    def test_digits_option_controls_float_format(self, base_results):
+        """``options.digits`` changes float precision in to_latex output."""
+        original = pyRVtest.options.digits
+        try:
+            pyRVtest.options.digits = 2
+            tex2 = base_results.to_latex()
+            pyRVtest.options.digits = 6
+            tex6 = base_results.to_latex()
+            # With 2 significant digits the strings are shorter; at least
+            # verify they differ (an identical output would mean digits has
+            # no effect on the LaTeX path).
+            assert tex2 != tex6
+        finally:
+            pyRVtest.options.digits = original
 
 
 # ---------------------------------------------------------------------------

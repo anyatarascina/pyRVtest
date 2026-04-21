@@ -29,8 +29,8 @@ preserves ``ModelFormulation(model_downstream='bertrand', ...)`` as a
 deprecation alias that constructs the right class internally.
 
 Step 12 adds Dearing et al. (2026) simple-markup models:
-``RuleOfThumb(phi)``, ``Keystone()`` (``phi=2`` shorthand), and
-``ConstantMarkup(markup)`` in ``pyRVtest.models.constant``. Step 14
+``RuleOfThumb(phi)`` and ``ConstantMarkup(markup)`` in
+``pyRVtest.models.constant``. Step 14
 adds the labor-side models (``Monopsony``, ``BertrandWages``,
 ``CournotEmployment``, ``NashBargaining``).
 
@@ -47,7 +47,7 @@ True
 
 from .base import ConductModel
 from .collusion import PartialCollusion
-from .constant import ConstantMarkup, Keystone, RuleOfThumb
+from .constant import ConstantMarkup, RuleOfThumb
 from .custom import CustomConductModel
 from .labor import BertrandWages, CournotEmployment, Monopsony, NashBargaining
 from .mixed import MixCournotBertrand
@@ -86,7 +86,6 @@ __all__ = [
     'Vertical',
     # v0.4 step 12: Dearing et al. (2026) simple-markup models.
     'RuleOfThumb',
-    'Keystone',
     'ConstantMarkup',
     # v0.4 step 14a: labor-side conduct models.
     'Monopsony',

@@ -53,7 +53,7 @@ def _residualize_on_xd(
 
     This concentrates out the linear demand-side coefficients (``beta``,
     including the intercept but excluding ``alpha`` which is already in
-    ``dxi_dtheta``) at fixed nonlinear parameters ``(alpha, rho, sigma)``.
+    ``dxi_dtheta``) at fixed nonlinear parameters ``(alpha, rho)``.
 
     If ``X_D`` has zero columns (no exogenous regressors to concentrate
     out), ``dxi_dtheta`` is returned unchanged.
