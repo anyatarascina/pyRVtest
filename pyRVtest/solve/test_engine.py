@@ -262,9 +262,25 @@ def compute_instrument_results(
 
     # RV test statistic (upper triangle only; lower triangle and diagonal are NaN)
     rv_test_statistic = np.full((M, M), np.nan)
+    symbols_rv = np.empty((M, M), dtype=object)
+    symbols_rv.fill("")
     for m in range(M):
         for i in range(m):
             rv_test_statistic[i, m] = test_statistic_numerator[i, m] / test_statistic_denominator[i, m]
+            # Two-sided asymptotic significance markers for the RV test
+            # statistic (TRV ~ N(0, 1) under H0). Standard econometric
+            # thresholds: 10% / 5% / 1% two-sided => |TRV| > 1.64 / 1.96 / 2.58.
+            abs_trv = abs(rv_test_statistic[i, m])
+            if not np.isfinite(abs_trv):
+                symbols_rv[i, m] = " "
+            elif abs_trv > 2.58:
+                symbols_rv[i, m] = "***"
+            elif abs_trv > 1.96:
+                symbols_rv[i, m] = "**"
+            elif abs_trv > 1.64:
+                symbols_rv[i, m] = "*"
+            else:
+                symbols_rv[i, m] = " "
 
     # F statistics — residualize omega on Z_orthogonal; precompute QR once for all models
     phi = np.zeros([M, N, K])
@@ -388,8 +404,8 @@ def compute_instrument_results(
 
             symbols_size[i, m] = (
                 " " if F[i, m] < F_cv_size[i, m][0] else
-                "*" if F[i, m] < F_cv_size[i, m][1] else
-                "**" if F[i, m] < F_cv_size[i, m][2] else "***"
+                "†" if F[i, m] < F_cv_size[i, m][1] else  # †
+                "††" if F[i, m] < F_cv_size[i, m][2] else "†††"  # ††, †††
             )
             symbols_power[i, m] = (
                 " " if F[i, m] < F_cv_power[i, m][0] else
@@ -483,6 +499,7 @@ def compute_instrument_results(
         'F_cv_power': F_cv_power,
         'symbols_size': symbols_size,
         'symbols_power': symbols_power,
+        'symbols_rv': symbols_rv,
         'lambda_dmss': lambda_dmss,
         'F_se': F_se,
         'F_ci_low': F_ci_low,

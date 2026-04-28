@@ -134,11 +134,23 @@ def format_table(
         lines.append("=" * len(template.format(*[""] * len(widths))))
     if include_notes:
         notes: List[List[str]] = []
+        # TRV significance markers (Phase 3 of feat/f-reliability).
         notes.append(
-            ['*, **, or *** indicate that F > cv for a worst-case size of 0.125, 0.10, and 0.075 given d_z and rho']
+            ['TRV significance (two-sided, asymptotic):']
         )
         notes.append(
-            ['^, ^^, or ^^^ indicate that F > cv for a best-case power of 0.50, 0.75, and 0.95 given d_z and rho']
+            ['  *, **, or *** indicate |TRV| > 1.64, 1.96, 2.58 (10%, 5%, 1% two-sided)']
+        )
+        # F-stat significance markers (size symbols moved from `*` to `†`
+        # in Phase 3 to free `*` for TRV; power symbols unchanged).
+        notes.append(
+            ['F-stat significance (DMSS):']
+        )
+        notes.append(
+            ['  †, ††, or ††† indicate F > cv for a worst-case size of 0.125, 0.10, and 0.075 given d_z and rho']
+        )
+        notes.append(
+            ['  ^, ^^, or ^^^ indicate F > cv for a best-case power of 0.50, 0.75, and 0.95 given d_z and rho']
         )
         if extra_notes:
             for row in extra_notes:

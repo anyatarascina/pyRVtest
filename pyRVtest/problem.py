@@ -1641,6 +1641,7 @@ class Problem(Container, StringRepresentation):
         F_cv_power_list = [None] * L
         symbols_size_list = [None] * L
         symbols_power_list = [None] * L
+        symbols_rv_list = [None] * L
         # F-stat reliability diagnostic (additive; see test_engine.py)
         lambda_dmss_list = [None] * L
         F_se_list = [None] * L
@@ -1672,6 +1673,7 @@ class Problem(Container, StringRepresentation):
             F_cv_power_list[instrument] = r['F_cv_power']
             symbols_size_list[instrument] = r['symbols_size']
             symbols_power_list[instrument] = r['symbols_power']
+            symbols_rv_list[instrument] = r['symbols_rv']
             lambda_dmss_list[instrument] = r['lambda_dmss']
             F_se_list[instrument] = r['F_se']
             F_ci_low_list[instrument] = r['F_ci_low']
@@ -1691,6 +1693,7 @@ class Problem(Container, StringRepresentation):
             verdict_list=verdict_list,
             strongest_claim_size_list=strongest_claim_size_list,
             strongest_claim_power_list=strongest_claim_power_list,
+            symbols_rv_list=symbols_rv_list,
         ))
         logger.info(f"Solved the problem after {format_seconds(time.time() - step_start_time)}.")
         logger.info("")

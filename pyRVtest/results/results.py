@@ -166,6 +166,7 @@ class Progress:
     verdict_list: Optional[List[Any]] = None
     strongest_claim_size_list: Optional[List[Any]] = None
     strongest_claim_power_list: Optional[List[Any]] = None
+    symbols_rv_list: Optional[List[Any]] = None
 
 
 class ProblemResults(StringRepresentation):  # type: ignore[misc]
@@ -278,6 +279,7 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         self.verdict = progress.verdict_list
         self.strongest_claim_size = progress.strongest_claim_size_list
         self.strongest_claim_power = progress.strongest_claim_power_list
+        self._symbols_rv_list = progress.symbols_rv_list
 
     def __str__(self) -> str:
         """Format results information as a string."""
@@ -306,17 +308,33 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             return base + '⚠'
 
         # construct the data
+        # Phase 3 (feat/f-reliability): the row-2 cell under each TRV value
+        # now carries the TRV two-sided significance symbol (`*`/`**`/`***`
+        # at |TRV| > 1.64/1.96/2.58). The row-2 cell under each F value
+        # carries the dagger size symbol (`†`/`††`/`†††`) plus the caret
+        # power symbol (`^`/`^^`/`^^^`). The dagger swap frees `*` for TRV.
+        # Pre-Phase-3 pickled results lack ``_symbols_rv_list``; in that case
+        # the TRV row-2 cell stays blank (legacy behavior).
+        rv_symbols_arr = self._symbols_rv_list[j] if getattr(self, '_symbols_rv_list', None) is not None else None
+
+        def _trv_symbol(k: int, i: int) -> str:
+            if rv_symbols_arr is None:
+                return ""
+            sym = rv_symbols_arr[k, i]
+            return sym if sym is not None else ""
+
         data: List[List[str]] = []
         number_models = len(self.markups)
         for k in range(number_models):
             rv_results = [round(self.TRV[j][k, i], 3) for i in range(number_models)]
             f_stat_results = [_f_value_with_glyph(k, i) for i in range(number_models)]
             pvalues_results = [str(round(self.MCS_pvalues[j][k][0], 3))]
+            rv_symbols_row = [_trv_symbol(k, i) for i in range(number_models)]
             symbols_results = [
                 self._symbols_size_list[j][k, i] + " " + self._symbols_power_list[j][k, i] for i in range(number_models)
             ]
             data.append([str(k)] + rv_results + [str(k)] + f_stat_results + [str(k)] + pvalues_results)
-            data.append([""] + ["" for i in range(number_models)] + [""] + symbols_results + [""] + [""])
+            data.append([""] + rv_symbols_row + [""] + symbols_results + [""] + [""])
 
         # construct the header
         blanks = ["  " for i in range(number_models)]

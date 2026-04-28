@@ -379,3 +379,77 @@ class TestPrintedOutputIntegration:
         results = _solve_two_models(df)
         out = str(results)
         assert 'Testing Results - Instruments z0' in out
+
+
+class TestPhase3SymbolScheme:
+    """Phase 3: TRV gets two-sided significance markers; F-stat size symbols
+    move from `*` to `†` (dagger) to free `*` for TRV."""
+
+    def test_F_stat_size_symbols_are_daggers(self):
+        """Cells where F clears a size CV should report a dagger symbol,
+        never `*`."""
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        any_dagger = False
+        any_star_in_size = False
+        for j in range(len(results.F)):
+            arr = results._symbols_size_list[j]
+            for sym in arr.flatten():
+                if isinstance(sym, str) and '†' in sym:
+                    any_dagger = True
+                if isinstance(sym, str) and '*' in sym:
+                    any_star_in_size = True
+        # Either no size CV is cleared (no symbols), or daggers fire.
+        assert not any_star_in_size, "size symbols should not contain '*'"
+        # Note: any_dagger may be False if the small DGP doesn't clear any CV.
+
+    def test_TRV_symbols_array_is_present(self):
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        assert hasattr(results, '_symbols_rv_list')
+        assert results._symbols_rv_list is not None
+        # Shape: per-instrument-set, M x M
+        L = len(results.F)
+        M = results.F[0].shape[0]
+        for j in range(L):
+            assert results._symbols_rv_list[j].shape == (M, M)
+
+    def test_TRV_symbols_match_thresholds(self):
+        """For each cell, the TRV symbol should reflect |TRV| against the
+        documented thresholds."""
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        for j in range(len(results.F)):
+            trv = np.asarray(results.TRV[j])
+            sym = results._symbols_rv_list[j]
+            for k in range(trv.shape[0]):
+                for i in range(trv.shape[1]):
+                    if k >= i:
+                        continue  # only upper triangle
+                    abs_v = abs(trv[k, i])
+                    s = sym[k, i]
+                    if not np.isfinite(abs_v):
+                        assert s == ' ', f"non-finite TRV should give blank, got {s!r}"
+                    elif abs_v > 2.58:
+                        assert s == '***'
+                    elif abs_v > 1.96:
+                        assert s == '**'
+                    elif abs_v > 1.64:
+                        assert s == '*'
+                    else:
+                        assert s == ' '
+
+    def test_caption_has_TRV_section(self):
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        out = str(results)
+        assert 'TRV significance' in out
+        assert '1.64' in out and '1.96' in out and '2.58' in out
+
+    def test_caption_uses_dagger_for_F_stat_size(self):
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        out = str(results)
+        assert '†' in out  # the caption mentions the dagger glyph
+        # And the F-stat caption should have section header
+        assert 'F-stat significance' in out
