@@ -1641,6 +1641,14 @@ class Problem(Container, StringRepresentation):
         F_cv_power_list = [None] * L
         symbols_size_list = [None] * L
         symbols_power_list = [None] * L
+        # F-stat reliability diagnostic (additive; see test_engine.py)
+        lambda_dmss_list = [None] * L
+        F_se_list = [None] * L
+        F_ci_low_list = [None] * L
+        F_ci_high_list = [None] * L
+        verdict_list = [None] * L
+        strongest_claim_size_list = [None] * L
+        strongest_claim_power_list = [None] * L
 
         for instrument in range(L):
             grad_gamma_l = (gradient_gamma_per_instrument[instrument]
@@ -1664,13 +1672,25 @@ class Problem(Container, StringRepresentation):
             F_cv_power_list[instrument] = r['F_cv_power']
             symbols_size_list[instrument] = r['symbols_size']
             symbols_power_list[instrument] = r['symbols_power']
+            lambda_dmss_list[instrument] = r['lambda_dmss']
+            F_se_list[instrument] = r['F_se']
+            F_ci_low_list[instrument] = r['F_ci_low']
+            F_ci_high_list[instrument] = r['F_ci_high']
+            verdict_list[instrument] = r['verdict']
+            strongest_claim_size_list[instrument] = r['strongest_claim_size']
+            strongest_claim_power_list[instrument] = r['strongest_claim_power']
 
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, markups_orthogonal, marginal_cost,
             tau_list, g_list, Q_list, RV_numerator_list, RV_denominator_list,
             test_statistic_RV_list, F_statistic_list, MCS_p_values_list, rho_list, unscaled_F_statistic_list,
             F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list, cost_param,
-            tau_list_per_instrument
+            tau_list_per_instrument,
+            lambda_dmss_list=lambda_dmss_list, F_se_list=F_se_list,
+            F_ci_low_list=F_ci_low_list, F_ci_high_list=F_ci_high_list,
+            verdict_list=verdict_list,
+            strongest_claim_size_list=strongest_claim_size_list,
+            strongest_claim_power_list=strongest_claim_power_list,
         ))
         logger.info(f"Solved the problem after {format_seconds(time.time() - step_start_time)}.")
         logger.info("")

@@ -44,6 +44,19 @@ _NDArray: TypeAlias = NDArray[Any]
 logger = logging.getLogger(__name__)
 
 
+# F-stat reliability diagnostic thresholds. Calibrated in
+# degeneracy-conduct-testing/code/calibration/ (see MEMO_F_reliability_diagnostic_2026-04-28.md).
+# These are module-level constants to keep the patch contained; can be promoted
+# to Problem.solve(reliability_thresholds=...) kwargs in a follow-up.
+RELIABILITY_LAMBDA_THRESHOLD = 0.05  # near-degenerate flagged when lambda < this
+RELIABILITY_CI_LEVEL = 1.96  # 95% CI half-width; borderline flagged when CI overlaps relevant CV
+
+# Worst-case size and best-case power levels corresponding to the three CVs
+# in the published table. Used for human-readable claim labels.
+_SIZE_LEVELS_PCT = (12.5, 10.0, 7.5)  # claim "worst-case size <= X%" if F > r_X (column order: r_125, r_10, r_075)
+_POWER_LEVELS_PCT = (50.0, 75.0, 95.0)  # claim "best-case power >= Y%" if F > r_Y (column order: r_50, r_75, r_95)
+
+
 def compute_instrument_results(
         problem: Any, instrument: int, M: int, N: int, omega: Array,
         demand_adjustment: bool, gradient_markups: Optional[Array],
@@ -270,6 +283,16 @@ def compute_instrument_results(
     symbols_size = np.empty((M, M), dtype=object)
     symbols_power = np.empty((M, M), dtype=object)
 
+    # F-stat reliability diagnostic outputs. See
+    # MEMO_F_reliability_diagnostic_2026-04-28.md for design and calibration.
+    lambda_dmss = np.full((M, M), np.nan)
+    F_se = np.full((M, M), np.nan)
+    F_ci_low = np.full((M, M), np.nan)
+    F_ci_high = np.full((M, M), np.nan)
+    verdict = np.empty((M, M), dtype=object)
+    strongest_claim_size = np.empty((M, M), dtype=object)
+    strongest_claim_power = np.empty((M, M), dtype=object)
+
     phi_gram = compute_block_gram(problem, N, clustering_adjustment, phi)
     for (m, i) in itertools.product(range(M), range(M)):
         if i < m:
@@ -299,6 +322,33 @@ def compute_instrument_results(
             unscaled_F[i, m] = N / (2 * K_effective) * F_numerator / F_denominator
             F[i, m] = (1 - rho_squared) * unscaled_F[i, m]
 
+            # F-stat reliability diagnostic — numerical-fragility part.
+            # lambda = ((sigma_0+sigma_1)^2 - 4 sigma_2^2) / (sigma_0+sigma_1)^2
+            # measures how much of F's natural denominator scale has been
+            # lost to cancellation. lambda ∈ [0, 1] with 0 = total
+            # cancellation (F undefined), 1 = no cancellation. Below 0.05
+            # the F value is numerically unreliable under realistic
+            # sigma-noise (calibrated against the analytical_scale fixture).
+            sigma_sum = sigma[0] + sigma[1]
+            if sigma_sum > 0:
+                lambda_dmss[i, m] = (sigma_sum ** 2 - 4 * sigma[2] ** 2) / (sigma_sum ** 2)
+            else:
+                lambda_dmss[i, m] = np.nan
+
+            # F-stat reliability diagnostic — statistical-fragility part.
+            # The asymptotic distribution of F at the implied noncentrality
+            # gives an asymptotic SE for the population F. The 95% CI is
+            # F ± 1.96 SE. The borderline verdict fires below if this CI
+            # overlaps the relevant CV for the strongest size or power claim.
+            # See MEMO_F_reliability_diagnostic_2026-04-28.md for derivation.
+            if rho_squared < 1 and not np.isnan(rho_squared):
+                nc_implied = max(0.0, 2 * K_effective * (F[i, m] / (1 - rho_squared) - 1))
+                F_se[i, m] = (1 - rho_squared) / (2 * K_effective) * math.sqrt(
+                    2 * (2 * K_effective + 2 * nc_implied)
+                )
+                F_ci_low[i, m] = F[i, m] - RELIABILITY_CI_LEVEL * F_se[i, m]
+                F_ci_high[i, m] = F[i, m] + RELIABILITY_CI_LEVEL * F_se[i, m]
+
             # v0.4.0rc1 follow-up: guard the critical-values lookup against
             # a NaN rho. Two model pairs with identical markups (e.g. a
             # salience test with opt-out producing the same raw markups)
@@ -316,6 +366,9 @@ def compute_instrument_results(
                 F_cv_power[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
                 symbols_size[i, m] = " "
                 symbols_power[i, m] = " "
+                verdict[i, m] = "trivially-degenerate"
+                strongest_claim_size[i, m] = None
+                strongest_claim_power[i, m] = None
                 continue
             rho_lookup = min(np.round(np.abs(rho_val), 2), 0.99)
             K_lookup = min(K_effective, 30)  # warning for K>30 fired above
@@ -343,9 +396,63 @@ def compute_instrument_results(
                 "^" if F[i, m] < F_cv_power[i, m][1] else
                 "^^" if F[i, m] < F_cv_power[i, m][2] else "^^^"
             )
+
+            # F-stat reliability verdict — strongest-claim identification + CI overlap.
+            # Determine the strongest size/power claim the user can make.
+            # CV columns ordered as in the published table:
+            #   F_cv_size: [r_125, r_10, r_075] (worst-case sizes 12.5%, 10%, 7.5%)
+            #   F_cv_power: [r_50, r_75, r_95]  (best-case powers 50%, 75%, 95%)
+            # Strongest size claim = strictest size level (smallest %) that F clears.
+            # Strongest power claim = strictest power level (largest %) that F clears.
+            strongest_size_idx = -1
+            for idx in range(3):
+                cv = F_cv_size[i, m][idx]
+                if cv > 0 and F[i, m] > cv:
+                    strongest_size_idx = idx  # later iterations overwrite with stricter
+            strongest_power_idx = -1
+            for idx in range(3):
+                cv = F_cv_power[i, m][idx]
+                if cv > 0 and F[i, m] > cv:
+                    strongest_power_idx = idx
+
+            if strongest_size_idx >= 0:
+                strongest_claim_size[i, m] = (
+                    f"worst-case size <= {_SIZE_LEVELS_PCT[strongest_size_idx]}%"
+                )
+            else:
+                strongest_claim_size[i, m] = None
+            if strongest_power_idx >= 0:
+                strongest_claim_power[i, m] = (
+                    f"best-case power >= {_POWER_LEVELS_PCT[strongest_power_idx]}%"
+                )
+            else:
+                strongest_claim_power[i, m] = None
+
+            # CI-overlap check: borderline if the asymptotic 95% CI for the
+            # population F overlaps the relevant CV for either strongest claim.
+            # Equivalently: F - 1.96 SE(F) < CV.
+            size_borderline = False
+            if strongest_size_idx >= 0 and not np.isnan(F_ci_low[i, m]):
+                relevant_size_cv = F_cv_size[i, m][strongest_size_idx]
+                size_borderline = F_ci_low[i, m] < relevant_size_cv
+            power_borderline = False
+            if strongest_power_idx >= 0 and not np.isnan(F_ci_low[i, m]):
+                relevant_power_cv = F_cv_power[i, m][strongest_power_idx]
+                power_borderline = F_ci_low[i, m] < relevant_power_cv
+
+            if (not np.isnan(lambda_dmss[i, m])
+                    and lambda_dmss[i, m] < RELIABILITY_LAMBDA_THRESHOLD):
+                verdict[i, m] = "near-degenerate"
+            elif size_borderline or power_borderline:
+                verdict[i, m] = "borderline"
+            else:
+                verdict[i, m] = "robust"
         else:
             symbols_size[i, m] = ""
             symbols_power[i, m] = ""
+            verdict[i, m] = None
+            strongest_claim_size[i, m] = None
+            strongest_claim_power[i, m] = None
 
     # model confidence set
     all_model_combinations = list(itertools.combinations(range(M), 2))
@@ -376,6 +483,13 @@ def compute_instrument_results(
         'F_cv_power': F_cv_power,
         'symbols_size': symbols_size,
         'symbols_power': symbols_power,
+        'lambda_dmss': lambda_dmss,
+        'F_se': F_se,
+        'F_ci_low': F_ci_low,
+        'F_ci_high': F_ci_high,
+        'verdict': verdict,
+        'strongest_claim_size': strongest_claim_size,
+        'strongest_claim_power': strongest_claim_power,
     }
 
 

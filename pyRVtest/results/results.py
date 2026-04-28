@@ -83,6 +83,17 @@ class Progress:
     symbols_power_list: Array
     cost_param: Optional[List[Any]] = None
     tau_list_per_instrument: Optional[List[Any]] = None
+    # F-stat reliability diagnostic (added in feat/f-reliability). Optional so
+    # older pickled Progress instances stay constructible. ProblemResults
+    # treats missing diagnostic fields as None and falls back to the legacy
+    # display path.
+    lambda_dmss_list: Optional[List[Any]] = None
+    F_se_list: Optional[List[Any]] = None
+    F_ci_low_list: Optional[List[Any]] = None
+    F_ci_high_list: Optional[List[Any]] = None
+    verdict_list: Optional[List[Any]] = None
+    strongest_claim_size_list: Optional[List[Any]] = None
+    strongest_claim_power_list: Optional[List[Any]] = None
 
 
 class ProblemResults(StringRepresentation):  # type: ignore[misc]
@@ -186,6 +197,15 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         # the Problem was constructed with market_side='labor'. Falls back
         # to 'product' for older pickles that predate the attribute.
         self._market_side: str = getattr(progress.problem, '_market_side', 'product')
+        # F-stat reliability diagnostic (additive). See
+        # MEMO_F_reliability_diagnostic_2026-04-28.md.
+        self.lambda_dmss = progress.lambda_dmss_list
+        self.F_se = progress.F_se_list
+        self.F_ci_low = progress.F_ci_low_list
+        self.F_ci_high = progress.F_ci_high_list
+        self.verdict = progress.verdict_list
+        self.strongest_claim_size = progress.strongest_claim_size_list
+        self.strongest_claim_power = progress.strongest_claim_power_list
 
     def __str__(self) -> str:
         """Format results information as a string."""
@@ -460,6 +480,97 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         frame = pd.DataFrame.from_records(records, columns=columns)
         frame.attrs['alpha'] = alpha
         return frame
+
+    def F_reliability_summary(self) -> 'pd.DataFrame':
+        """Return per-cell F-stat reliability diagnostics.
+
+        One row per (instrument set, model_i, model_j) with model_i < model_j.
+        Columns:
+
+        - ``F``, ``rho_squared``: existing test statistic and DMSS rho².
+        - ``lambda_dmss``: numerical-cancellation depth, ``((σ_0+σ_1)² −
+          4σ_2²) / (σ_0+σ_1)²``. Below 0.05 the F value is unreliable.
+        - ``F_se``, ``F_ci_low``, ``F_ci_high``: asymptotic SE and 95% CI for
+          the population F under the paper's noncentral chi-squared
+          distribution at the implied noncentrality.
+        - ``strongest_claim_size``, ``strongest_claim_power``: human-readable
+          labels of the strongest size and power claims F supports
+          (e.g. ``"worst-case size <= 10%"``); ``None`` when F clears no CV.
+        - ``verdict``: one of ``"robust"``, ``"borderline"``,
+          ``"near-degenerate"``, or ``"trivially-degenerate"``.
+
+        See ``MEMO_F_reliability_diagnostic_2026-04-28.md`` for design and
+        calibration. The diagnostic is independent of and complementary to
+        the test's Type I error guarantee under the worst-case null
+        (DMSS Proposition 4) — it is a precision-of-the-point-estimate
+        question about the observed F.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-form frame with ``L * M * (M - 1) / 2`` rows.
+        """
+        import pandas as pd
+
+        L = self._number_of_instrument_sets()
+        M = self._number_of_models()
+        iv_labels = self._instrument_set_labels()
+        model_labels = self._model_labels()
+
+        records: List[dict[str, Any]] = []
+        for j in range(L):
+            f_mat = np.asarray(self.F[j])
+            rho_mat = np.asarray(self.rho[j])
+            lam_mat = np.asarray(self.lambda_dmss[j]) if self.lambda_dmss is not None else None
+            se_mat = np.asarray(self.F_se[j]) if self.F_se is not None else None
+            ci_lo_mat = np.asarray(self.F_ci_low[j]) if self.F_ci_low is not None else None
+            ci_hi_mat = np.asarray(self.F_ci_high[j]) if self.F_ci_high is not None else None
+            verdict_mat = self.verdict[j] if self.verdict is not None else None
+            claim_size_mat = self.strongest_claim_size[j] if self.strongest_claim_size is not None else None
+            claim_power_mat = self.strongest_claim_power[j] if self.strongest_claim_power is not None else None
+            for i in range(M):
+                for k in range(i + 1, M):
+                    rho_ik = float(rho_mat[i, k])
+                    rho2_ik = rho_ik ** 2 if np.isfinite(rho_ik) else float('nan')
+                    records.append({
+                        'instrument_set': j,
+                        'instrument_set_label': iv_labels[j],
+                        'model_i': i,
+                        'model_j': k,
+                        'model_i_label': model_labels[i],
+                        'model_j_label': model_labels[k],
+                        'F': float(f_mat[i, k]),
+                        'rho_squared': rho2_ik,
+                        'lambda_dmss': (
+                            float(lam_mat[i, k]) if lam_mat is not None else float('nan')
+                        ),
+                        'F_se': (
+                            float(se_mat[i, k]) if se_mat is not None else float('nan')
+                        ),
+                        'F_ci_low': (
+                            float(ci_lo_mat[i, k]) if ci_lo_mat is not None else float('nan')
+                        ),
+                        'F_ci_high': (
+                            float(ci_hi_mat[i, k]) if ci_hi_mat is not None else float('nan')
+                        ),
+                        'strongest_claim_size': (
+                            claim_size_mat[i, k] if claim_size_mat is not None else None
+                        ),
+                        'strongest_claim_power': (
+                            claim_power_mat[i, k] if claim_power_mat is not None else None
+                        ),
+                        'verdict': (
+                            verdict_mat[i, k] if verdict_mat is not None else None
+                        ),
+                    })
+        columns = [
+            'instrument_set', 'instrument_set_label',
+            'model_i', 'model_j', 'model_i_label', 'model_j_label',
+            'F', 'rho_squared', 'lambda_dmss',
+            'F_se', 'F_ci_low', 'F_ci_high',
+            'strongest_claim_size', 'strongest_claim_power', 'verdict',
+        ]
+        return pd.DataFrame.from_records(records, columns=columns)
 
     def to_latex(
         self,
