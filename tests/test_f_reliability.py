@@ -334,3 +334,48 @@ class TestThresholdConstants:
 
     def test_ci_level(self):
         assert RELIABILITY_CI_LEVEL == 1.96
+
+
+class TestPrintedOutputIntegration:
+    """Phase 2: glyphs and footer in printed __str__ output."""
+
+    def test_string_includes_reliability_section(self):
+        """The printed output should always include an F-stat reliability footer
+        — either the all-clear line or one or more flagged-verdict lines."""
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        out = str(results)
+        assert 'F-stat reliability' in out, (
+            f"expected 'F-stat reliability' in printed output, got:\n{out}"
+        )
+
+    def test_warning_glyph_appears_for_non_robust_cells(self):
+        """Cells with verdict != robust should have a `⚠` marker on F."""
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        # Determine whether any cell is non-robust
+        has_nonrobust = False
+        for j in range(len(results.F)):
+            v = results.verdict[j]
+            for cell in v.flatten():
+                if cell is not None and cell != 'robust':
+                    has_nonrobust = True
+        out = str(results)
+        if has_nonrobust:
+            assert '⚠' in out, (
+                "expected ⚠ glyph in printed output for at least one non-robust cell"
+            )
+
+    def test_string_preserves_existing_significance_notes(self):
+        """The classic significance notes must not be removed."""
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        out = str(results)
+        assert 'worst-case size' in out
+        assert 'best-case power' in out
+
+    def test_string_preserves_classic_title(self):
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        out = str(results)
+        assert 'Testing Results - Instruments z0' in out

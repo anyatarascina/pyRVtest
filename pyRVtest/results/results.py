@@ -49,6 +49,78 @@ if TYPE_CHECKING:
     from ..problem import Problem
 
 
+# ----------------------------------------------------------------------
+# F-stat reliability footer helpers (Phase 2 of the F-reliability work).
+# ----------------------------------------------------------------------
+
+def _worst_cell_borderline(cells: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Among borderline cells, pick the one with the smallest CI lower bound
+    relative to its strongest claim's CV — that's the most-fragile case to
+    surface in the footer."""
+    return cells[0] if len(cells) == 1 else min(cells, key=lambda c: c['F_ci_low'])
+
+
+def _borderline_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
+    """Build the borderline footer line(s). For a single cell, show the
+    specific F value, CI, and CV. For multiple cells, summarize the worst
+    case."""
+    n = len(cells)
+    suffix = '' if n == 1 else 's'
+    if n == 1:
+        c = cells[0]
+        claim = c['claim_size'] or c['claim_power'] or '(none)'
+        # Choose the relevant CV for the strongest claim
+        if c['claim_size']:
+            # determine which size CV is "strongest"
+            cvs = c['cv_size']
+            relevant_cv = max(cv for cv in cvs if cv > 0 and c['F'] > cv)
+        elif c['claim_power']:
+            cvs = c['cv_power']
+            relevant_cv = max(cv for cv in cvs if cv > 0 and c['F'] > cv)
+        else:
+            relevant_cv = float('nan')
+        return [
+            [
+                f"  borderline (1 cell): F = {c['F']:.2f} "
+                f"(95% CI lower bound {c['F_ci_low']:.2f}), strongest claim \"{claim}\""
+            ],
+            [
+                f"     CI overlaps the relevant CV = {relevant_cv:.2f}: "
+                f"claim is decision-uncertain at the conventional 95% level."
+            ],
+        ]
+    # Multiple cells: summarize.
+    worst = _worst_cell_borderline(cells)
+    return [
+        [
+            f"  borderline ({n} cell{suffix}): worst-case F = {worst['F']:.2f} "
+            f"(95% CI lower bound {worst['F_ci_low']:.2f})."
+        ],
+        [
+            "     for these cells the asymptotic 95% CI for F overlaps the "
+            "CV that supports the strongest claim — the strength claim is "
+            "decision-uncertain at conventional levels."
+        ],
+    ]
+
+
+def _near_degenerate_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
+    """Build the near-degenerate footer line(s)."""
+    n = len(cells)
+    suffix = '' if n == 1 else 's'
+    min_lambda = min(c['lambda'] for c in cells if np.isfinite(c['lambda']))
+    return [
+        [
+            f"  near-degenerate ({n} cell{suffix}): smallest lambda = {min_lambda:.3f}"
+        ],
+        [
+            "     F's denominator has lost most of its scale to cancellation; "
+            "F's value is numerically unreliable here. Treat as flagging weak "
+            "model separation rather than reporting a precise number."
+        ],
+    ]
+
+
 @dataclass
 class Progress:
     """Structured information passed from Problem.solve to ProblemResults.
@@ -218,12 +290,27 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
     def _format_results_tables(self, j: int) -> str:
         """Formation information about the testing results as a string."""
 
+        # F-stat reliability glyph: cells with verdict != robust get a marker
+        # appended to their F value. Loaded once per call; falls back to ""
+        # if the diagnostic was not computed (older pickles).
+        verdict_arr = self.verdict[j] if getattr(self, 'verdict', None) is not None else None
+
+        def _f_value_with_glyph(k: int, i: int) -> str:
+            base = str(round(self.F[j][k, i], 1))
+            if verdict_arr is None:
+                return base
+            v = verdict_arr[k, i]
+            if v is None or v == 'robust':
+                return base
+            # Any non-robust verdict gets the warning glyph.
+            return base + '⚠'
+
         # construct the data
         data: List[List[str]] = []
         number_models = len(self.markups)
         for k in range(number_models):
             rv_results = [round(self.TRV[j][k, i], 3) for i in range(number_models)]
-            f_stat_results = [round(self.F[j][k, i], 1) for i in range(number_models)]
+            f_stat_results = [_f_value_with_glyph(k, i) for i in range(number_models)]
             pvalues_results = [str(round(self.MCS_pvalues[j][k][0], 3))]
             symbols_results = [
                 self._symbols_size_list[j][k, i] + " " + self._symbols_power_list[j][k, i] for i in range(number_models)
@@ -253,10 +340,138 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             )
         else:
             title = "Testing Results - Instruments z{0}".format(j)
+
+        # F-stat reliability footer (only on the last printed table).
+        # Aggregates verdicts across all instrument sets and emits one
+        # line per fragility type that fired, plus an "all robust" line
+        # if nothing fired. Returns [] for the non-last tables.
+        extra_notes: List[List[str]] = []
+        if last_table:
+            extra_notes = self._build_F_reliability_footer()
+
         return format_table(
             header, subheader, *data, title=title, include_notes=last_table,
-            line_indices=[number_models, 2 * number_models + 1]
+            line_indices=[number_models, 2 * number_models + 1],
+            extra_notes=extra_notes,
         )
+
+    def _build_F_reliability_footer(self) -> List[List[str]]:
+        """Build the F-stat reliability footer aggregated across all instrument sets.
+
+        Returns a list of rows (each a list of strings, the first is the
+        line text) suitable for ``format_table(extra_notes=...)``. Returns
+        an empty list when the diagnostic was not computed (older pickles).
+        Returns a single one-line "all robust" row when no cell is flagged.
+        """
+        if getattr(self, 'verdict', None) is None:
+            return []
+
+        # Walk all (j, k, i) cells, collect verdicts and per-cell numbers.
+        flagged_borderline: List[dict] = []
+        flagged_near_deg: List[dict] = []
+        flagged_trivially: List[dict] = []
+        max_rho2 = 0.0
+        min_lambda = 1.0
+        any_valid = False
+        for j in range(len(self.verdict)):
+            verdict_j = self.verdict[j]
+            rho_j = np.asarray(self.rho[j])
+            lambda_j = (
+                np.asarray(self.lambda_dmss[j])
+                if getattr(self, 'lambda_dmss', None) is not None
+                else None
+            )
+            F_j = np.asarray(self.F[j])
+            ci_low_j = (
+                np.asarray(self.F_ci_low[j])
+                if getattr(self, 'F_ci_low', None) is not None
+                else None
+            )
+            cv_size_j = self.F_cv_size_list[j]
+            cv_power_j = self.F_cv_power_list[j]
+            claim_size_j = (
+                self.strongest_claim_size[j]
+                if getattr(self, 'strongest_claim_size', None) is not None
+                else None
+            )
+            claim_power_j = (
+                self.strongest_claim_power[j]
+                if getattr(self, 'strongest_claim_power', None) is not None
+                else None
+            )
+            M = verdict_j.shape[0]
+            for k in range(M):
+                for i in range(M):
+                    if k >= i:
+                        continue  # only upper triangle is computed
+                    v = verdict_j[k, i]
+                    if v is None:
+                        continue
+                    any_valid = True
+                    rho_val = rho_j[k, i]
+                    if np.isfinite(rho_val):
+                        max_rho2 = max(max_rho2, rho_val ** 2)
+                    if lambda_j is not None and np.isfinite(lambda_j[k, i]):
+                        min_lambda = min(min_lambda, float(lambda_j[k, i]))
+                    if v == 'robust':
+                        continue
+                    cell_info = {
+                        'instrument_set': j,
+                        'pair': (k, i),
+                        'F': float(F_j[k, i]) if np.isfinite(F_j[k, i]) else float('nan'),
+                        'F_ci_low': (
+                            float(ci_low_j[k, i])
+                            if ci_low_j is not None and np.isfinite(ci_low_j[k, i])
+                            else float('nan')
+                        ),
+                        'lambda': (
+                            float(lambda_j[k, i])
+                            if lambda_j is not None and np.isfinite(lambda_j[k, i])
+                            else float('nan')
+                        ),
+                        'claim_size': (
+                            claim_size_j[k, i] if claim_size_j is not None else None
+                        ),
+                        'claim_power': (
+                            claim_power_j[k, i] if claim_power_j is not None else None
+                        ),
+                        'cv_size': cv_size_j[k, i],
+                        'cv_power': cv_power_j[k, i],
+                    }
+                    if v == 'borderline':
+                        flagged_borderline.append(cell_info)
+                    elif v == 'near-degenerate':
+                        flagged_near_deg.append(cell_info)
+                    elif v == 'trivially-degenerate':
+                        flagged_trivially.append(cell_info)
+
+        if not any_valid:
+            return []
+
+        any_flagged = bool(flagged_borderline or flagged_near_deg or flagged_trivially)
+        rows: List[List[str]] = []
+
+        if not any_flagged:
+            rows.append([
+                "F-stat reliability: all cells robust "
+                f"(max rho^2 = {max_rho2:.2f}, min lambda = {min_lambda:.2f})."
+            ])
+            return rows
+
+        # Header for the reliability section
+        rows.append(["F-stat reliability:"])
+
+        if flagged_borderline:
+            rows.extend(_borderline_lines(flagged_borderline))
+        if flagged_near_deg:
+            rows.extend(_near_degenerate_lines(flagged_near_deg))
+        if flagged_trivially:
+            n = len(flagged_trivially)
+            rows.append([
+                f"  triv-deg ({n} cell{'s' if n != 1 else ''}): models produce identical markups; F is undefined."
+            ])
+        rows.append(["  See: results.F_reliability_summary() for per-cell detail."])
+        return rows
 
     def to_pickle(self, path: Union[str, Path]) -> None:
         """Save these results as a pickle file. This function is copied from PyBLP.
