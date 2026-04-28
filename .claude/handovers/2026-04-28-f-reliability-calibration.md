@@ -1,17 +1,34 @@
-# Handover — F-stat reliability diagnostic: design, calibration, and pre-implementation status
+# Handover — F-stat reliability diagnostic: design, calibration, AND implementation
 
 **Date:** 2026-04-28
-**Branch:** `v0.4-refactor` (no commits made this session — calibration code lives in `degeneracy-conduct-testing/`)
-**Status:** design and calibration complete; pyRVtest implementation not yet started. Memo for coauthors written.
+**Branch:** `feat/f-reliability` (off `v0.4-refactor`, pushed to origin)
+**Status:** design ✅, calibration ✅, **implementation ✅ — all three phases committed and pushed**. PR open against `v0.4-refactor` is ready when coauthors are ready.
 
 ## What this session produced
 
-A full design + calibration of an `F_reliability` diagnostic to ship alongside `results.F`, addressing Lorenzo's "indeterminate zone" framing for the F-statistic. Two non-trivial verdicts (plus the existing `trivially-degenerate` NaN guard):
+A complete `F_reliability` diagnostic shipped on `feat/f-reliability`, addressing Lorenzo's "indeterminate zone" framing for the F-statistic. Two non-trivial verdicts (plus the existing `trivially-degenerate` NaN guard):
 
 - **near-degenerate**: F's *value* is numerically unreliable due to denominator cancellation
-- **borderline**: F's *star verdict* is sensitive to sampling
+- **borderline**: F's *strength claim* is sensitive to sampling (asymptotic 95% CI for F overlaps relevant CV)
 
-Both thresholds are calibrated, not heuristic. Memo at `MEMO_F_reliability_diagnostic_2026-04-28.md` summarizes for coauthors.
+Both thresholds are calibrated, not heuristic. Memo at `MEMO_F_reliability_diagnostic_2026-04-28.md` summarizes for coauthors and lists open threshold questions.
+
+## Branch state
+
+```
+92b9800 FEAT: F-reliability diagnostic (Phase 3 — TRV stars + dagger swap)
+db708dd FEAT: F-reliability diagnostic (Phase 2 — printed output integration)
+83069f0 FEAT: F-reliability diagnostic (Phase 1, no UI changes)
+ab0dc9a DOC: F-reliability diagnostic design memo + session handover
+9e5d0c6 (v0.4-refactor)  FIX: RuleOfThumb now reports (phi-1)/phi*p markup instead of zero
+```
+
+PR URL: https://github.com/anyatarascina/pyRVtest/pull/new/feat/f-reliability
+
+Test results:
+- 26 new tests in `tests/test_f_reliability.py` — all pass
+- Full existing test suite (excluding pre-existing env-dependent failures): 484 passed, 4 skipped, 1 xfailed (the existing analytical_scale xfail, unchanged)
+- Doctests: 46 passed, 9 skipped
 
 ## Calibration code
 
@@ -79,48 +96,57 @@ F-stat reliability:
   See: results.F_reliability_summary()
 ```
 
-## What's NOT done
+## What was done in the implementation session
 
-1. **pyRVtest implementation.** No code added to pyRVtest this session — calibration only. Implementation is the next major step:
-   - Add λ computation, implied-nc, SE(F), CI for population F, verdict label in `solve/test_engine.py` (~30 lines).
-   - Add new attributes on `ProblemResults`: `lambda_dmss`, `F_se`, `F_ci_low`, `F_ci_high`, `verdict`, `strongest_claim_size`, `strongest_claim_power`.
-   - Add `F_reliability_summary()` method on `ProblemResults`.
-   - Update `__str__` to add glyphs + footer.
-   - Tests for each verdict (robust, borderline-size, borderline-power, near-degenerate, trivially-degenerate, mixed).
-   - Optional: TRV stars + section-header captions.
-   - Estimated 2–3 days.
+Phase 1 (commit `83069f0`) — core diagnostic, no UI changes:
+- λ, SE(F), 95% CI, strongest-claim labels, verdict computed inside the existing F-stat loop in `solve/test_engine.py`
+- New attributes on `ProblemResults`: `lambda_dmss`, `F_se`, `F_ci_low`, `F_ci_high`, `verdict`, `strongest_claim_size`, `strongest_claim_power`
+- New method `results.F_reliability_summary()` returning a long-form DataFrame with one row per (instrument set, model_i < model_j)
+- `Progress` dataclass extended with optional fields (back-compat with older pickles)
+- 17 tests covering attribute presence, math, and DataFrame schema
 
-2. **Coauthor input.** Memo `MEMO_F_reliability_diagnostic_2026-04-28.md` written but not circulated. Open questions in memo:
+Phase 2 (commit `db708dd`) — printed output integration:
+- Per-cell `⚠` glyph appended to F values for cells with non-robust verdict
+- F-stat reliability footer below caption (only on the last printed table) with worst-case info per fragility type, or a one-line "all robust" summary
+- `format_table` gains an `extra_notes` parameter for the footer
+- 4 additional tests
+
+Phase 3 (commit `92b9800`) — TRV stars + dagger swap:
+- TRV gets two-sided significance markers `*` / `**` / `***` at |TRV| > 1.64 / 1.96 / 2.58
+- F-stat size symbols moved from `*` / `**` / `***` to `†` / `††` / `†††` to free `*` for TRV
+- Caption restructured into "TRV significance:" / "F-stat significance (DMSS):" / "F-stat reliability:" sections
+- 5 additional tests (26 total in `tests/test_f_reliability.py`)
+
+## What's still open (for coauthors)
+
+1. **The five threshold questions in the memo** — see `MEMO_F_reliability_diagnostic_2026-04-28.md`:
    - σ-noise calibration target (currently 1e-4)
    - CI level for borderline (currently 95%, threshold 1.96)
-   - TRV stars yes/no
+   - TRV stars yes/no (currently yes, with dagger swap)
    - Retrospective replication on published tables before locking thresholds
    - Auto-show summary or opt-in only
 
-3. **Published-tables retrospective.** Codex suggested running the diagnostic on DMSS / DMQSW / DMQS / Backus-Conlon-Sinkinson published tables to see how often real applications flag. Not done; thresholds are calibrated against simulation only.
+2. **Published-tables retrospective.** Codex suggested running the diagnostic on DMSS / DMQSW / DMQS / Backus-Conlon-Sinkinson published tables to see how often real applications flag. Not done; thresholds are calibrated against simulation only.
 
-4. **CV-table high-ρ, high-K offset.** Documented in `KNOWN_ISSUES.md`. Persistent ~0.5–1.0 absolute offset at K ≥ 20, ρ ≥ 0.9, r_075. Not a port bug — most likely RNG-sensitivity at the threshold-crossing tail, possibly amplified by an older MATLAB version having generated the published CSV. Not blocking calibration. Would need to be resolved if/when CV tables are ever regenerated.
+3. **CV-table high-ρ, high-K offset.** Documented in `KNOWN_ISSUES.md`. Persistent ~0.5–1.0 absolute offset at K ≥ 20, ρ ≥ 0.9, r_075. Not a port bug — most likely RNG-sensitivity at the threshold-crossing tail, possibly amplified by an older MATLAB version having generated the published CSV. Not blocking calibration. Would need to be resolved if/when CV tables are ever regenerated.
+
+4. **Promoting thresholds to a `Problem.solve(reliability_thresholds=...)` kwarg.** Currently exposed as module-level constants `RELIABILITY_LAMBDA_THRESHOLD` and `RELIABILITY_CI_LEVEL` in `pyRVtest/solve/test_engine.py`. Per-call override would be cleaner but adds API surface — defer until a coauthor asks for it.
 
 ## Pickup for next session
 
-If pyRVtest implementation is the priority:
+Most likely next paths:
 
-1. Read `MEMO_F_reliability_diagnostic_2026-04-28.md` for design.
-2. Read `solve/test_engine.py:281-348` for current F computation and CV lookup.
-3. Implement in this order:
-   - λ + verdict logic (plain math, no existing infra)
-   - Sampling-sensitivity (one `ncx2.cdf` call per cell per direction)
-   - New `ProblemResults` attributes
-   - `F_reliability_summary()` method
-   - `__str__` glyph + footer
-   - Tests
-4. v0.4.1 release.
+**(a) Coauthor review.** Open a PR `feat/f-reliability` → `v0.4-refactor` (URL above). Point Lorenzo's and Marco's AI agents at the diff and the memo. Iterate on threshold values / output format based on their input.
 
-If coauthor coordination is the priority:
+**(b) Published-tables retrospective.** Run `compute_F_regime` on DMSS / DMQSW / DMQS / BCS published tables to check how often real applications flag. May lead to threshold tweaks.
 
-1. Send the memo to Lorenzo and Marco.
-2. Wait for input on the open questions before locking thresholds in code.
-3. Discuss whether the retrospective replication should happen before or after v0.4.1 ships.
+**(c) v0.4.1 release.** Once coauthors sign off on the design + thresholds, merge to `v0.4-refactor` and tag v0.4.1 (or roll into v0.4.0 final if the timing aligns).
+
+**(d) Promote thresholds to kwarg.** If the calibration values prove contentious, expose them as `Problem.solve(reliability_thresholds={'lambda': ..., 'ci_level': ...})`.
+
+## Compute_mcs NaN propagation issue (out of scope)
+
+While writing tests I confirmed a pre-existing bug: when two models have identical markups (NaN guard fires on F), `compute_mcs` later crashes in `multivariate_normal` SVD because the covariance matrix it builds has NaN entries. Independent of this work but worth flagging — would have been part of the trivially-degenerate test if it weren't there. The trivially-degenerate verdict in `feat/f-reliability` is structurally tested (a unit test reads the source to confirm the verdict label is set in the NaN-guard branch); end-to-end testing would need the MCS issue fixed first. Not a blocker for this PR.
 
 ## Other notes
 

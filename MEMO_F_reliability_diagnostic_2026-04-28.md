@@ -1,20 +1,20 @@
-# MEMO — F-stat reliability diagnostic: design and calibration
+# MEMO — F-stat reliability diagnostic: design, calibration, and implementation
 
 **To:** Lorenzo Magnolfi, Marco Duarte
 **From:** Chris Sullivan
 **Date:** 2026-04-28
-**Subject:** Proposed `F_reliability` diagnostic for pyRVtest, with calibrated thresholds
+**Subject:** `F_reliability` diagnostic for pyRVtest — implemented on `feat/f-reliability`, ready for review
 
 ## Executive summary
 
-We propose adding a structured reliability diagnostic alongside `results.F` that flags when (a) the F-statistic's *value* is numerically unreliable due to denominator cancellation and (b) the user's *conclusion* about instrument strength is sensitive to sampling. The design is informed by Lorenzo's "indeterminate zone" framing and Codex's "false precision is the bug" reframe, and the threshold values are calibrated against simulation rather than guessed.
+A structured reliability diagnostic alongside `results.F` that flags when (a) the F-statistic's *value* is numerically unreliable due to denominator cancellation and (b) the user's *conclusion* about instrument strength is sensitive to sampling. The design is informed by Lorenzo's "indeterminate zone" framing and Codex's "false precision is the bug" reframe; threshold values are calibrated against simulation rather than guessed.
 
 Two verdicts (plus the existing trivially-degenerate NaN guard):
 
 - **near-degenerate**: λ < 0.05, where λ = ((σ₀+σ₁)² − 4σ₂²) / (σ₀+σ₁)². Calibrated against numerical fragility (drift > 1% under realistic σ-noise).
 - **borderline**: the asymptotic 95% confidence interval for the population F overlaps the relevant CV for the strongest size or power claim. Equivalently: F − 1.96·SE(F) < CV.
 
-Implementation cost is modest (~50 lines added to `solve/test_engine.py` plus a `F_reliability_summary()` method).
+**Status: implemented on branch `feat/f-reliability`** (4 commits, 26 new tests, full existing test suite still green). PR URL: https://github.com/anyatarascina/pyRVtest/pull/new/feat/f-reliability. The five open threshold questions in §"Open questions" remain open — your input determines whether to re-tune any of the calibrated values before this lands.
 
 ## Problem statement
 
@@ -126,20 +126,33 @@ F-stat reliability:
 ==========================================================================================
 ```
 
-## Implementation plan
+## Implementation status (all three phases complete)
 
-Modest scope, additive to existing code:
+Branch: `feat/f-reliability`. Commits, in order:
 
-1. New computations in `solve/test_engine.py` after the existing F computation (line 300):
-   - λ from existing σ values
-   - Implied noncentrality and SE(F) from observed F
-   - 95% CI for population F: `[F - 1.96·SE(F), F + 1.96·SE(F)]`
-   - Strongest size and power claims; check whether CI overlaps relevant CV
-   - Verdict label
-2. New attributes on `ProblemResults`: `lambda_dmss`, `F_se`, `F_ci_low`, `F_ci_high`, `verdict`.
-3. New method `results.F_reliability_summary()` returning a formatted diagnostic table.
-4. Update `__str__` to add glyphs and footer.
-5. Tests covering each verdict and the all-clear case.
+| Commit | Phase | Scope |
+|---|---|---|
+| `ab0dc9a` | Design | This memo + the session handover |
+| `83069f0` | **Phase 1** | Core diagnostic math + `F_reliability_summary()` method, no UI changes |
+| `db708dd` | **Phase 2** | Glyphs in F-stat cells + reliability footer in `__str__` |
+| `92b9800` | **Phase 3** | TRV stars at 1.64/1.96/2.58 + F-stat size symbols moved `*` → `†` to free `*` |
+
+Files touched:
+- `pyRVtest/solve/test_engine.py` — λ, SE(F), CI bounds, strongest-claim labels, verdict, TRV symbols, dagger swap
+- `pyRVtest/problem.py` — extracts new fields per instrument and threads into Progress
+- `pyRVtest/results/results.py` — new fields on Progress, new attributes on ProblemResults, new `F_reliability_summary()` method, glyph + footer rendering in `_format_results_tables`
+- `pyRVtest/output.py` — `format_table` accepts an `extra_notes` parameter; caption restructured into TRV / F-stat / reliability sections
+- `tests/test_f_reliability.py` — 26 new tests covering math, attribute presence, output format, and Phase 3 symbol scheme
+
+New attributes on `ProblemResults`: `lambda_dmss`, `F_se`, `F_ci_low`, `F_ci_high`, `verdict`, `strongest_claim_size`, `strongest_claim_power`, `_symbols_rv_list`. New method: `F_reliability_summary()` returning a long-form DataFrame.
+
+Threshold values (calibrated, exposed as module constants in `solve/test_engine.py`):
+- `RELIABILITY_LAMBDA_THRESHOLD = 0.05`
+- `RELIABILITY_CI_LEVEL = 1.96`
+
+Can be promoted to a `Problem.solve(reliability_thresholds=...)` kwarg in a follow-up if you want them user-tunable.
+
+Test results: 484 existing tests pass + 26 new pass (full suite excluding pre-existing environment-dependent failures unrelated to this work, like `to_latex` requiring jinja2). Snapshot suite still green; the existing `analytical_scale` xfail is unchanged.
 
 Estimated time: 2–3 days of careful work. Can ship as v0.4.1 (post the v0.4.0 release).
 
@@ -157,10 +170,23 @@ Estimated time: 2–3 days of careful work. Can ship as v0.4.1 (post the v0.4.0 
 
 ## Files for review
 
-Calibration scripts and validation outputs are in `degeneracy-conduct-testing/code/calibration/`:
+**Implementation (in `pyrvtest`, branch `feat/f-reliability`):**
+- `pyRVtest/solve/test_engine.py` — diagnostic math + TRV symbols + dagger swap
+- `pyRVtest/problem.py` — wiring per-instrument
+- `pyRVtest/results/results.py` — Progress fields, ProblemResults attributes, `F_reliability_summary()`, glyph + footer rendering
+- `pyRVtest/output.py` — caption sections + `extra_notes` plumbing
+- `tests/test_f_reliability.py` — 26 new tests
+
+**Calibration (in `degeneracy-conduct-testing/code/calibration/`):**
 - `cv_simulator.py`, `validate_against_published.py` — Python port of the MATLAB CV generator
 - `fragility.py`, `analyze_fragility.py` — statistical fragility (borderline calibration)
 - `numerical_fragility_v2.py`, asymmetric sweeps — numerical fragility (near-degenerate calibration)
 - `KNOWN_ISSUES.md` — a small persistent CV-table offset at high-ρ, high-K (does not affect the calibration here)
 
-Comments welcome before I start the pyRVtest implementation. Especially on the threshold choices in §"Open questions" — the structural design is calibrated, but the threshold *values* are judgment calls where your experience with the test in real applications is more useful than my simulations.
+Review priorities, in order:
+1. **The math.** Inspect the verdict logic in `pyRVtest/solve/test_engine.py` (lines around the F-stat loop) and the F SE / CI / strongest-claim derivation. Specifically: does the implied-noncentrality formula and the asymptotic SE match what Mikkel's framework gives?
+2. **The threshold values** (open questions §). Especially the σ-noise calibration target and the dagger swap.
+3. **The printed output.** Run `print(results)` on a real fixture and let me know if the layout, glyphs, and footer text read well in your applications.
+4. **The `F_reliability_summary()` schema.** Check the column set is what you'd want for paper-appendix tables.
+
+Pointing your AI agents at the PR is fine — happy to iterate on any of the structural choices.
