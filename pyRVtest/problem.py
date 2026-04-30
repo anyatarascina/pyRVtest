@@ -54,6 +54,19 @@ _DEMAND_PARAMS_SIGMA_DEPRECATION_MSG = (
 # of how many Problem() calls trigger it.
 _demand_params_sigma_deprecation_warned = False
 
+_MC_CORRECTION_DEPRECATION_MSG = (
+    "Problem.solve(mc_correction=...) is deprecated and will be removed in "
+    "v0.6. The general mechanism for adjusting marginal cost outside the "
+    "behavioral model is the endogenous_cost_component argument to Problem "
+    "(which feeds the IV correction stage). "
+    "Fix: pass an endogenous_cost_component column at Problem construction "
+    "time instead of adding mc_correction at solve time."
+)
+
+# Once-per-session flag for the mc_correction deprecation warning, mirroring
+# the sigma -> rho pattern above.
+_mc_correction_deprecation_warned = False
+
 # v0.4 OQ 14: the generic per-model tax deprecation warning emission +
 # shared once-per-session flag live on ``pyRVtest/models/base.py`` so
 # they fire at ``ConductModel.__init__`` / ``Vertical.__init__`` time
@@ -1471,6 +1484,16 @@ class Problem(Container, StringRepresentation):
         clustering_adjustment: Optional[str]
             (optional, default is unadjusted) Configuration that specifies whether to compute clustered standard errors.
             Options are True or False.
+        costs_type: Optional[str]
+            (optional, default is ``'linear'``) Functional form for marginal cost. ``'linear'`` uses
+            :math:`p - \text{markup}` directly; ``'log'`` substitutes :math:`\log(p - \text{markup})` before
+            running the test. Only effective when ``demand_adjustment=False``; ignored otherwise. Raises
+            ``ValueError`` if any implied marginal cost is non-positive under ``'log'``.
+        mc_correction: Optional[Array]
+            *Deprecated since v0.4; will be removed in v0.6.* User-supplied additive correction added to
+            ``marginal_cost`` before the test. Must have the same shape as ``problem.markups`` (``M`` x ``N``).
+            For supported cost-side adjustments, pass ``endogenous_cost_component`` at :class:`Problem`
+            construction time instead.
 
         Returns
         -------
@@ -1556,6 +1579,14 @@ class Problem(Container, StringRepresentation):
             marginal_cost = np.log(marginal_cost)
 
         if mc_correction is not None:
+            global _mc_correction_deprecation_warned
+            if not _mc_correction_deprecation_warned:
+                warnings.warn(
+                    _MC_CORRECTION_DEPRECATION_MSG,
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                _mc_correction_deprecation_warned = True
             if marginal_cost.shape != mc_correction.shape:
                 raise ValueError(
                     f"Expected mc_correction to match the marginal-cost shape "
