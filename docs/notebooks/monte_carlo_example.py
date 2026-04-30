@@ -93,7 +93,7 @@ data['vi_id'] = (data['firm_ids'] == 0).astype(int)
 
 # Partial collusion: firms put weight 0.5 on own-portfolio profits
 def kappa_partial_collusion(f, g):
-    return 0.5 if f == g else 0.0
+    return 1.0 if f == g else 0.5
 
 # Non-profit conduct: welfare weight lambda=0.7 implies kappa = 1/lambda for own-firm product pairs
 def kappa_nonprofit(f, g):
