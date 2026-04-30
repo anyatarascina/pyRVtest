@@ -81,7 +81,7 @@ class Progress:
     F_cv_power_list: Array
     symbols_size_list: Array
     symbols_power_list: Array
-    cost_param: Optional[List[Any]] = None
+    endogenous_cost_coefficient: Optional[NDArray] = None
     tau_list_per_instrument: Optional[List[Any]] = None
 
 
@@ -126,6 +126,10 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             Vector of critical values for size for each pairwise F-statistic.
         F_cv_power_list: `ndarray`
             Vector of critical values for power for each pairwise F-statistic.
+        endogenous_cost_coefficient: `ndarray` or `None`
+            Array of shape ``(L, M)`` containing the 2SLS coefficient on the endogenous cost component for each
+            instrument set and each model. ``None`` when ``Problem`` was constructed without
+            ``endogenous_cost_component``.
 
     Examples
     --------
@@ -157,7 +161,7 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
     F_cv_power_list: Array
     _symbols_size_list: Array
     _symbols_power_list: Array
-    cost_param: Array
+    endogenous_cost_coefficient: Optional[Array]
 
     def __init__(self, progress: 'Progress') -> None:
         self.problem = progress.problem
@@ -179,7 +183,7 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         self.F_cv_power_list = progress.F_cv_power_list
         self._symbols_size_list = progress.symbols_size_list
         self._symbols_power_list = progress.symbols_power_list
-        self.cost_param = progress.cost_param
+        self.endogenous_cost_coefficient = progress.endogenous_cost_coefficient
         self.tau_list_per_instrument = progress.tau_list_per_instrument
         # v0.4 step 14d: propagate market_side from the Problem so __str__
         # can switch to labor-side terminology (markdown / MRP / wage) when
@@ -381,6 +385,67 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             'model_i', 'model_j', 'model_i_label', 'model_j_label',
             'TRV', 'F', 'MCS_pvalue_model_i',
         ])
+
+    def taus_dataframe(self, instrument_set: Optional[int] = None) -> 'pd.DataFrame':
+        """Return per-model exogenous cost-shifter coefficients with column names.
+
+        Maps the entries of ``taus`` (or ``tau_list_per_instrument[instrument_set]``)
+        back to the cost-formulation column names. When
+        ``endogenous_cost_component`` is set, the endogenous column is excluded
+        from the OLS projection and from the resulting coefficient vector, so a
+        position-based labeling against ``cost_formulation`` is wrong; this
+        method handles the exclusion.
+
+        Parameters
+        ----------
+        instrument_set : int, optional
+            If given, label the per-instrument-set coefficients in
+            ``tau_list_per_instrument[instrument_set]`` (only populated when
+            ``endogenous_cost_component`` was set on the Problem). If ``None``
+            (default), label the canonical ``self.taus``.
+
+        Returns
+        -------
+        pd.DataFrame
+            Frame of shape ``(M, K_w_exog)`` indexed by model index, with one
+            column per exogenous cost shifter named after the corresponding
+            ``cost_formulation`` term.
+        """
+        import pandas as pd
+
+        if instrument_set is None:
+            taus_arr = np.asarray(self.taus)
+        else:
+            if self.tau_list_per_instrument is None:
+                raise ValueError(
+                    "Expected tau_list_per_instrument to be populated when "
+                    "instrument_set is given. "
+                    f"Received instrument_set={instrument_set!r} with "
+                    "tau_list_per_instrument=None. "
+                    "Fix: omit the instrument_set argument, or construct the "
+                    "Problem with endogenous_cost_component set."
+                )
+            taus_arr = np.asarray(self.tau_list_per_instrument[instrument_set])
+
+        all_names = [str(f) for f in self.problem._w_formulation]
+        endo = self.problem.endogenous_cost_component
+        if endo is not None:
+            col_names = [name for name in all_names if name != endo]
+        else:
+            col_names = all_names
+
+        if taus_arr.shape[1] != len(col_names):
+            raise RuntimeError(
+                f"Internal: taus has {taus_arr.shape[1]} columns but the "
+                f"exogenous cost formulation has {len(col_names)} terms "
+                f"({col_names}). This indicates a bug in the "
+                f"orthogonalization stage."
+            )
+
+        return pd.DataFrame(
+            taus_arr, columns=col_names,
+            index=pd.Index(range(taus_arr.shape[0]), name='model'),
+        )
 
     def summary_df(self, alpha: float = 0.05) -> 'pd.DataFrame':
         """Return a compact wide-form summary DataFrame.

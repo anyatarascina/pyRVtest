@@ -1487,7 +1487,8 @@ class Problem(Container, StringRepresentation):
         costs_type: Optional[str]
             (optional, default is ``'linear'``) Functional form for marginal cost. ``'linear'`` uses
             :math:`p - \text{markup}` directly; ``'log'`` substitutes :math:`\log(p - \text{markup})` before
-            running the test. Only effective when ``demand_adjustment=False``; ignored otherwise. Raises
+            running the test. Only effective when ``demand_adjustment=False``; emits a ``UserWarning`` and
+            falls back to linear costs when combined with ``demand_adjustment=True``. Raises
             ``ValueError`` if any implied marginal cost is non-positive under ``'log'``.
         mc_correction: Optional[Array]
             *Deprecated since v0.4; will be removed in v0.6.* User-supplied additive correction added to
@@ -1521,7 +1522,7 @@ class Problem(Container, StringRepresentation):
         logger.info("Solving the problem ...")
         step_start_time = time.time()
 
-        self._validate_solve_args(demand_adjustment, clustering_adjustment)
+        self._validate_solve_args(demand_adjustment, clustering_adjustment, costs_type)
 
         M = self.M
         N = self.N
@@ -1604,11 +1605,11 @@ class Problem(Container, StringRepresentation):
         # instrument set; without it, a single orthogonalization is shared
         # across all instrument sets.
         # -----------------------------------------------------------------
-        cost_param = None
+        endogenous_cost_coefficient = None
         if self.endogenous_cost_component is not None:
             logger.info('Computing IV correction for endogenous cost component ...')
             marginal_cost_base = marginal_cost.copy()
-            cost_param = [None] * L
+            endogenous_cost_coefficient = np.empty((L, M), dtype=options.dtype)
             omega_per_instrument = [None] * L
             tau_list_per_instrument = [None] * L
             endog_hat_per_instrument = [None] * L
@@ -1623,7 +1624,8 @@ class Problem(Container, StringRepresentation):
                     markups_orthogonal = mo_l  # identical across instrument sets; keep first
                     marginal_cost = mc_l        # store first instrument's corrected MC for results
                     tau_list = tau_l
-                cost_param[l] = cp_l
+                for m in range(M):
+                    endogenous_cost_coefficient[l, m] = np.asarray(cp_l[m]).ravel()[-1]
                 omega_per_instrument[l] = omega_l
                 tau_list_per_instrument[l] = tau_l
                 endog_hat_per_instrument[l] = endog_hat_l
@@ -1700,15 +1702,18 @@ class Problem(Container, StringRepresentation):
             self, markups, markups_downstream, markups_upstream, markups_orthogonal, marginal_cost,
             tau_list, g_list, Q_list, RV_numerator_list, RV_denominator_list,
             test_statistic_RV_list, F_statistic_list, MCS_p_values_list, rho_list, unscaled_F_statistic_list,
-            F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list, cost_param,
-            tau_list_per_instrument
+            F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list,
+            endogenous_cost_coefficient, tau_list_per_instrument
         ))
         logger.info(f"Solved the problem after {format_seconds(time.time() - step_start_time)}.")
         logger.info("")
         logger.info(str(results))
         return results
 
-    def _validate_solve_args(self, demand_adjustment: bool, clustering_adjustment: bool) -> None:
+    def _validate_solve_args(
+            self, demand_adjustment: bool, clustering_adjustment: bool,
+            costs_type: Optional[str] = 'linear',
+    ) -> None:
         """Validate arguments passed to solve."""
         if not isinstance(demand_adjustment, bool):
             raise TypeError(
@@ -1721,6 +1726,15 @@ class Problem(Container, StringRepresentation):
                 f"Expected clustering_adjustment to be True or False. "
                 f"Received {type(clustering_adjustment).__name__}. "
                 f"Fix: pass clustering_adjustment=True or False."
+            )
+        if costs_type == "log" and demand_adjustment:
+            warnings.warn(
+                "costs_type='log' is ignored when demand_adjustment=True; "
+                "the test will run with linear costs. "
+                "Fix: set demand_adjustment=False to use log costs, "
+                "or pass costs_type='linear' to silence this warning.",
+                UserWarning,
+                stacklevel=3,
             )
         if clustering_adjustment and np.shape(self.products.clustering_ids)[1] != 1:
             raise ValueError(

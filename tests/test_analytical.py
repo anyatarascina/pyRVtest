@@ -764,8 +764,8 @@ class TestAlgebraScaleEconomies:
 
     def test_gamma_estimates(self, data):
         results, expected = data
-        # cost_param[instrument_set][model] contains [tau_exog..., gamma]
+        # endogenous_cost_coefficient is shape (L, M); element [l, m] is gamma for instrument l, model m
         for m in range(2):
-            gamma_pyrvtest = float(results.cost_param[0][m][-1].item())
+            gamma_pyrvtest = float(results.endogenous_cost_coefficient[0, m].item())
             np.testing.assert_allclose(gamma_pyrvtest, expected['gamma'][m], atol=1e-8,
                                        err_msg=f"gamma for model {m} does not match")

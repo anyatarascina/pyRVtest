@@ -7,7 +7,7 @@ then every Step 0 snapshot is also matched by the class-based API — closing
 the v0.4 step 5 loop.
 
 This test runs each scenario twice (legacy, new) and asserts markups, TRV,
-F, MCS_pvalues, cost_param match at machine precision.
+F, MCS_pvalues, endogenous_cost_coefficient match at machine precision.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def _solve_both_ways(common, legacy_formulations, new_models, solve_kwargs):
 
 
 def _assert_full_parity(r_legacy, r_new, scenario: str, atol: float = 1e-14):
-    """Assert markups, TRV, F, MCS_pvalues, cost_param match byte-identically."""
+    """Assert markups, TRV, F, MCS_pvalues, endogenous_cost_coefficient match byte-identically."""
     for m in range(len(r_legacy.markups)):
         np.testing.assert_allclose(
             r_new.markups[m], r_legacy.markups[m], atol=atol,
@@ -51,19 +51,14 @@ def _assert_full_parity(r_legacy, r_new, scenario: str, atol: float = 1e-14):
         r_new.MCS_pvalues, r_legacy.MCS_pvalues, atol=atol, equal_nan=True,
         err_msg=f"[{scenario}] MCS_pvalues diverges",
     )
-    if r_legacy.cost_param is not None and r_new.cost_param is not None:
-        # cost_param is a list (one entry per instrument set) of lists (per model)
-        # of arrays of shape (K_w + 1,). Compare elementwise.
-        for inst in range(len(r_legacy.cost_param)):
-            for m in range(len(r_legacy.cost_param[inst])):
-                np.testing.assert_allclose(
-                    r_new.cost_param[inst][m], r_legacy.cost_param[inst][m],
-                    atol=atol,
-                    err_msg=(
-                        f"[{scenario}] cost_param[inst={inst}, m={m}] "
-                        f"diverges"
-                    ),
-                )
+    legacy_ecc = r_legacy.endogenous_cost_coefficient
+    new_ecc = r_new.endogenous_cost_coefficient
+    if legacy_ecc is not None and new_ecc is not None:
+        # endogenous_cost_coefficient is shape (L, M) — gamma per instrument set and model.
+        np.testing.assert_allclose(
+            new_ecc, legacy_ecc, atol=atol,
+            err_msg=f"[{scenario}] endogenous_cost_coefficient diverges",
+        )
 
 
 # ---------------------------------------------------------------------------
