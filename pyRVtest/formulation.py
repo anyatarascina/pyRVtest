@@ -471,24 +471,3 @@ class ModelFormulation(object):
         # TypeError lazily, as before).
         names: List[Any] = [self._model_downstream, self._model_upstream]
         return ' + '.join(names)
-
-    def _build_matrix(self, data: Mapping[str, Any]) -> Dict[str, Any]:
-        """Convert a mapping from variable names to arrays into a dictionary of model configuration values."""
-        model_mapping: Dict[str, Any] = {}
-        model_mapping.update({
-            'model_downstream': self._model_downstream,
-            'model_upstream': self._model_upstream,
-            'ownership_downstream': self._ownership_downstream,
-            'ownership_upstream': self._ownership_upstream,
-            'custom_model_specification': self._custom_model_specification,
-            'vertical_integration': self._vertical_integration,
-            'unit_tax': self._unit_tax,
-            'advalorem_tax': self._advalorem_tax,
-            'advalorem_payer': self._advalorem_payer,
-            'cost_scaling': self._cost_scaling,
-            'kappa_specification_downstream': self._kappa_specification_downstream,
-            'kappa_specification_upstream': self._kappa_specification_upstream,
-            'user_supplied_markups': self._user_supplied_markups,
-            'mix_flag': self._mix_flag
-        })
-        return model_mapping
