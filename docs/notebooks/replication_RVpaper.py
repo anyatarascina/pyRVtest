@@ -105,9 +105,10 @@ problem = pyblp.Problem((logit,rc), product_data, demo, agent_data)
 rc_result = problem.solve(sigma=initial_sigma,pi=initial_pi,iteration=iteration,
                             optimization=optim, method='1s')
 
+#rc_result.to_pickle("/home/md/Desktop/RVpaper_demand.p")
+#rc_result = pickle.load("/home/md/Desktop/RVpaper_demand.p","rb"))
+
 # %% Data
-#rc_result.to_pickle("/home/md/Desktop/rc_result_main.p")
-#rc_result = pickle.load(open(dpath("SupplyData/rc_result_main.p"),"rb"))
 #product_data = pd.read_csv(dpath('product_data.csv'),low_memory=False)
 
 # Instrument construction
@@ -124,16 +125,15 @@ Cost= (
     pyRV.Formulation('1 + freight_cost', absorb = 'C(brand)+C(quarter)+C(city)' )
     )
 
-Instr=(
+Instr=[
     pyRV.Formulation('0 + blp_instr0 + blp_instr1'),
     pyRV.Formulation('0 +incxlight + agexlight + agexsize'),
     pyRV.Formulation('0 + cost_instr0'),
     pyRV.Formulation('0 + diff_instr0_pca + diff_instr1_pca + diff_instr2_pca + diff_instr3_pca + diff_instr4_pca')
-    )
+    ]
 Models=[
-    pyRV.Bertrand(ownership='firm_ids'),
-    pyRV.Cournot(ownership='firm_ids'),
     pyRV.Monopoly(),
+    pyRV.Bertrand(ownership='firm_ids'),
     pyRV.Vertical(
          downstream=pyRV.Monopoly(ownership='firm_ids'),
          upstream=pyRV.Bertrand(ownership='firm_ids'),
@@ -149,8 +149,8 @@ product_data["clustering_ids"] = product_data.market_ids
 # %% Run test without first stage adjustment
 testing_problem = pyRV.Problem(
     cost_formulation = Cost,
-    instrument_formulation = Instr ,
-    model_formulations = Models,      
+    instrument_formulation = Instr,
+    models = Models,      
     product_data = product_data,
     demand_results = rc_result
     )
