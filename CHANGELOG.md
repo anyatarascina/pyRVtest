@@ -106,6 +106,18 @@ The remaining numpy 2.x item:
   numpy 1 and numpy 2. The `xfail` reason string captures the full
   diagnostic for future readers.
 
+### Removed (post-rc1)
+
+- **`Keystone()` shorthand class.** The `phi=2` shorthand was dropped in
+  favor of writing `RuleOfThumb(phi=2)` directly; the indirection added
+  no math and was a maintenance footgun across the adapter, model
+  registry, and docs. Migration is a one-line search-and-replace:
+  `Keystone()` → `RuleOfThumb(phi=2)`.
+- **`mc_correction` argument to `Problem.solve()`.** Now emits a
+  `DeprecationWarning` pointing at the more general
+  `endogenous_cost_component` argument on `Problem`. Removal scheduled
+  for v0.6.
+
 ### Deferred to v0.4.0 final (tracked, not rc1-blocking)
 
 - Pick a resolution for the `analytical_scale` F-shift (fixture
@@ -191,15 +203,14 @@ v0.4 modulo one-line deprecation warnings.
   Full migration guide in `docs/migrating_to_v0.4.rst` with one-to-one
   recipes for every `ModelFormulation` shape.
 - **Dearing et al. (2026) simple-markup conduct models** (step 12).
-  `RuleOfThumb(phi)` and `Keystone()` (the `phi=2` shorthand) implement
-  the Dearing Example 1 rule :math:`p = \varphi \cdot mc` as an
-  ergonomic wrapper over the existing `cost_scaling` machinery, which
-  v0.4 step 12a extends to accept a numeric scalar in addition to a
-  column name. `ConstantMarkup(markup)` implements Example 7's fixed
-  per-product dollar markup via a new additive-markup plumbing path
-  threaded through the `Models` recarray and `evaluate_first_order_conditions`.
-  All three classes re-exported at the package level
-  (`pyRVtest.RuleOfThumb`, `pyRVtest.Keystone`, `pyRVtest.ConstantMarkup`).
+  `RuleOfThumb(phi)` implements the Dearing Example 1 rule
+  :math:`p = \varphi \cdot mc` as an ergonomic wrapper over the existing
+  `cost_scaling` machinery, which v0.4 step 12a extends to accept a
+  numeric scalar in addition to a column name. `ConstantMarkup(markup)`
+  implements Example 7's fixed per-product dollar markup via a new
+  additive-markup plumbing path threaded through the `Models` recarray
+  and `evaluate_first_order_conditions`. Both classes re-exported at the
+  package level (`pyRVtest.RuleOfThumb`, `pyRVtest.ConstantMarkup`).
   Backward compatibility: the legacy `PerfectCompetition(cost_scaling='lmbda_col')`
   pattern still works unchanged.
 - **Analytical nested-logit Hessian** (step 7). Closed-form

@@ -147,8 +147,7 @@ Library-side v0.4 work is complete. The branch is ready to tag v0.4.0 whenever t
 
 The paper `Falsifying_Models_and_Tax_Instruments` (Dearing, Magnolfi, Quint, Sullivan, Waldfogel, 2026) is now folded into the library.
 
-- `RuleOfThumb(phi)` — `p = ϕ·mc` (Example 1). Ergonomic wrapper over the existing `cost_scaling` machinery, which now accepts a numeric scalar in addition to a column name.
-- `Keystone()` — `RuleOfThumb(phi=2.0)` shorthand (Escudero 2018).
+- `RuleOfThumb(phi)` — `p = ϕ·mc` (Example 1). Ergonomic wrapper over the existing `cost_scaling` machinery, which now accepts a numeric scalar in addition to a column name. (For the `ϕ=2` "Keystone" specification of Escudero 2018, write `RuleOfThumb(phi=2)`.)
 - `ConstantMarkup(markup)` — `∆ⱼₜ = ζⱼ` (Example 7). Accepts a scalar or a column name; introduces a new additive-markup plumbing path.
 - The plan's original `cost_plus` was dropped — mathematically identical to `rule_of_thumb` under a different parameterization.
 - Legacy `PerfectCompetition(cost_scaling='lmbda_col')` still works unchanged.
@@ -209,8 +208,7 @@ Generalizes the unit-tax idea — shifters with known coefficients (per Dearing 
 
 ```python
 # Dearing simple-markup conduct models
-pyRVtest.RuleOfThumb(phi=2.0)
-pyRVtest.Keystone()
+pyRVtest.RuleOfThumb(phi=2.0)          # ϕ=2 was the "Keystone" spec
 pyRVtest.ConstantMarkup(markup=0.5)    # or column name
 
 # Labor-side conduct

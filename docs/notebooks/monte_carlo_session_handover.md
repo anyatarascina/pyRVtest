@@ -26,7 +26,7 @@ The file has been fully rewritten. Here is a summary of every change:
 - Columns prefixed `test_iv0_*` and `test_iv1_*` respectively
 
 ### 3. Dearing et al. (2026) simple-markup models (v0.4 step 12)
-- Added as a separate list `dearing_models`: `Keystone()`, `RuleOfThumb(phi=3.0)`, `ConstantMarkup(markup=0.3)`
+- Added as a separate list `dearing_models`: `RuleOfThumb(phi=2.0)`, `RuleOfThumb(phi=3.0)`, `ConstantMarkup(markup=0.3)`
 - Shown in markup comparison table (full `model_library = model_core + dearing_models`)
 - Tested against Bertrand in a dedicated `dearing_problem` (separate from main test)
 - **Important:** `RuleOfThumb(phi=1.5)` was avoided because it is numerically identical
@@ -40,7 +40,7 @@ The file has been fully rewritten. Here is a summary of every change:
   pipeline needs a demand system to perturb for the first-stage correction.
 
 ### 5. Analytical (demand_params) code path
-- `analytical_problem` built with `demand_params={'beta': [...], 'sigma': [...]}` instead of `demand_results=pyblp_results`
+- `analytical_problem` built with `demand_params={'beta': [...], 'rho': [...]}` instead of `demand_results=pyblp_results`
 - Tests the analytical first-stage correction equivalence (same as `tests/test_first_stage_correction.py`)
 
 ### 6. Passthrough diagnostics (Dearing Remark 4)
@@ -72,7 +72,7 @@ conda run -n pyRVenv python docs/notebooks/monte_carlo_example.py 2>&1 | tail -8
 
 The script uses two model sets:
 - `model_core` (13 models): main `testing_problem`; identical to the v0.3 original set
-- `dearing_models` (3 models): separate `dearing_problem`; Keystone, RuleOfThumb(3.0), ConstantMarkup(0.3)
+- `dearing_models` (3 models): separate `dearing_problem`; RuleOfThumb(2.0), RuleOfThumb(3.0), ConstantMarkup(0.3)
 - `model_library = model_core + dearing_models`: markup comparison table only
 
 This split avoids numerical collinearity in the MCS that arises when 16+ models are tested
