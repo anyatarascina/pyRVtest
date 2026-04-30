@@ -192,7 +192,7 @@ def compute_instrument_results(
         # where u_i = z^r_i * q^e_i, M_corr = W^{3/4} W^+ Z_prec.
         # Term 1 contracts to: M_corr @ u_i * (lambda_q . W^{3/4} g_m)
         # Term 2 contracts to: W^{3/4} lambda_q * (u_i . Z_prec W^+ W^{3/4} g_m)
-        if endog_correction_data is not None:
+        if endog_correction_data is not None and not getattr(problem, '_skip_appendix_b', False):
             z_r, q_e, lambda_q, M_corr, Z_prec, W_plus = endog_correction_data
             W34_gm = W_34 @ g[m]                                       # (K,)
             v = Z_prec @ W_plus @ W34_gm                               # (K,) right-side contraction
