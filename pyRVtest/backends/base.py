@@ -23,7 +23,7 @@ Subsequent sub-steps (3b/3c/3d/3e) populate concrete classes.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Hashable, Iterator, List, Optional, Protocol, Tuple, runtime_checkable
+from typing import Any, Dict, Hashable, Iterator, List, Optional, Protocol, Tuple, runtime_checkable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -179,5 +179,18 @@ class SupportsDemandAdjustment(Protocol):
 
         The market-level Jacobian's derivative w.r.t. demand parameters.
         Used to compute G_m = -(1/N) z' ∇_theta ĥ(θ) via chain rule.
+        """
+        ...
+
+    def jacobian_gradient_all_markets(self) -> Dict[Hashable, _NDArray]:
+        """Return d(D)/d(theta) blocks for every market in one batched pass.
+
+        Returns ``{market_id: (J_t, J_t, n_parameters)}``. For finite-difference
+        backends (e.g. :class:`PyBLPBackend`) this is the
+        speed-critical entry point: it perturbs each ``theta_k`` once across
+        the full pyblp problem and slices the per-market blocks afterwards,
+        reducing the BLP-contraction count from
+        ``O(n_markets * n_parameters)`` to ``O(n_parameters)``. Analytical
+        backends implement it as a thin loop over :meth:`jacobian_gradient`.
         """
         ...

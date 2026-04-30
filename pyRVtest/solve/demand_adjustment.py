@@ -237,13 +237,20 @@ def compute_demand_adjustment(
             analytical_models.append(m)
 
     # --- 2a. Analytical closed-form via implicit differentiation ---
+    #
+    # The per-market dD/dtheta tensor is fetched in ONE batched call rather than
+    # via a per-market loop. For PyBLPBackend this collapses 2 * n_markets *
+    # n_theta finite-difference perturbations down to 2 * n_theta — independent
+    # of n_markets. Analytical backends implement the method as a thin loop, so
+    # there is no behavior change for them.
     if analytical_models:
+        dD_dtheta_per_market = backend.jacobian_gradient_all_markets()
         for t in markets:
             idx = np.where(market_ids == t)[0]
             J_t = idx.shape[0]
             s_t = shares_all[idx]
             D_t = backend.compute_jacobian(market_id=t)   # (J_t, J_t)
-            dD_dtheta = backend.jacobian_gradient(market_id=t)  # (J_t, J_t, n_theta)
+            dD_dtheta = dD_dtheta_per_market[t]            # (J_t, J_t, n_theta)
             for m in analytical_models:
                 model_type = models_downstream[m]
                 ownership_m = ownership_downstream[m]
@@ -253,13 +260,14 @@ def compute_demand_adjustment(
                 else:
                     O_t = np.ones((J_t, J_t))
                 mu_t = markups[m][idx].flatten()
-                for k in range(n_theta):
-                    dD_k = dD_dtheta[:, :, k]
-                    d_mu = _analytical_markup_derivative(
-                        model_type, O_t, D_t, dD_k, s_t, mu_t,
-                        mix_flag_all[m], idx, J_t,
-                    )
-                    gradient_markups[m][idx, k] = d_mu
+                # Vectorized over k: returns (J_t, n_theta) in one call,
+                # avoiding redundant inversions / Schur factorizations that do
+                # not depend on theta.
+                d_mu_all = _analytical_markup_derivative(
+                    model_type, O_t, D_t, dD_dtheta, s_t, mu_t,
+                    mix_flag_all[m], idx, J_t,
+                )
+                gradient_markups[m][idx, :] = d_mu_all
 
     # --- 2b. Finite-diff for vertical / custom models ---
     if finite_diff_models:
@@ -330,36 +338,45 @@ def compute_demand_adjustment(
 
 
 def _analytical_markup_derivative(
-        model_type: str, O_t: _NDArray, D_t: _NDArray, dD_k: _NDArray,
+        model_type: str, O_t: _NDArray, D_t: _NDArray, dD_dtheta: _NDArray,
         s_t: _NDArray, mu_t: _NDArray, mix_flag_m: Any,
         idx: _NDArray, J_t: int,
 ) -> _NDArray:
-    """Implicit-differentiation closed form for d(markup)/d(theta_k) in one market.
+    """Implicit-differentiation closed form for d(markup)/d(theta) in one market.
 
-    Matches the inline algebra in ``Problem._compute_analytical_demand_adjustment``
-    but expresses the alpha column via the same formula as the sigma columns
-    (rather than the ``-mu_t / alpha`` shortcut). The two forms are algebraically
-    identical; numerically they agree to a few ULP, well within test tolerance.
+    Returns ``(J_t, n_theta)`` — every theta column at once. Theta-independent
+    intermediates (``D_inv``, ``D_CC_inv``, ``Schur``) are computed once per
+    call instead of once per theta.
+
+    Matches the inline algebra in the pre-v0.4 ``Problem._compute_analytical_demand_adjustment``;
+    the alpha column uses the same formula as the sigma columns (rather than
+    the ``-mu_t / alpha`` shortcut). The two forms are algebraically identical
+    and numerically agree to a few ULP.
     """
+    n_theta = dD_dtheta.shape[2]
     if model_type == 'bertrand':
+        # d_mu_k = -solve(A, (O_t * dD_k.T) @ mu_t); broadcast over k.
         A = O_t * D_t.T
-        dA = O_t * dD_k.T
-        bertrand_result: _NDArray = -np.linalg.solve(A, dA @ mu_t)
-        return bertrand_result
+        # (O_t * dD_k.T) for all k via einsum: dA[i, j, k] = O_t[i, j] * dD_dtheta[j, i, k].
+        dA_all = O_t[..., None] * dD_dtheta.transpose(1, 0, 2)
+        # rhs[i, k] = sum_j dA_all[i, j, k] * mu_t[j]
+        rhs = np.einsum('ijk,j->ik', dA_all, mu_t)
+        return -np.linalg.solve(A, rhs)
     if model_type == 'cournot':
         D_inv = np.linalg.inv(D_t)
-        dD_inv = -D_inv @ dD_k @ D_inv
-        cournot_result: _NDArray = -(O_t * dD_inv) @ s_t
-        return cournot_result
+        # dD_inv[:, :, k] = -D_inv @ dD_dtheta[:, :, k] @ D_inv (vectorized over k)
+        dD_inv = -np.einsum('ij,jln,lm->imn', D_inv, dD_dtheta, D_inv)
+        # d_mu[:, k] = -(O_t * dD_inv[:, :, k]) @ s_t  ⇒  einsum collapse j with s_t
+        return -np.einsum('ij,ijk,j->ik', O_t, dD_inv, s_t)
     if model_type == 'monopoly':
-        dA = dD_k.T
-        monopoly_result: _NDArray = -np.linalg.solve(D_t.T, dA @ mu_t)
-        return monopoly_result
+        # rhs[i, k] = sum_j dD_dtheta[j, i, k] * mu_t[j]
+        rhs = np.einsum('jik,j->ik', dD_dtheta, mu_t)
+        return -np.linalg.solve(D_t.T, rhs)
     if model_type == 'mix_cournot_bertrand':
         b_t = mix_flag_m[idx].flatten().astype(bool)
         c_t = ~b_t
         if not (c_t.any() and b_t.any()):
-            return np.zeros(J_t)
+            return np.zeros((J_t, n_theta))
         D_BB = D_t[np.ix_(b_t, b_t)]
         D_BC = D_t[np.ix_(b_t, c_t)]
         D_CB = D_t[np.ix_(c_t, b_t)]
@@ -367,26 +384,34 @@ def _analytical_markup_derivative(
         D_CC_inv = np.linalg.inv(D_CC)
         O_BB = O_t[np.ix_(b_t, b_t)]
         O_CC = O_t[np.ix_(c_t, c_t)]
-        dD_BB = dD_k[np.ix_(b_t, b_t)]
-        dD_BC = dD_k[np.ix_(b_t, c_t)]
-        dD_CB = dD_k[np.ix_(c_t, b_t)]
-        dD_CC = dD_k[np.ix_(c_t, c_t)]
-        # Cournot block
-        dD_CC_inv = -D_CC_inv @ dD_CC @ D_CC_inv
-        d_mu_C = -(O_CC * dD_CC_inv) @ s_t[c_t]
-        # Bertrand block via Schur complement
+        # Slice dD blocks once with full theta axis.
+        dD_BB = dD_dtheta[np.ix_(b_t, b_t)]   # (|B|, |B|, n_theta)
+        dD_BC = dD_dtheta[np.ix_(b_t, c_t)]
+        dD_CB = dD_dtheta[np.ix_(c_t, b_t)]
+        dD_CC = dD_dtheta[np.ix_(c_t, c_t)]
+        # Cournot block — vectorized over theta.
+        dD_CC_inv = -np.einsum('ij,jln,lm->imn', D_CC_inv, dD_CC, D_CC_inv)
+        d_mu_C = -np.einsum('ij,ijk,j->ik', O_CC, dD_CC_inv, s_t[c_t])
+        # Bertrand block via Schur complement — only dSchur depends on theta.
         Schur = D_BC @ D_CC_inv @ D_CB + D_BB
-        dSchur = (dD_BC @ D_CC_inv @ D_CB + D_BC @ dD_CC_inv @ D_CB
-                  + D_BC @ D_CC_inv @ dD_CB + dD_BB)
+        DCC_inv_DCB = D_CC_inv @ D_CB
+        D_BC_DCC_inv = D_BC @ D_CC_inv
+        dSchur = (
+            np.einsum('ijk,jl->ilk', dD_BC, DCC_inv_DCB)
+            + np.einsum('ij,jmk,ml->ilk', D_BC, dD_CC_inv, D_CB)
+            + np.einsum('ij,jlk->ilk', D_BC_DCC_inv, dD_CB)
+            + dD_BB
+        )
         A_B = O_BB * Schur
-        dA_B = O_BB * dSchur
-        d_mu_B = -np.linalg.solve(A_B, dA_B @ mu_t[b_t])
-        d_mu = np.zeros(J_t)
-        d_mu[b_t] = d_mu_B.flatten()
-        d_mu[c_t] = d_mu_C.flatten()
+        dA_B = O_BB[..., None] * dSchur
+        rhs_B = np.einsum('ijk,j->ik', dA_B, mu_t[b_t])
+        d_mu_B = -np.linalg.solve(A_B, rhs_B)
+        d_mu = np.zeros((J_t, n_theta))
+        d_mu[b_t, :] = d_mu_B
+        d_mu[c_t, :] = d_mu_C
         return d_mu
     # Perfect competition, constant-markup, or unknown model type: zero gradient.
-    return np.zeros(J_t)
+    return np.zeros((J_t, n_theta))
 
 
 def _perturb_and_rebuild_markups(
@@ -444,15 +469,15 @@ def _residualize_grad_on_cost_shifters(
         if w_absorbed.any() else None
     )
 
+    # Vectorize over k — absorb / project the full (N, n_theta) per-model
+    # block in one shot rather than one column at a time.
     for m in range(M):
-        for k in range(n_theta):
-            col = gradient_markups[m][:, k]
-            if problem._absorb_cost_ids is not None:
-                col, _ = problem._absorb_cost_ids(col.reshape(-1, 1))
-                col = col.flatten()
-            if Q_w is not None:
-                col = col - Q_w @ (Q_w.T @ col)
-            gradient_markups[m][:, k] = col
+        G = gradient_markups[m]   # (N, n_theta)
+        if problem._absorb_cost_ids is not None:
+            G, _ = problem._absorb_cost_ids(G)
+        if Q_w is not None:
+            G = G - Q_w @ (Q_w.T @ G)
+        gradient_markups[m] = G
 
 
 def _compute_gamma_gradient(

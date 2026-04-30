@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import Any, Iterator, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
 import numpy as np
 from pyblp.utilities.basics import Array
@@ -682,6 +682,19 @@ class LogitBackend:
         Z_D = self._build_Z_D()
         W_D = self._compute_W_D(Z_D, N)
         return _residualize_on_xd(dxi_dtheta, X_D, Z_D, W_D)
+
+    def jacobian_gradient_all_markets(self) -> Dict[Any, Array]:
+        """Return ``{market_id: (J_t, J_t, n_theta)}`` for every market.
+
+        Loop wrapper over :meth:`jacobian_gradient`. Trivial for analytical
+        backends (no batched speed gain), but matches the
+        ``jacobian_gradient_all_markets`` method on :class:`PyBLPBackend`
+        so the unified ``compute_demand_adjustment`` only needs one code path.
+        """
+        market_ids = np.asarray(self._product_data['market_ids']).flatten()
+        markets = np.unique(market_ids)
+        out: Dict[Any, Array] = {t: self.jacobian_gradient(t) for t in markets}
+        return out
 
     def jacobian_gradient(self, market_id: Any) -> Array:
         """Return ∂D/∂theta for one market, shape ``(J_t, J_t, 1 + L)``.

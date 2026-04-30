@@ -227,6 +227,52 @@ class PyBLPBackend:
         # v0.4 step 4b: shared 2SLS-residualize helper (single source of truth).
         return _residualize_on_xd(partial_y_theta, XD, ZD, WD)
 
+    def jacobian_gradient_all_markets(self) -> Dict[Any, _NDArray]:
+        """Finite-difference d(D)/d(theta) for every market in one batched pass.
+
+        Returns a dict ``{market_id: (J_t, J_t, n_theta)}``. The outer
+        analytical-derivative loop in
+        :func:`pyRVtest.solve.demand_adjustment.compute_demand_adjustment`
+        previously called :meth:`jacobian_gradient` per market, which made the
+        BLP contraction count scale as ``n_markets * 2 * n_theta``. Pyblp's
+        perturbation state is global (a single ``compute_delta`` after a
+        parameter shift updates the full stacked Jacobian), so each ``theta_k``
+        only needs ``2`` perturbations (``+eps/2`` and ``-eps/2``) regardless
+        of how many markets the data spans. This method does exactly that and
+        slices the per-market blocks afterwards.
+
+        Numerical equivalence: each per-market block matches the corresponding
+        per-market call of :meth:`jacobian_gradient` to floating-point
+        precision (the same +/-eps/2 perturbations are used).
+        """
+        eps = options.finite_differences_epsilon
+        n_theta = self.n_parameters
+        market_ids = self._results.problem.products.market_ids.flatten()
+        markets = np.unique(market_ids)
+
+        # 2 * n_theta full pyblp Jacobian recomputes — independent of n_markets.
+        jac_plus_full: List[_NDArray] = []
+        jac_minus_full: List[_NDArray] = []
+        for k in range(n_theta):
+            with self.perturbed(k, +eps / 2):
+                jac_plus_full.append(self.compute_jacobian())
+            with self.perturbed(k, -eps / 2):
+                jac_minus_full.append(self.compute_jacobian())
+
+        out: Dict[Any, _NDArray] = {}
+        for t in markets:
+            idx = np.where(market_ids == t)[0]
+            J_t = idx.size
+            grad_t = np.empty((J_t, J_t, n_theta), dtype=options.dtype)
+            for k in range(n_theta):
+                bp = jac_plus_full[k][idx]
+                bp = bp[:, ~np.isnan(bp).all(axis=0)]
+                bm = jac_minus_full[k][idx]
+                bm = bm[:, ~np.isnan(bm).all(axis=0)]
+                grad_t[:, :, k] = (bp - bm) / eps
+            out[t] = grad_t
+        return out
+
     def jacobian_gradient(self, market_id: Any) -> _NDArray:
         """Finite-difference approximation of d(D)/d(theta) in one market.
 
