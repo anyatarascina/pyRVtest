@@ -413,7 +413,19 @@ def compute_instrument_results(
             covariance_mc[m, i] = moments[2]
             covariance_mc[m, m] = moments[1]
             covariance_mc[i, i] = moments[0]
-            test_statistic_denominator[i, m] = math.sqrt(4 * (operations.T @ moments))
+            # operations.T @ moments = Var(g_i - g_m), which is positive-
+            # semi-definite by construction. At extreme cancellation
+            # (near-identical model moments), float-rounding can push the
+            # value slightly below zero. Treat any negative value as
+            # numerically degenerate and propagate NaN downstream rather
+            # than raising a ValueError from math.sqrt — the cell is
+            # already in the trivially-degenerate regime where the test
+            # is undefined.
+            quad_form = float(operations.T @ moments)
+            if quad_form < 0:
+                test_statistic_denominator[i, m] = np.nan
+            else:
+                test_statistic_denominator[i, m] = math.sqrt(4 * quad_form)
 
     # RV test statistic (upper triangle only; lower triangle and diagonal are NaN)
     rv_test_statistic = np.full((M, M), np.nan)
@@ -581,8 +593,19 @@ def compute_instrument_results(
             # exposes the latent bug. Return NaN critical values and a
             # blank significance symbol — the test statistic itself is
             # NaN in this regime, which is semantically correct.
+            # Trivially-degenerate gate. Fires when EITHER:
+            #   * ρ̂² is NaN — identical-markup boundary (ρ̂² formula is
+            #     0/0 because the V matrix is rank-deficient).
+            #   * test_statistic_denominator is NaN — the RV variance
+            #     Var(g_i - g_m) went numerically below zero from
+            #     extreme cancellation. The RV test statistic is then
+            #     undefined regardless of the F-stat path. We propagate
+            #     the trivially-degenerate label rather than letting
+            #     the F-stat verdict claim "robust" on a cell whose
+            #     test conclusion is fundamentally NaN.
             rho_val = rho[i, m]
-            if np.isnan(rho_val):
+            denom_val = test_statistic_denominator[i, m]
+            if np.isnan(rho_val) or np.isnan(denom_val):
                 F_cv_size[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
                 F_cv_power[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
                 symbols_size[i, m] = " "
