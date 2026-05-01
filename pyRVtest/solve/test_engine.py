@@ -703,6 +703,16 @@ def compute_instrument_results(
                 strongest_claim_power[i, m] = None
                 worst_case_cv_size[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
                 worst_case_cv_power[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
+                # Propagate NaN to F and the high-precision recompute too:
+                # if the test is undefined, any F we'd otherwise display
+                # (including the value mpmath came up with at extreme
+                # cancellation) is misleading. Keep F consistent with the
+                # verdict so the user doesn't see "F = 0.73" alongside
+                # verdict = trivially-degenerate.
+                F[i, m] = np.nan
+                rho[i, m] = np.nan
+                F_high_precision[i, m] = np.nan
+                rho_squared_high_precision[i, m] = np.nan
                 continue
             rho_lookup = min(np.round(np.abs(rho_val), 2), 0.99)
             K_lookup = min(K_effective, 30)  # warning for K>30 fired above

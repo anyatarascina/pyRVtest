@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
 
 # ----------------------------------------------------------------------
-# F-stat reliability footer helpers (2026-05-01 final).
+# Pairwise-notes footer helpers (2026-05-01 final).
 #
 # Verdict tiers (three tiers + degenerate guard):
 #   - "robust"               : F-hat clears at least one plug-in CV
@@ -60,61 +60,116 @@ if TYPE_CHECKING:
 #   - "trivially-degenerate" : rho-hat or RV-variance is NaN
 #                              (identical-markup boundary)
 #
-# When mpmath fired (lambda < 1e-10), the F-hat and rho-hat values
-# stored on results.F and results.rho are the *high-precision* ones --
-# the swap is transparent. F_high_precision and rho_squared_high_precision
-# columns let users inspect what the swap was.
+# When mpmath fired (lambda < 1e-10), the F-hat and rho-hat values stored
+# on results.F and results.rho are the *high-precision* ones — the swap
+# is transparent. F_high_precision and rho_squared_high_precision columns
+# let users inspect what the swap was.
+#
+# Footer surfaces three concrete user-facing notes. None says "warning";
+# they describe what's true about the user's setup or what the engine did:
+#   * recomputed with extra precision  — mpmath replaced the F/ρ̂² we report
+#   * indistinguishable                — the test is undefined for this pair
+#   * weakly separated                 — the test still works but with limited
+#                                         power to discriminate these models
+# Section appears only when at least one note fires; nothing is rendered
+# when all pairs are robust and no extra-precision recompute happened.
 # ----------------------------------------------------------------------
 
 
-def _low_lambda_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
-    """Build the low-lambda informational footnote.
+def _format_pair_clause(cells: List[Dict[str, Any]], key_pair_label: str) -> str:
+    """Compose ``"N pair[s] (key)"`` for the lead line of a footnote.
 
-    Fires on cells where lambda < LAMBDA_DESCRIPTIVE_THRESHOLD (0.05) -- a
-    descriptive note that rho-hat is in the cancellation regime, i.e.,
-    the user's models are similar through these instruments.
-
-    This is informational only. The verdict already accounts for any
-    numerical precision issues (via the mpmath swap at lambda < 1e-10);
-    this footnote describes the *geometry*, not a precision concern.
+    For a single cell, ``"1 pair (i, j)"`` (the only pair is the key).
+    For multiple cells, ``"N pairs (key_pair_label: (i, j))"`` so the
+    user can locate the most-relevant case in F_reliability_summary().
+    The caller passes ``key_pair_label`` (e.g. ``"least separated"``)
+    and chooses which cell is the "key" by sorting ``cells`` upstream.
     """
     n = len(cells)
-    suffix = '' if n == 1 else 's'
-    min_lambda = min(c['lambda'] for c in cells if np.isfinite(c['lambda']))
+    if n == 1:
+        i, j = cells[0]['pair']
+        return f"1 pair ({i}, {j})"
+    key_i, key_j = cells[0]['pair']  # caller-sorted; index 0 is the key
+    return f"{n} pairs ({key_pair_label}: ({key_i}, {key_j}))"
+
+
+def _extra_precision_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
+    """``recomputed with extra precision`` footnote.
+
+    Fires on cells where lambda < LAMBDA_PRECISION_THRESHOLD (1e-10);
+    the engine swapped to mpmath transparently and the F / rho^2 the user
+    sees in the test table are the high-precision values. Order cells by
+    ascending lambda so the "most-cancellation" pair leads.
+    """
+    cells = sorted(cells, key=lambda c: c['lambda'])
+    pair_clause = _format_pair_clause(cells, key_pair_label='most cancellation')
     return [
+        [f"  recomputed with extra precision: {pair_clause}."],
         [
-            f"  low-separation geometry ({n} cell{suffix}): smallest lambda "
-            f"= {min_lambda:.3f}."
-        ],
-        [
-            "     rho-hat is computed near the Cauchy-Schwarz cancellation "
-            "boundary -- your models are similar through these instruments. "
-            "Informational only; the F-vs-CV verdict above is unaffected. "
-            "See F_reliability_summary() for per-cell detail."
+            "    Float64 was insufficient; reported F and ρ̂² are "
+            "higher-precision values."
         ],
     ]
 
 
-def _high_precision_used_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
-    """Build the footnote noting when the mpmath safety net fired.
+def _indistinguishable_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
+    """``indistinguishable`` footnote.
 
-    Fires on cells where lambda < LAMBDA_PRECISION_THRESHOLD (1e-10) and
-    F-hat / rho-hat were transparently replaced with mpmath values. The
-    swap is invisible to the verdict (which uses the high-precision
-    values), but worth a footnote so users know the safety net engaged.
+    Fires on cells where the verdict is ``trivially-degenerate``: the
+    pair of models produces identical instrument-projected moments, so
+    the RV test (and therefore F, TRV, MCS) are undefined. Order by
+    ascending pair indices for stable display.
     """
-    n = len(cells)
-    suffix = '' if n == 1 else 's'
+    cells = sorted(cells, key=lambda c: c['pair'])
+    pair_clause = _format_pair_clause(cells, key_pair_label='first')
     return [
+        [f"  indistinguishable: {pair_clause}."],
         [
-            f"  high-precision computation used ({n} cell{suffix}): F-hat "
-            f"and rho-hat were recomputed via mpmath."
+            "    Models produce the same markups; F and TRV are undefined."
         ],
+    ]
+
+
+def _weakly_separated_lines(
+        cells: List[Dict[str, Any]], has_other_categories: bool,
+) -> List[List[str]]:
+    """``weakly separated by these instruments`` footnote.
+
+    Fires on pairs with lambda < LAMBDA_DESCRIPTIVE_THRESHOLD (0.05)
+    that did NOT also fall into the indistinguishable or extra-precision
+    buckets (caller does the de-duplication). Describes a property of
+    the user's modelling setup, not a problem with the engine: through
+    these instruments the two models look similar, so even a robust
+    test verdict comes with limited discrimination power.
+
+    When ``has_other_categories`` is True, the count is qualified as
+    ``N other pair[s]`` so the user reads it as additional pairs beyond
+    those already mentioned in the indistinguishable / extra-precision
+    notes (which are pre-filtered out of ``cells``).
+    """
+    cells = sorted(cells, key=lambda c: c['lambda'])
+    n = len(cells)
+    if n == 1:
+        i, j = cells[0]['pair']
+        if has_other_categories:
+            pair_clause = f"1 other pair ({i}, {j})"
+        else:
+            pair_clause = f"1 pair ({i}, {j})"
+    else:
+        key_i, key_j = cells[0]['pair']  # smallest lambda
+        if has_other_categories:
+            pair_clause = (
+                f"{n} other pairs (least separated: ({key_i}, {key_j}))"
+            )
+        else:
+            pair_clause = (
+                f"{n} pairs (least separated: ({key_i}, {key_j}))"
+            )
+    return [
+        [f"  weakly separated by these instruments: {pair_clause}."],
         [
-            "     Float64 cancellation in D_rho would have left fewer than "
-            "~6 significant figures in F-hat. Verdict uses the high-precision "
-            "values; double-precision originals stored on F_high_precision / "
-            "rho_squared_high_precision columns for inspection."
+            "    Test outcomes still valid; consider whether other "
+            "instruments separate these candidates better."
         ],
     ]
 
@@ -384,23 +439,25 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         )
 
     def _build_F_reliability_footer(self) -> List[List[str]]:
-        """Build the F-stat reliability footer aggregated across all instrument sets.
+        """Build the ``Pairwise notes:`` footer aggregated across instrument sets.
 
         Returns a list of rows (each a list of strings, the first is the
         line text) suitable for ``format_table(extra_notes=...)``. Returns
-        an empty list when the diagnostic was not computed (older pickles).
-        Returns a single one-line "all robust" row when no cell is flagged.
+        an empty list when the diagnostic was not computed OR when no
+        pairwise note fires (no all-clear line — silence means no
+        actionable issue).
         """
         if getattr(self, 'verdict', None) is None:
             return []
 
         # Walk all (j, k, i) cells, collect verdicts and per-cell numbers.
-        flagged_weak: List[Dict[str, Any]] = []
-        flagged_trivially: List[Dict[str, Any]] = []
-        flagged_low_lambda: List[Dict[str, Any]] = []     # descriptive footnote
-        flagged_high_precision: List[Dict[str, Any]] = []  # mpmath swap fired
-        max_rho2 = 0.0
-        min_lambda = 1.0
+        # Three categories of notes (de-duplicated below):
+        #   * trivially_pairs    — verdict = trivially-degenerate
+        #   * extra_precision_pairs — mpmath swap fired (lambda < 1e-10)
+        #   * weakly_separated_pairs — lambda < 0.05 AND not in either above
+        trivially_pairs: List[Dict[str, Any]] = []
+        extra_precision_pairs: List[Dict[str, Any]] = []
+        low_lambda_pairs: List[Dict[str, Any]] = []  # pre-dedup pool
         any_valid = False
         for j in range(len(self.verdict)):
             verdict_j = self.verdict[j]
@@ -449,15 +506,11 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                     any_valid = True
                     rho_val = rho_j[k, i]
                     rho_squared_val = float(rho_val ** 2) if np.isfinite(rho_val) else float('nan')
-                    if np.isfinite(rho_val):
-                        max_rho2 = max(max_rho2, rho_val ** 2)
                     lambda_val = (
                         float(lambda_j[k, i])
                         if lambda_j is not None and np.isfinite(lambda_j[k, i])
                         else float('nan')
                     )
-                    if np.isfinite(lambda_val):
-                        min_lambda = min(min_lambda, lambda_val)
 
                     # For cell info: identify the "relevant CV" pair (plug-in
                     # vs worst-case at the strongest claim).
@@ -521,65 +574,62 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                         'worst_case_cv': worst_case_cv,
                     }
 
-                    if v == 'weak':
-                        flagged_weak.append(cell_info)
-                    elif v == 'trivially-degenerate':
-                        flagged_trivially.append(cell_info)
-                    # 'robust' verdicts skip the flag list but still
-                    # contribute to max_rho2 / min_lambda above.
+                    if v == 'trivially-degenerate':
+                        trivially_pairs.append(cell_info)
+                    # 'robust' and 'weak' verdicts are the standard test
+                    # outcomes (DMSS pass / fail) and don't generate
+                    # pairwise notes. Only 'trivially-degenerate' does,
+                    # since it signals the test is undefined for that
+                    # pair.
 
-                    # Descriptive footnotes (not verdict tiers).
+                    # Pre-dedup pools for the lambda-based notes.
                     from ..solve.test_engine import (
                         LAMBDA_DESCRIPTIVE_THRESHOLD,
                         LAMBDA_PRECISION_THRESHOLD,
                     )
                     if (np.isfinite(lambda_val)
                             and lambda_val < LAMBDA_DESCRIPTIVE_THRESHOLD):
-                        flagged_low_lambda.append(cell_info)
-                    # When the mpmath swap fired, F_high_precision is
-                    # finite. Surface this as a footnote so users know
-                    # the safety net engaged.
+                        low_lambda_pairs.append(cell_info)
                     if (np.isfinite(F_hp_val)
                             and np.isfinite(lambda_val)
                             and lambda_val < LAMBDA_PRECISION_THRESHOLD):
-                        flagged_high_precision.append(cell_info)
+                        extra_precision_pairs.append(cell_info)
 
         if not any_valid:
             return []
 
-        any_flagged = bool(
-            flagged_weak or flagged_trivially
-            or flagged_low_lambda or flagged_high_precision
+        # De-duplicate: weakly_separated excludes pairs already counted
+        # by trivially-degenerate or extra-precision. Same pair
+        # shouldn't appear in two notes.
+        accounted_pairs = {
+            (c['instrument_set'], c['pair']) for c in trivially_pairs
+        } | {
+            (c['instrument_set'], c['pair']) for c in extra_precision_pairs
+        }
+        weakly_separated_pairs = [
+            c for c in low_lambda_pairs
+            if (c['instrument_set'], c['pair']) not in accounted_pairs
+        ]
+
+        any_note = bool(
+            extra_precision_pairs or trivially_pairs or weakly_separated_pairs
         )
+        if not any_note:
+            return []
+
         rows: List[List[str]] = []
+        rows.append(["Pairwise notes:"])
 
-        if not any_flagged:
-            rows.append([
-                "F-stat reliability: all cells robust "
-                f"(max rho^2 = {max_rho2:.2f}, min lambda = {min_lambda:.2f})."
-            ])
-            return rows
-
-        # Header for the reliability section
-        rows.append(["F-stat reliability:"])
-
-        if flagged_weak:
-            n = len(flagged_weak)
-            rows.append([
-                f"  weak ({n} cell{'s' if n != 1 else ''}): F clears no plug-in CV; "
-                f"no strength claim available."
-            ])
-        if flagged_trivially:
-            n = len(flagged_trivially)
-            rows.append([
-                f"  trivially-degenerate ({n} cell{'s' if n != 1 else ''}): "
-                f"identical markups across the model pair; F undefined."
-            ])
-        if flagged_low_lambda:
-            rows.extend(_low_lambda_lines(flagged_low_lambda))
-        if flagged_high_precision:
-            rows.extend(_high_precision_used_lines(flagged_high_precision))
-        rows.append(["  See: results.F_reliability_summary() for per-cell detail."])
+        # Order: extra-precision (most material) -> indistinguishable ->
+        # weakly separated (descriptive context).
+        if extra_precision_pairs:
+            rows.extend(_extra_precision_lines(extra_precision_pairs))
+        if trivially_pairs:
+            rows.extend(_indistinguishable_lines(trivially_pairs))
+        if weakly_separated_pairs:
+            has_other = bool(extra_precision_pairs or trivially_pairs)
+            rows.extend(_weakly_separated_lines(weakly_separated_pairs, has_other))
+        rows.append(["  Detail: results.F_reliability_summary()."])
         return rows
 
     def to_pickle(self, path: Union[str, Path]) -> None:

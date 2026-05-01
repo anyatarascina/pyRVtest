@@ -647,15 +647,34 @@ class TestPlugInDependentDisplay:
 class TestPrintedOutputIntegration:
     """Phase 2: glyphs and footer in printed __str__ output."""
 
-    def test_string_includes_reliability_section(self):
-        """The printed output should always include an F-stat reliability footer
-        — either the all-clear line or one or more flagged-verdict lines."""
+    def test_pairwise_notes_section_appears_when_relevant(self):
+        """When a pair triggers any of the three notes (extra-precision,
+        indistinguishable, weakly separated), the printed output gains a
+        `Pairwise notes:` section. When nothing fires, the section is
+        absent — silence means the test is clean.
+        """
         df = _make_tiny_dgp()
         results = _solve_two_models(df)
         out = str(results)
-        assert 'F-stat reliability' in out, (
-            f"expected 'F-stat reliability' in printed output, got:\n{out}"
+        # The tiny DGP has near-collinear models in a small sample, so
+        # at least one pair will trigger weakly-separated. If nothing
+        # fires (rare for this fixture), the section is absent — also
+        # acceptable.
+        has_note = any(
+            np.isfinite(lam) and lam < 0.05
+            for j in range(len(results.lambda_dmss))
+            for lam in np.asarray(results.lambda_dmss[j]).flatten()
         )
+        if has_note:
+            assert 'Pairwise notes:' in out, (
+                f"expected 'Pairwise notes:' in printed output when a "
+                f"note fires; got:\n{out}"
+            )
+        else:
+            assert 'Pairwise notes:' not in out, (
+                f"expected 'Pairwise notes:' absent when no note fires; "
+                f"got:\n{out}"
+            )
 
     def test_warning_glyph_appears_for_non_robust_cells(self):
         """Cells with verdict != robust should have a `⚠` marker on F."""
