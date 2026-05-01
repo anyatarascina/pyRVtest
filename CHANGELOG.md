@@ -191,17 +191,21 @@ v0.4 modulo one-line deprecation warnings.
   Full migration guide in `docs/migrating_to_v0.4.rst` with one-to-one
   recipes for every `ModelFormulation` shape.
 - **Dearing et al. (2026) simple-markup conduct models** (step 12).
-  `RuleOfThumb(phi)` and `Keystone()` (the `phi=2` shorthand) implement
-  the Dearing Example 1 rule :math:`p = \varphi \cdot mc` as an
-  ergonomic wrapper over the existing `cost_scaling` machinery, which
-  v0.4 step 12a extends to accept a numeric scalar in addition to a
-  column name. `ConstantMarkup(markup)` implements Example 7's fixed
-  per-product dollar markup via a new additive-markup plumbing path
-  threaded through the `Models` recarray and `evaluate_first_order_conditions`.
-  All three classes re-exported at the package level
-  (`pyRVtest.RuleOfThumb`, `pyRVtest.Keystone`, `pyRVtest.ConstantMarkup`).
+  `RuleOfThumb(phi)` implements the Dearing Example 1 rule
+  :math:`p = \varphi \cdot mc` as an ergonomic wrapper over the
+  existing `cost_scaling` machinery, which v0.4 step 12a extends to
+  accept a numeric scalar in addition to a column name.
+  `ConstantMarkup(markup)` implements Example 7's fixed per-product
+  dollar markup via a new additive-markup plumbing path threaded
+  through the `Models` recarray and `evaluate_first_order_conditions`.
+  Both classes re-exported at the package level
+  (`pyRVtest.RuleOfThumb`, `pyRVtest.ConstantMarkup`).
   Backward compatibility: the legacy `PerfectCompetition(cost_scaling='lmbda_col')`
   pattern still works unchanged.
+
+  *Note:* an earlier draft of this changelog also mentioned a
+  `Keystone()` alias for `RuleOfThumb(phi=2)`; that alias was dropped
+  before release (commit `e7ea1e3`). Use `RuleOfThumb(phi=2)` directly.
 - **Analytical nested-logit Hessian** (step 7). Closed-form
   `compute_analytical_hessian` in `backends/logit.py` for plain logit
   and single-scalar-rho nested logit. Per-nest rho (Cardell-Nevo),

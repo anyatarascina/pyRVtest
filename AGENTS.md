@@ -58,7 +58,7 @@ pyRVtest/
 │   ├── collusion.py        # PartialCollusion
 │   ├── custom.py           # CustomConductModel
 │   ├── vertical.py         # Vertical composer (bilateral oligopoly)
-│   ├── constant.py         # RuleOfThumb, Keystone, ConstantMarkup (Dearing 2026, step 12)
+│   ├── constant.py         # RuleOfThumb, ConstantMarkup (Dearing 2026, step 12)
 │   ├── labor.py            # Monopsony, BertrandWages, CournotEmployment, NashBargaining (step 14a)
 │   └── _adapter.py         # Legacy ModelFormulation → ConductModel translation (step 5c)
 ├── solve/
@@ -295,8 +295,9 @@ by purpose:
   `Cournot`, `Monopoly`, `PerfectCompetition`, `MixCournotBertrand`,
   `PartialCollusion`, `CustomConductModel`, `Vertical`.
 - **v0.4 Dearing simple-markup models (step 12):** `RuleOfThumb`,
-  `Keystone`, `ConstantMarkup` (Dearing, Magnolfi, Quint, Sullivan,
-  and Waldfogel 2026, Examples 1 and 7).
+  `ConstantMarkup` (Dearing, Magnolfi, Quint, Sullivan, and Waldfogel
+  2026, Examples 1 and 7). Use `RuleOfThumb(phi=2)` for the special
+  case (the earlier `Keystone()` alias was dropped in commit `e7ea1e3`).
 - **v0.4 labor-side models (step 14a):** `Monopsony`, `BertrandWages`,
   `CournotEmployment`, `NashBargaining` (raises `NotImplementedError`
   in v0.4; full formula deferred to v0.5).
