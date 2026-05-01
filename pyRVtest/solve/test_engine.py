@@ -672,20 +672,28 @@ def compute_instrument_results(
                 else:
                     rho[i, m] = np.nan
 
-            # Trivially-degenerate gate. Fires when EITHER:
+            # Trivially-degenerate gate. Fires when ANY of:
             #   * ρ̂² is NaN — identical-markup boundary (ρ̂² formula is
             #     0/0 because the V matrix is rank-deficient). Even
-            #     mpmath gives NaN here.
+            #     mpmath gives NaN here unless the swap rescued it.
             #   * test_statistic_denominator is NaN — the RV variance
             #     Var(g_i - g_m) went numerically below zero from
-            #     extreme cancellation. The RV test statistic is then
-            #     undefined regardless of the F-stat path. We propagate
-            #     the trivially-degenerate label rather than letting
-            #     the F-stat verdict claim "robust" on a cell whose
-            #     test conclusion is fundamentally NaN.
+            #     extreme cancellation (caught by the math.sqrt guard
+            #     earlier in the pipeline).
+            #   * test_statistic_denominator is 0 — RV variance
+            #     Var(g_i - g_m) is exactly zero in float64. Happens
+            #     when models produce literally-identical markups.
+            #   * rv_test_statistic is NaN — derived from 0/0 of
+            #     numerator/denominator, signalling the RV test is
+            #     undefined regardless of how F-hat looks.
+            # Any of these means the test for this pair is undefined;
+            # propagate trivially-degenerate so the F-stat path doesn't
+            # claim "robust" on a cell whose RV is NaN.
             rho_val = rho[i, m]
             denom_val = test_statistic_denominator[i, m]
-            if np.isnan(rho_val) or np.isnan(denom_val):
+            trv_val = rv_test_statistic[i, m]
+            if (np.isnan(rho_val) or np.isnan(denom_val)
+                    or denom_val == 0 or np.isnan(trv_val)):
                 F_cv_size[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
                 F_cv_power[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
                 symbols_size[i, m] = " "
@@ -848,10 +856,39 @@ def compute_mcs(
     Moved from ``Problem._compute_mcs`` in v0.4 step 8d. Math is
     unchanged. Stateless (no ``self``): ``options.random_seed`` and
     ``options.ndraws`` are read directly from the global options module.
+
+    NaN handling (2026-05-01): when a pair has identical markups (the
+    trivially-degenerate boundary), its TRV and the corresponding
+    sigma_mcs entries are NaN. The standard MCS bootstrap uses
+    ``multivariate_normal``, whose internal SVD can't converge on a
+    NaN covariance matrix. We pre-identify models that are part of any
+    NaN pair, set their MCS p-values to NaN, and run MCS on the
+    well-defined subset only. If fewer than two well-defined models
+    remain, all p-values are NaN.
     """
     rng = np.random.default_rng(options.random_seed)
-    model_confidence_set = np.array(range(M))
     mcs_pvalues = np.ones([M, 1])
+
+    # Pre-identify models entangled in any trivially-degenerate pair.
+    # A model is "tainted" if its TRV with any other model is NaN.
+    # We can't run MCS on tainted models because the bootstrap covariance
+    # matrix would have NaN entries; mark them NaN and continue with
+    # the well-defined subset.
+    tainted_models: set = set()
+    for (a, b) in all_model_combinations:
+        if not np.isfinite(rv_test_statistic[a, b]):
+            tainted_models.add(a)
+            tainted_models.add(b)
+    for m in tainted_models:
+        mcs_pvalues[m] = np.nan
+
+    well_defined = np.array([m for m in range(M) if m not in tainted_models])
+    if well_defined.size < 2:
+        # MCS requires at least two models to test; if one or zero are
+        # well-defined, there's no meaningful bootstrap to run.
+        return mcs_pvalues
+
+    model_confidence_set = well_defined
     converged = False
     while not converged:
         if np.shape(model_confidence_set)[0] == 2:

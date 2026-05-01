@@ -209,20 +209,14 @@ class TestVerdictValues:
 
 class TestTriviallyDegenerate:
     """When two models have identical markups, the (i, j) pair gets the
-    trivially-degenerate verdict via the existing NaN guard at
-    solve/test_engine.py:302.
+    trivially-degenerate verdict via the NaN guard in compute_instrument_results.
 
-    The verdict is set in the same conditional branch as the existing
-    F_cv_size / F_cv_power / symbols_size NaN sentinels, so the path is
-    structurally tested by the existing snapshot suite (any fixture that
-    triggers the NaN guard exercises the same branch). The unit test
-    below mocks the solve output to verify the verdict label specifically.
-
-    A live-fixture test (3 models, two with identical markups) would
-    exercise the path end-to-end but crashes in compute_mcs's
-    multivariate_normal SVD due to a pre-existing NaN-propagation issue
-    unrelated to this diagnostic. Skipped pending a separate compute_mcs
-    fix.
+    Lorenzo's audit (2026-04-29) flagged this path as P1: "trivially-degenerate
+    verdict not reachable end-to-end" because compute_mcs's multivariate_normal
+    SVD crashed on the resulting NaN covariance matrix. The math.sqrt(negative)
+    guard (commit 6be68a0) and the MCS NaN-handling fix (commit dced89d+1)
+    together close that P1 — the live three-model fixture now runs to
+    completion and the trivially-degenerate verdict surfaces correctly.
     """
 
     def test_verdict_label_set_when_rho_is_nan(self):
@@ -238,6 +232,71 @@ class TestTriviallyDegenerate:
         # The NaN guard branch should assign 'trivially-degenerate' to verdict.
         assert "verdict[i, m] = \"trivially-degenerate\"" in source, (
             "expected the NaN-guard branch to set verdict to 'trivially-degenerate'"
+        )
+
+    def test_three_model_fixture_with_identical_markups(self):
+        """End-to-end: 3 models with two identical markup columns. Pre-fix
+        this crashed in math.sqrt or compute_mcs SVD. Post-fix it runs to
+        completion, the identical pair gets the 'trivially-degenerate'
+        verdict, and the well-defined pairs get standard verdicts."""
+        df = _make_tiny_dgp(seed=11, T=20)
+        # df['markups_m3'] is already identical to markups_m1 by construction
+        # in _make_tiny_dgp; verify and use.
+        assert np.allclose(df['markups_m1'], df['markups_m3']), (
+            "fixture invariant: markups_m1 should equal markups_m3"
+        )
+
+        pyRVtest.options.verbose = False
+        results = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+            instrument_formulation=pyRVtest.Formulation('0 + z1 + z2'),
+            product_data=df,
+            models=[
+                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m1'),
+                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m2'),
+                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m3'),
+            ],
+        ).solve()
+
+        # Expectation: solve() ran to completion without exception.
+        # The (0, 2) pair (m1 vs m3, identical) should be trivially-degenerate.
+        v = np.asarray(results.verdict[0])
+        assert v[0, 2] == 'trivially-degenerate', (
+            f"expected trivially-degenerate for the identical pair; got {v[0, 2]!r}"
+        )
+        # Other pairs should have meaningful verdicts.
+        assert v[0, 1] in ('robust', 'weak'), v[0, 1]
+        assert v[1, 2] in ('robust', 'weak'), v[1, 2]
+        # F_reliability_summary should expose the trivially-degenerate row.
+        summary = results.F_reliability_summary()
+        td_rows = summary[summary['verdict'] == 'trivially-degenerate']
+        assert len(td_rows) >= 1, (
+            f"expected ≥1 trivially-degenerate row in summary; got {len(td_rows)}"
+        )
+
+    def test_mcs_pvalues_are_nan_for_models_in_identical_pair(self):
+        """Models entangled in any trivially-degenerate pair get NaN MCS
+        p-values rather than crashing the multivariate_normal SVD."""
+        df = _make_tiny_dgp(seed=11, T=20)
+        pyRVtest.options.verbose = False
+        results = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+            instrument_formulation=pyRVtest.Formulation('0 + z1 + z2'),
+            product_data=df,
+            models=[
+                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m1'),
+                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m2'),
+                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m3'),
+            ],
+        ).solve()
+        mcs = np.asarray(results.MCS_pvalues[0]).flatten()
+        # Models 0 and 2 share identical markups → MCS p-values are NaN.
+        assert np.isnan(mcs[0]), f"model 0 MCS p-value should be NaN; got {mcs[0]}"
+        assert np.isnan(mcs[2]), f"model 2 MCS p-value should be NaN; got {mcs[2]}"
+        # Model 1 is well-defined; its MCS p-value is finite (1.0 by default,
+        # since it's the only well-defined model).
+        assert np.isfinite(mcs[1]), (
+            f"model 1 MCS p-value should be finite; got {mcs[1]}"
         )
 
 
