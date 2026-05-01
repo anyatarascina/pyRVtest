@@ -46,14 +46,31 @@ logger = logging.getLogger(__name__)
 
 # F-stat reliability diagnostic thresholds.
 #
-# Redesign (2026-05-01): under the worst-case-CV verdict architecture, lambda
-# is no longer the gating diagnostic. It is retained as a numerical-fragility
-# footnote on plug-in-dependent cells (see ``compute_instrument_results``).
-# The principled robustness signal is whether F clears the *worst-case* CV
-# across rho^2 in [0, 0.99], which is a free lookup on the existing critical-
-# value table.
-RELIABILITY_LAMBDA_THRESHOLD = 0.05  # numerical-fragility annotation on plug-in cells
-RELIABILITY_CI_LEVEL = 1.96  # 95% CI half-width; retained for the SE column
+# 2026-05-01 redesign: lambda answers two distinct questions and we use
+# two distinct thresholds. See verify_sigma_precision.py for the
+# empirical calibration of LAMBDA_PRECISION_THRESHOLD.
+#
+# LAMBDA_DESCRIPTIVE_THRESHOLD (0.05): geometry footnote. Below this,
+# rho_hat is being computed near the Cauchy-Schwarz cancellation
+# boundary — the user's models look similar through these instruments
+# (low-separation geometry). This is informational only; the F-stat
+# verdict is unaffected.
+#
+# LAMBDA_PRECISION_THRESHOLD (1e-10): numerical safety net. Below this,
+# float64 has lost enough digits in computing D_rho that F-hat may have
+# fewer significant figures than the F-vs-CV decision needs. Triggers
+# the mpmath recompute when reliability_check='conditional'. At lambda
+# < 1e-10, double-precision F-hat has roughly 6 sig figs remaining out
+# of 16 — still usable but margin is shrinking. mpmath restores full
+# precision in this regime.
+LAMBDA_DESCRIPTIVE_THRESHOLD = 0.05    # informational footnote (low-separation geometry)
+LAMBDA_PRECISION_THRESHOLD = 1e-10     # mpmath trigger (numerical fragility)
+RELIABILITY_CI_LEVEL = 1.96            # 95% CI half-width; retained for the SE column
+
+# Backward-compat alias for tests / external callers that referenced the
+# original constant. The value semantics now match LAMBDA_DESCRIPTIVE_THRESHOLD
+# (the "low-lambda informational" threshold), not the mpmath trigger.
+RELIABILITY_LAMBDA_THRESHOLD = LAMBDA_DESCRIPTIVE_THRESHOLD
 
 # Worst-case size and best-case power levels corresponding to the three CVs
 # in the published table. Used for human-readable claim labels.
@@ -468,19 +485,25 @@ def compute_instrument_results(
 
     # F-stat reliability diagnostic outputs.
     #
-    # Architecture (2026-05-01 redesign): the verdict turns on whether F
-    # clears the *worst-case* CV across rho^2 ∈ [0, 0.99], which is the
-    # ρ̂²-plug-in-robust strength claim. The Wald SE on F̂ is retained as
-    # an inspection column (F_se / F_ci_low / F_ci_high) but no longer
-    # gates a verdict tier. lambda is retained as a numerical-fragility
-    # footnote on plug-in-dependent cells.
+    # Architecture (2026-05-01 final): three verdict tiers, plus the NaN
+    # guard. Worst-case CV stays as a data column for users who want it
+    # but no longer drives a verdict tier — DMSS already prices in
+    # rho-hat plug-in noise via the asymptotic distribution it computed
+    # the CVs from, so adding a worst-case-rho check would be unilateral
+    # extra-conservatism beyond what the paper prescribes.
     #
     # Verdict tiers:
-    #   - "robust": F > worst-case CV. Strength claim survives any rho^2.
-    #   - "plug-in dependent": F > plug-in CV but F <= worst-case CV.
-    #     Claim depends on ρ̂² being well-estimated.
-    #   - "weak": F <= plug-in CV. No strength claim available.
-    #   - "trivially-degenerate": ρ̂² is NaN (identical-markup boundary).
+    #   - "robust": F-hat clears at least one plug-in CV at the strongest
+    #     claim level. Standard DMSS pass.
+    #   - "weak": F-hat clears no plug-in CV. No strength claim available.
+    #   - "trivially-degenerate": rho-hat is NaN OR test_statistic_denominator
+    #     is NaN — RV test is undefined.
+    #
+    # Numerical precision is handled by transparent substitution: when
+    # lambda < 1e-10 (and reliability_check is 'conditional' or 'always'),
+    # F-hat and rho-hat are *replaced* with the mpmath recompute. The
+    # verdict then runs on the high-precision values without a separate
+    # alert tier.
     lambda_dmss = np.full((M, M), np.nan)
     F_se = np.full((M, M), np.nan)
     F_ci_low = np.full((M, M), np.nan)
@@ -593,9 +616,66 @@ def compute_instrument_results(
             # exposes the latent bug. Return NaN critical values and a
             # blank significance symbol — the test statistic itself is
             # NaN in this regime, which is semantically correct.
+            # mpmath precision swap (transparent substitution).
+            #
+            # Modes:
+            #   - 'off': always use double-precision F-hat and rho-hat.
+            #   - 'conditional' (default): swap to mpmath when lambda is
+            #     below the numerical-fragility threshold (1e-10),
+            #     where double-precision F-hat has lost enough digits
+            #     that the F-vs-CV decision is at risk.
+            #   - 'always': always recompute via mpmath (paper-table mode).
+            #
+            # When the swap fires, F-hat and rho-hat are *replaced* with
+            # the high-precision values. Downstream code (CV lookup,
+            # claim identification, verdict) runs on the swapped values
+            # without comparison or alert. F_high_precision and
+            # rho_squared_high_precision arrays record the values for
+            # inspection in F_reliability_summary.
+            should_swap = False
+            if reliability_check == 'always':
+                should_swap = True
+            elif reliability_check == 'conditional':
+                lam_val = lambda_dmss[i, m]
+                if (np.isnan(lam_val)
+                        or lam_val < LAMBDA_PRECISION_THRESHOLD):
+                    should_swap = True
+
+            if should_swap:
+                phi_blocks = (variance[0], variance[1], variance[2])
+                F_hp, rho2_hp = _recompute_F_high_precision(
+                    phi_blocks=phi_blocks,
+                    W_inverse=W_inverse,
+                    weight_matrix=weight_matrix,
+                    g_i=g[i],
+                    g_m=g[m],
+                    K=K_effective,
+                    N=N,
+                    prec=reliability_precision_dps,
+                )
+                F_high_precision[i, m] = F_hp
+                rho_squared_high_precision[i, m] = rho2_hp
+                # Transparent replacement: F-hat, rho_squared, rho[i, m]
+                # all swap to high-precision values. Downstream verdict
+                # logic, CV lookup, and storage use these.
+                F[i, m] = F_hp
+                rho_squared = rho2_hp
+                # rho's sign is determined by sign(sigma_0 - sigma_1);
+                # both sigmas are positive variances, the sign carries
+                # over from double precision unambiguously when their
+                # difference is non-tiny. Reconstruct the signed rho.
+                if rho2_hp >= 0 and not np.isnan(rho2_hp):
+                    sign_rho = np.sign(sigma[0] - sigma[1])
+                    if sign_rho == 0:
+                        sign_rho = 1.0  # convention: positive when sigmas equal
+                    rho[i, m] = sign_rho * np.sqrt(rho2_hp)
+                else:
+                    rho[i, m] = np.nan
+
             # Trivially-degenerate gate. Fires when EITHER:
             #   * ρ̂² is NaN — identical-markup boundary (ρ̂² formula is
-            #     0/0 because the V matrix is rank-deficient).
+            #     0/0 because the V matrix is rank-deficient). Even
+            #     mpmath gives NaN here.
             #   * test_statistic_denominator is NaN — the RV variance
             #     Var(g_i - g_m) went numerically below zero from
             #     extreme cancellation. The RV test statistic is then
@@ -680,11 +760,13 @@ def compute_instrument_results(
             else:
                 strongest_claim_power[i, m] = None
 
-            # Worst-case CV scan: would the user's strength claim survive
-            # if rho^2 were anywhere in [0, 0.99]? This is the principled
-            # robustness check from the redesign — it does not require any
-            # finite-sample-aware SE, only a different lookup on the same
-            # CV table. Size CVs increase in rho; power CVs decrease.
+            # Worst-case CV scan: max CV across rho^2 ∈ [0, 0.99] at
+            # this K. Stored as a data column for users who want to
+            # inspect rho-hat-uncertainty robustness; does NOT drive the
+            # verdict. DMSS already prices in plug-in noise via the
+            # asymptotic distribution from which the CVs are derived,
+            # so adding a worst-case-rho check would be unilateral
+            # extra-conservatism beyond what the paper prescribes.
             worst_case_cv_size[i, m] = _worst_case_cv_size(
                 critical_values_size, K_effective,
             )
@@ -693,91 +775,16 @@ def compute_instrument_results(
             )
 
             # Three-tier verdict.
-            # A claim is "robust" when it survives at the worst-case CV
-            # across rho^2. Auto-claims (CV = 0 at all rho^2) are robust
-            # by definition. F-supported claims (F > plug-in CV > 0) are
-            # robust if F > worst-case CV. If neither size nor power
-            # claim is made, the verdict is "weak".
+            #   * "robust": F-hat clears at least one plug-in CV
+            #     (size or power; auto-claims at CV = 0 also count).
+            #   * "weak": F-hat clears no plug-in CV.
+            #   * "trivially-degenerate": handled by the gate above.
             size_made = strongest_size_idx >= 0
             power_made = strongest_power_idx >= 0
-            size_robust = True
-            power_robust = True
-            if size_made:
-                worst_size_cv = worst_case_cv_size[i, m][strongest_size_idx]
-                if worst_size_cv > 0:
-                    size_robust = F[i, m] > worst_size_cv
-                # else: auto-claim, robust by definition (size_robust=True)
-            if power_made:
-                worst_power_cv = worst_case_cv_power[i, m][strongest_power_idx]
-                if worst_power_cv > 0:
-                    power_robust = F[i, m] > worst_power_cv
-
-            if not (size_made or power_made):
-                verdict[i, m] = "weak"
-            elif size_robust and power_robust:
+            if size_made or power_made:
                 verdict[i, m] = "robust"
             else:
-                verdict[i, m] = "plug-in dependent"
-
-            # High-precision precision check (reliability_check kwarg).
-            #
-            # Modes:
-            #   - 'off': skip the check entirely (preserves the
-            #     three-tier verdict above).
-            #   - 'conditional' (default): only fire when the cell is
-            #     in the precision-relevant band — λ < threshold AND
-            #     verdict is 'plug-in dependent'. The mpmath cost is
-            #     paid only when ρ̂² is in the cancellation regime AND
-            #     the strength claim might flip.
-            #   - 'always': fire on every non-trivial cell. Useful for
-            #     paper-table generation where speed isn't critical.
-            #
-            # When the high-precision F differs enough from the double-
-            # precision F to flip the test outcome at the strongest-
-            # claim CV, the verdict is upgraded to "numerically unstable".
-            should_check = False
-            if reliability_check == 'always':
-                should_check = True
-            elif reliability_check == 'conditional':
-                in_low_lambda = (
-                    not np.isnan(lambda_dmss[i, m])
-                    and lambda_dmss[i, m] < RELIABILITY_LAMBDA_THRESHOLD
-                )
-                in_band = (verdict[i, m] == 'plug-in dependent')
-                should_check = in_low_lambda and in_band
-            # else 'off' -> skip
-
-            if should_check:
-                phi_blocks = (variance[0], variance[1], variance[2])
-                F_hp, rho2_hp = _recompute_F_high_precision(
-                    phi_blocks=phi_blocks,
-                    W_inverse=W_inverse,
-                    weight_matrix=weight_matrix,
-                    g_i=g[i],
-                    g_m=g[m],
-                    K=K_effective,
-                    N=N,
-                    prec=reliability_precision_dps,
-                )
-                F_high_precision[i, m] = F_hp
-                rho_squared_high_precision[i, m] = rho2_hp
-
-                # Decide whether the high-precision F flips the verdict.
-                # The relevant test is whether F_hp would still clear
-                # the plug-in CV at the strongest-claim level — if it
-                # doesn't, the double-precision F̂'s strength claim is
-                # numerically unreliable.
-                hp_passes = True
-                if size_made and strongest_size_idx >= 0:
-                    plug_in_size = F_cv_size[i, m][strongest_size_idx]
-                    if plug_in_size > 0 and F_hp <= plug_in_size:
-                        hp_passes = False
-                if power_made and strongest_power_idx >= 0 and hp_passes:
-                    plug_in_power = F_cv_power[i, m][strongest_power_idx]
-                    if plug_in_power > 0 and F_hp <= plug_in_power:
-                        hp_passes = False
-                if not hp_passes:
-                    verdict[i, m] = "numerically unstable"
+                verdict[i, m] = "weak"
         else:
             symbols_size[i, m] = ""
             symbols_power[i, m] = ""

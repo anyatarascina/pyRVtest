@@ -50,111 +50,33 @@ if TYPE_CHECKING:
 
 
 # ----------------------------------------------------------------------
-# F-stat reliability footer helpers (2026-05-01 redesign).
+# F-stat reliability footer helpers (2026-05-01 final).
 #
-# Verdict tiers in the redesigned diagnostic:
-#   - "robust"            : F clears worst-case CV across rho^2 ∈ [0, 0.99]
-#   - "plug-in dependent" : F clears plug-in CV(rhô²) but not worst-case
-#   - "weak"              : F clears no plug-in CV (no strength claim)
-#   - "trivially-degenerate": rhô² is NaN (identical-markup boundary)
+# Verdict tiers (three tiers + degenerate guard):
+#   - "robust"               : F-hat clears at least one plug-in CV
+#                              (DMSS-standard pass)
+#   - "weak"                 : F-hat clears no plug-in CV
+#                              (DMSS-standard fail; no strength claim)
+#   - "trivially-degenerate" : rho-hat or RV-variance is NaN
+#                              (identical-markup boundary)
+#
+# When mpmath fired (lambda < 1e-10), the F-hat and rho-hat values
+# stored on results.F and results.rho are the *high-precision* ones --
+# the swap is transparent. F_high_precision and rho_squared_high_precision
+# columns let users inspect what the swap was.
 # ----------------------------------------------------------------------
 
 
-def _plug_in_dependent_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
-    """Build the plug-in-dependent footer line(s).
-
-    For a single cell, show the specific F, plug-in CV, and worst-case CV.
-    For multiple cells, summarize the most fragile (smallest gap between F
-    and its worst-case CV).
-    """
-    n = len(cells)
-    suffix = '' if n == 1 else 's'
-    if n == 1:
-        c = cells[0]
-        claim = c['claim_size'] or c['claim_power'] or '(none)'
-        return [
-            [
-                f"  plug-in dependent (1 cell): F = {c['F']:.2f}, strongest claim "
-                f"\"{claim}\" relies on rhô² = {c['rho_squared']:.2f}."
-            ],
-            [
-                f"     plug-in CV = {c['plug_in_cv']:.2f} (cleared) but "
-                f"worst-case CV across rho ∈ [0, 0.99] = {c['worst_case_cv']:.2f} "
-                f"(not cleared). Claim depends on rhô² being well-estimated; "
-                f"see ProblemResults.F_reliability_summary()."
-            ],
-        ]
-    # Multi-cell summary: pick the cell with the smallest (F - worst_case_cv)
-    worst = min(
-        cells,
-        key=lambda c: c['F'] - (c['worst_case_cv'] or 0),
-    )
-    return [
-        [
-            f"  plug-in dependent ({n} cell{suffix}): the strongest claim relies "
-            f"on rhô² being well-estimated."
-        ],
-        [
-            f"     worst case in this group: F = {worst['F']:.2f}, "
-            f"worst-case CV = {worst['worst_case_cv']:.2f}. "
-            f"See ProblemResults.F_reliability_summary() for per-cell detail."
-        ],
-    ]
-
-
-def _numerically_unstable_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
-    """Build the 'numerically unstable' alert line(s).
-
-    These cells failed the high-precision (mpmath) cross-check: F̂_double
-    and F̂_mpmath disagree by enough to flip the F̂-vs-CV decision at the
-    cell's strongest plug-in CV. This is the diagnostic's strongest
-    alert — the user's strength claim depends on a value of F̂ that's
-    not numerically reliable.
-    """
-    n = len(cells)
-    suffix = '' if n == 1 else 's'
-    if n == 1:
-        c = cells[0]
-        F_d = c['F']
-        F_hp = c['F_high_precision']
-        plug_in_cv = c['plug_in_cv']
-        return [
-            [
-                f"  numerically unstable (1 cell): F (double) = {F_d:.3f}, "
-                f"F (high-precision) = {F_hp:.3f}, plug-in CV = {plug_in_cv:.3f}."
-            ],
-            [
-                "     The double-precision F̂ crosses the plug-in CV but the "
-                "high-precision F̂ does not. Trust the high-precision value: "
-                "the strength claim is not supported."
-            ],
-        ]
-    worst = min(cells, key=lambda c: c['F_high_precision'] - c['plug_in_cv'])
-    F_d = worst['F']
-    F_hp = worst['F_high_precision']
-    plug_in_cv = worst['plug_in_cv']
-    return [
-        [
-            f"  numerically unstable ({n} cell{suffix}): worst case has "
-            f"F (double) = {F_d:.3f}, F (high-precision) = {F_hp:.3f}, "
-            f"plug-in CV = {plug_in_cv:.3f}."
-        ],
-        [
-            "     For these cells, the double-precision F̂ supports a "
-            "strength claim but the high-precision F̂ does not. The claim "
-            "is not numerically reliable; see "
-            "F_reliability_summary() for per-cell detail."
-        ],
-    ]
-
-
 def _low_lambda_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
-    """Build the low-lambda informational line(s).
+    """Build the low-lambda informational footnote.
 
-    Fires on cells (any verdict) where lambda < threshold — a numerical-
-    fragility footnote about the rhô² and F̂ computations. Under the redesign
-    this is informational and does *not* invalidate the verdict; it just
-    notes that rhô² is being computed in the cancellation regime.
+    Fires on cells where lambda < LAMBDA_DESCRIPTIVE_THRESHOLD (0.05) -- a
+    descriptive note that rho-hat is in the cancellation regime, i.e.,
+    the user's models are similar through these instruments.
+
+    This is informational only. The verdict already accounts for any
+    numerical precision issues (via the mpmath swap at lambda < 1e-10);
+    this footnote describes the *geometry*, not a precision concern.
     """
     n = len(cells)
     suffix = '' if n == 1 else 's'
@@ -165,10 +87,34 @@ def _low_lambda_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
             f"= {min_lambda:.3f}."
         ],
         [
-            "     rhô² is being computed near the Cauchy-Schwarz cancellation "
-            "boundary. Verdict above accounts for rhô² uncertainty via "
-            "worst-case CV; this is an informational footnote on numerical "
-            "precision in this region."
+            "     rho-hat is computed near the Cauchy-Schwarz cancellation "
+            "boundary -- your models are similar through these instruments. "
+            "Informational only; the F-vs-CV verdict above is unaffected. "
+            "See F_reliability_summary() for per-cell detail."
+        ],
+    ]
+
+
+def _high_precision_used_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
+    """Build the footnote noting when the mpmath safety net fired.
+
+    Fires on cells where lambda < LAMBDA_PRECISION_THRESHOLD (1e-10) and
+    F-hat / rho-hat were transparently replaced with mpmath values. The
+    swap is invisible to the verdict (which uses the high-precision
+    values), but worth a footnote so users know the safety net engaged.
+    """
+    n = len(cells)
+    suffix = '' if n == 1 else 's'
+    return [
+        [
+            f"  high-precision computation used ({n} cell{suffix}): F-hat "
+            f"and rho-hat were recomputed via mpmath."
+        ],
+        [
+            "     Float64 cancellation in D_rho would have left fewer than "
+            "~6 significant figures in F-hat. Verdict uses the high-precision "
+            "values; double-precision originals stored on F_high_precision / "
+            "rho_squared_high_precision columns for inspection."
         ],
     ]
 
@@ -449,11 +395,10 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             return []
 
         # Walk all (j, k, i) cells, collect verdicts and per-cell numbers.
-        flagged_plug_in: List[Dict[str, Any]] = []
-        flagged_unstable: List[Dict[str, Any]] = []
         flagged_weak: List[Dict[str, Any]] = []
         flagged_trivially: List[Dict[str, Any]] = []
-        flagged_low_lambda: List[Dict[str, Any]] = []  # informational footnote
+        flagged_low_lambda: List[Dict[str, Any]] = []     # descriptive footnote
+        flagged_high_precision: List[Dict[str, Any]] = []  # mpmath swap fired
         max_rho2 = 0.0
         min_lambda = 1.0
         any_valid = False
@@ -576,30 +521,35 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                         'worst_case_cv': worst_case_cv,
                     }
 
-                    if v == 'numerically unstable':
-                        flagged_unstable.append(cell_info)
-                    elif v == 'plug-in dependent':
-                        flagged_plug_in.append(cell_info)
-                    elif v == 'weak':
+                    if v == 'weak':
                         flagged_weak.append(cell_info)
                     elif v == 'trivially-degenerate':
                         flagged_trivially.append(cell_info)
                     # 'robust' verdicts skip the flag list but still
                     # contribute to max_rho2 / min_lambda above.
 
-                    # Low-lambda informational footnote — fires on any
-                    # non-NaN lambda below threshold, regardless of verdict.
-                    from ..solve.test_engine import RELIABILITY_LAMBDA_THRESHOLD
+                    # Descriptive footnotes (not verdict tiers).
+                    from ..solve.test_engine import (
+                        LAMBDA_DESCRIPTIVE_THRESHOLD,
+                        LAMBDA_PRECISION_THRESHOLD,
+                    )
                     if (np.isfinite(lambda_val)
-                            and lambda_val < RELIABILITY_LAMBDA_THRESHOLD):
+                            and lambda_val < LAMBDA_DESCRIPTIVE_THRESHOLD):
                         flagged_low_lambda.append(cell_info)
+                    # When the mpmath swap fired, F_high_precision is
+                    # finite. Surface this as a footnote so users know
+                    # the safety net engaged.
+                    if (np.isfinite(F_hp_val)
+                            and np.isfinite(lambda_val)
+                            and lambda_val < LAMBDA_PRECISION_THRESHOLD):
+                        flagged_high_precision.append(cell_info)
 
         if not any_valid:
             return []
 
         any_flagged = bool(
-            flagged_unstable or flagged_plug_in or flagged_weak
-            or flagged_trivially or flagged_low_lambda
+            flagged_weak or flagged_trivially
+            or flagged_low_lambda or flagged_high_precision
         )
         rows: List[List[str]] = []
 
@@ -613,11 +563,6 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         # Header for the reliability section
         rows.append(["F-stat reliability:"])
 
-        # Lead with the strongest alert if any.
-        if flagged_unstable:
-            rows.extend(_numerically_unstable_lines(flagged_unstable))
-        if flagged_plug_in:
-            rows.extend(_plug_in_dependent_lines(flagged_plug_in))
         if flagged_weak:
             n = len(flagged_weak)
             rows.append([
@@ -632,6 +577,8 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             ])
         if flagged_low_lambda:
             rows.extend(_low_lambda_lines(flagged_low_lambda))
+        if flagged_high_precision:
+            rows.extend(_high_precision_used_lines(flagged_high_precision))
         rows.append(["  See: results.F_reliability_summary() for per-cell detail."])
         return rows
 

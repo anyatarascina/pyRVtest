@@ -197,8 +197,7 @@ class TestVerdictValues:
         df = _make_tiny_dgp()
         results = _solve_two_models(df)
         valid_verdicts = {
-            'robust', 'plug-in dependent', 'weak',
-            'trivially-degenerate', None,
+            'robust', 'weak', 'trivially-degenerate', None,
         }
         for inst_idx in range(len(results.F)):
             verdicts = results.verdict[inst_idx]
