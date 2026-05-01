@@ -1544,7 +1544,24 @@ class Problem(Container, StringRepresentation):
             markups_effective[m] = (advalorem_tax_adj[m] / (1 + cost_scaling[m])) * markups[m]
             marginal_cost[m] = prices_effective[m] - markups_effective[m]
 
-        if costs_type == "log" and not demand_adjustment:
+        if costs_type == "log":
+            if demand_adjustment:
+                # Lorenzo audit (2026-04-29): the log transform here was
+                # silently gated behind ``not demand_adjustment``, so users
+                # who passed both costs_type='log' and demand_adjustment=True
+                # got level marginal costs without any error or warning.
+                # The combination has not been derived (the demand-adjustment
+                # gradient under log costs would need its own DMSS-style
+                # algebra). Reject explicitly until that work is done.
+                raise NotImplementedError(
+                    "Expected costs_type='log' to be paired with "
+                    "demand_adjustment=False until log-cost demand "
+                    "adjustment is derived. "
+                    "Received costs_type='log' with demand_adjustment=True. "
+                    "Fix: pass demand_adjustment=False, or use "
+                    "costs_type='linear'. The combination "
+                    "log + demand_adjustment is open methodological work."
+                )
             if np.any(marginal_cost < 0):
                 raise ValueError(
                     "Expected all implied marginal costs to be positive when "

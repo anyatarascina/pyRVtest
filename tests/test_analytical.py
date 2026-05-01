@@ -769,3 +769,69 @@ class TestAlgebraScaleEconomies:
             gamma_pyrvtest = float(results.cost_param[0][m][-1].item())
             np.testing.assert_allclose(gamma_pyrvtest, expected['gamma'][m], atol=1e-8,
                                        err_msg=f"gamma for model {m} does not match")
+
+
+class TestLogCostsWithDemandAdjustmentRejected:
+    """costs_type='log' combined with demand_adjustment=True is unsupported.
+
+    Pre-fix: the log transform was silently gated behind ``not demand_adjustment``,
+    so the user got level marginal costs without any error or warning. Lorenzo's
+    audit (2026-04-29 P1) flagged this as an unintended fallback. The fix
+    rejects the combination explicitly with a NotImplementedError until the
+    log-cost demand-adjustment algebra is derived.
+    """
+
+    def test_raises_not_implemented_error(self):
+        """The error should fire BEFORE the log-cost transform so the user
+        sees a clear NotImplementedError rather than a silent fallback to
+        level marginal costs.
+
+        Build a minimal Problem with demand_params (so demand_adjustment=True
+        is allowed by the upstream validator) and Bertrand markups (so the
+        user-supplied-markups validator doesn't reject first). Then call
+        solve(costs_type='log', demand_adjustment=True) and expect the
+        new error.
+        """
+        rng = np.random.default_rng(seed=11)
+        T, J = 10, 3
+        N = T * J
+        market_ids = np.repeat(np.arange(T), J)
+        firm_ids = np.tile(np.arange(J), T)
+        x1 = rng.normal(size=N)
+        prices = 1.0 + 0.5 * rng.normal(size=N) + 0.3 * np.abs(rng.normal(size=N))
+        # Synthetic positive shares per market.
+        shares = np.zeros(N)
+        for t in range(T):
+            idx = np.where(market_ids == t)[0]
+            raw = rng.uniform(0.05, 0.4, size=len(idx))
+            shares[idx] = raw / (raw.sum() + 1.0)
+        product_data = pd.DataFrame({
+            'market_ids': market_ids, 'firm_ids': firm_ids,
+            'prices': prices, 'shares': shares, 'x1': x1,
+            'rival_x1': rng.normal(size=N),
+            'cost_shifter': rng.uniform(0.5, 1.5, size=N),
+        })
+        # Add an intercept column for the demand-adjustment x_columns lookup.
+        product_data['intercept'] = 1.0
+
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+            instrument_formulation=pyRVtest.Formulation('0 + rival_x1'),
+            product_data=product_data,
+            demand_params={
+                'alpha': -2.0,
+                'sigma': [],
+                'beta': np.array([0.0, 1.0]),
+                'x_columns': ['intercept', 'x1'],
+                'demand_instrument_columns': ['rival_x1', 'intercept', 'x1'],
+            },
+            models=[
+                pyRVtest.Bertrand(ownership='firm_ids'),
+                pyRVtest.PerfectCompetition(),
+            ],
+        )
+        with pytest.raises(NotImplementedError, match=r"costs_type='log'.*demand_adjustment"):
+            problem.solve(
+                demand_adjustment=True, clustering_adjustment=False,
+                costs_type='log',
+            )
