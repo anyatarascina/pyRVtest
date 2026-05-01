@@ -130,48 +130,11 @@ def _indistinguishable_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
     ]
 
 
-def _weakly_separated_lines(
-        cells: List[Dict[str, Any]], has_other_categories: bool,
-) -> List[List[str]]:
-    """``weakly separated by these instruments`` footnote.
-
-    Fires on pairs with lambda < LAMBDA_DESCRIPTIVE_THRESHOLD (0.05)
-    that did NOT also fall into the indistinguishable or extra-precision
-    buckets (caller does the de-duplication). Describes a property of
-    the user's modelling setup, not a problem with the engine: through
-    these instruments the two models look similar, so even a robust
-    test verdict comes with limited discrimination power.
-
-    When ``has_other_categories`` is True, the count is qualified as
-    ``N other pair[s]`` so the user reads it as additional pairs beyond
-    those already mentioned in the indistinguishable / extra-precision
-    notes (which are pre-filtered out of ``cells``).
-    """
-    cells = sorted(cells, key=lambda c: c['lambda'])
-    n = len(cells)
-    if n == 1:
-        i, j = cells[0]['pair']
-        if has_other_categories:
-            pair_clause = f"1 other pair ({i}, {j})"
-        else:
-            pair_clause = f"1 pair ({i}, {j})"
-    else:
-        key_i, key_j = cells[0]['pair']  # smallest lambda
-        if has_other_categories:
-            pair_clause = (
-                f"{n} other pairs (least separated: ({key_i}, {key_j}))"
-            )
-        else:
-            pair_clause = (
-                f"{n} pairs (least separated: ({key_i}, {key_j}))"
-            )
-    return [
-        [f"  weakly separated by these instruments: {pair_clause}."],
-        [
-            "    Test outcomes still valid; consider whether other "
-            "instruments separate these candidates better."
-        ],
-    ]
+# NOTE: The ``weakly separated by these instruments`` footnote was
+# removed on 2026-05-01 after Lorenzo's audit observed it firing on
+# 15/15 CarRV cells — at that frequency it adds no signal. Lambda is
+# still computed and exposed on F_reliability_summary() for users who
+# want to inspect instrument-projected moment similarity per pair.
 
 
 @dataclass
@@ -360,7 +323,8 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         # F-stat reliability glyph: cells with verdict != robust get a marker
         # appended to their F value. Loaded once per call; falls back to ""
         # if the diagnostic was not computed (older pickles).
-        verdict_arr = self.verdict[j] if getattr(self, 'verdict', None) is not None else None
+        verdict_list = getattr(self, 'verdict', None)
+        verdict_arr = verdict_list[j] if verdict_list is not None else None
 
         def _f_value_with_glyph(k: int, i: int) -> str:
             base = str(round(self.F[j][k, i], 1))
@@ -380,7 +344,8 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         # power symbol (`^`/`^^`/`^^^`). The dagger swap frees `*` for TRV.
         # Pre-Phase-3 pickled results lack ``_symbols_rv_list``; in that case
         # the TRV row-2 cell stays blank (legacy behavior).
-        rv_symbols_arr = self._symbols_rv_list[j] if getattr(self, '_symbols_rv_list', None) is not None else None
+        rv_symbols_list = getattr(self, '_symbols_rv_list', None)
+        rv_symbols_arr = rv_symbols_list[j] if rv_symbols_list is not None else None
 
         def _trv_symbol(k: int, i: int) -> str:
             if rv_symbols_arr is None:
@@ -451,49 +416,56 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             return []
 
         # Walk all (j, k, i) cells, collect verdicts and per-cell numbers.
-        # Three categories of notes (de-duplicated below):
-        #   * trivially_pairs    — verdict = trivially-degenerate
+        # Two categories of notes:
+        #   * trivially_pairs       — verdict = trivially-degenerate
         #   * extra_precision_pairs — mpmath swap fired (lambda < 1e-10)
-        #   * weakly_separated_pairs — lambda < 0.05 AND not in either above
+        # The "weakly separated" footnote at lambda < 0.05 was removed
+        # on 2026-05-01 after Lorenzo's audit found it firing on 15/15
+        # CarRV cells with no signal-discrimination value.
         trivially_pairs: List[Dict[str, Any]] = []
         extra_precision_pairs: List[Dict[str, Any]] = []
-        low_lambda_pairs: List[Dict[str, Any]] = []  # pre-dedup pool
         any_valid = False
-        for j in range(len(self.verdict)):
-            verdict_j = self.verdict[j]
-            rho_j = np.asarray(self.rho[j])
+        # Bind list attributes to locals so mypy can narrow Optional[List]
+        # inside the loop. The early-return at the top of this method
+        # already guaranteed self.verdict is not None.
+        verdict_list = self.verdict
+        assert verdict_list is not None
+        rho_list = self.rho
+        F_list = self.F
+        F_cv_size_list_local = self.F_cv_size_list
+        F_cv_power_list_local = self.F_cv_power_list
+        lambda_list = getattr(self, 'lambda_dmss', None)
+        wc_size_list_local = getattr(self, 'worst_case_cv_size', None)
+        wc_power_list_local = getattr(self, 'worst_case_cv_power', None)
+        F_hp_list_local = getattr(self, 'F_high_precision', None)
+        claim_size_list_local = getattr(self, 'strongest_claim_size', None)
+        claim_power_list_local = getattr(self, 'strongest_claim_power', None)
+        for j in range(len(verdict_list)):
+            verdict_j = verdict_list[j]
+            rho_j = np.asarray(rho_list[j])
             lambda_j = (
-                np.asarray(self.lambda_dmss[j])
-                if getattr(self, 'lambda_dmss', None) is not None
-                else None
+                np.asarray(lambda_list[j]) if lambda_list is not None else None
             )
-            F_j = np.asarray(self.F[j])
-            cv_size_j = self.F_cv_size_list[j]
-            cv_power_j = self.F_cv_power_list[j]
+            F_j = np.asarray(F_list[j])
+            cv_size_j = F_cv_size_list_local[j]
+            cv_power_j = F_cv_power_list_local[j]
             wc_size_j = (
-                self.worst_case_cv_size[j]
-                if getattr(self, 'worst_case_cv_size', None) is not None
-                else None
+                wc_size_list_local[j] if wc_size_list_local is not None else None
             )
             wc_power_j = (
-                self.worst_case_cv_power[j]
-                if getattr(self, 'worst_case_cv_power', None) is not None
-                else None
+                wc_power_list_local[j] if wc_power_list_local is not None else None
             )
             F_hp_j = (
-                np.asarray(self.F_high_precision[j])
-                if getattr(self, 'F_high_precision', None) is not None
-                else None
+                np.asarray(F_hp_list_local[j])
+                if F_hp_list_local is not None else None
             )
             claim_size_j = (
-                self.strongest_claim_size[j]
-                if getattr(self, 'strongest_claim_size', None) is not None
-                else None
+                claim_size_list_local[j]
+                if claim_size_list_local is not None else None
             )
             claim_power_j = (
-                self.strongest_claim_power[j]
-                if getattr(self, 'strongest_claim_power', None) is not None
-                else None
+                claim_power_list_local[j]
+                if claim_power_list_local is not None else None
             )
             M = verdict_j.shape[0]
             for k in range(M):
@@ -582,14 +554,8 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                     # since it signals the test is undefined for that
                     # pair.
 
-                    # Pre-dedup pools for the lambda-based notes.
-                    from ..solve.test_engine import (
-                        LAMBDA_DESCRIPTIVE_THRESHOLD,
-                        LAMBDA_PRECISION_THRESHOLD,
-                    )
-                    if (np.isfinite(lambda_val)
-                            and lambda_val < LAMBDA_DESCRIPTIVE_THRESHOLD):
-                        low_lambda_pairs.append(cell_info)
+                    # Pre-pool for the precision note.
+                    from ..solve.test_engine import LAMBDA_PRECISION_THRESHOLD
                     if (np.isfinite(F_hp_val)
                             and np.isfinite(lambda_val)
                             and lambda_val < LAMBDA_PRECISION_THRESHOLD):
@@ -598,37 +564,20 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         if not any_valid:
             return []
 
-        # De-duplicate: weakly_separated excludes pairs already counted
-        # by trivially-degenerate or extra-precision. Same pair
-        # shouldn't appear in two notes.
-        accounted_pairs = {
-            (c['instrument_set'], c['pair']) for c in trivially_pairs
-        } | {
-            (c['instrument_set'], c['pair']) for c in extra_precision_pairs
-        }
-        weakly_separated_pairs = [
-            c for c in low_lambda_pairs
-            if (c['instrument_set'], c['pair']) not in accounted_pairs
-        ]
-
-        any_note = bool(
-            extra_precision_pairs or trivially_pairs or weakly_separated_pairs
-        )
+        any_note = bool(extra_precision_pairs or trivially_pairs)
         if not any_note:
             return []
 
         rows: List[List[str]] = []
         rows.append(["Pairwise notes:"])
 
-        # Order: extra-precision (most material) -> indistinguishable ->
-        # weakly separated (descriptive context).
+        # Order: extra-precision (engine action) -> indistinguishable
+        # (test undefined). Both tell the user something specific that
+        # affected the displayed numbers or verdict for the listed pairs.
         if extra_precision_pairs:
             rows.extend(_extra_precision_lines(extra_precision_pairs))
         if trivially_pairs:
             rows.extend(_indistinguishable_lines(trivially_pairs))
-        if weakly_separated_pairs:
-            has_other = bool(extra_precision_pairs or trivially_pairs)
-            rows.extend(_weakly_separated_lines(weakly_separated_pairs, has_other))
         rows.append(["  Detail: results.F_reliability_summary()."])
         return rows
 

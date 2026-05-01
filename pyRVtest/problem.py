@@ -1470,9 +1470,40 @@ class Problem(Container, StringRepresentation):
         demand_adjustment: Optional[bool]
             (optional, default is False) Configuration that allows user to specify whether to compute a two-step demand
             adjustment. Options are True or False.
-        clustering_adjustment: Optional[str]
-            (optional, default is unadjusted) Configuration that specifies whether to compute clustered standard errors.
+        clustering_adjustment: Optional[bool]
+            (optional, default is False) Configuration that specifies whether to compute clustered standard errors.
             Options are True or False.
+        costs_type: Optional[str]
+            (optional, default is ``'linear'``) Form of the marginal-cost regression. ``'linear'`` regresses implied
+            marginal cost on cost shifters in levels (the standard DMSS specification). ``'log'`` regresses log
+            marginal cost on cost shifters; pyRVtest takes the log of implied marginal cost before residualization,
+            and the test statistic is computed in that transformed space. The combination ``costs_type='log'`` with
+            ``demand_adjustment=True`` is currently unsupported and raises ``NotImplementedError`` (the gradient
+            algebra for log-cost demand adjustment has not been derived).
+        mc_correction: Optional[Array]
+            (optional, default is None) Additive correction applied to implied marginal cost after the cost-type
+            transformation but before the residualization step. Must be shape ``(M, N)`` where ``M`` is the number
+            of conduct models and ``N`` is the number of observations. Useful for applications that pre-compute a
+            data-driven correction (e.g., the CarRV scale-economies adjustment) outside the ``cost_formulation``
+            machinery.
+        reliability_check: str
+            (optional, default is ``'conditional'``) Controls when the high-precision (mpmath) safety net for
+            F̂ and ρ̂² fires. Three modes:
+
+            * ``'conditional'`` — fire only when ``lambda_dmss < 1e-10`` for a pair (the regime where float64
+              cancellation in :math:`D_\rho` may have left fewer than ~6 significant figures in F̂). Typical
+              applications never trigger this; the cost is amortized over the few cells that need it.
+            * ``'always'`` — recompute every pair via mpmath. Useful for paper-table generation when you want
+              the published numbers to be authoritative regardless of float64 conditioning. ~100-1000× per-pair
+              slowdown compared to ``'off'``.
+            * ``'off'`` — never fire mpmath. Pure double-precision throughout. Use this in tight loops (Monte
+              Carlo) where the safety net would just be cost.
+
+        reliability_precision_dps: int
+            (optional, default is 50) Decimal digits of precision used by mpmath when the safety net fires.
+            Defaults are chosen so the high-precision recompute carries at least ~30 more digits than float64,
+            comfortably above any cancellation a typical application can produce. Increase only if you have a
+            specific reason; decreasing below ~20 may not buy enough margin to be worth the swap.
 
         Returns
         -------

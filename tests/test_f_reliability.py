@@ -238,25 +238,30 @@ class TestTriviallyDegenerate:
         """End-to-end: 3 models with two identical markup columns. Pre-fix
         this crashed in math.sqrt or compute_mcs SVD. Post-fix it runs to
         completion, the identical pair gets the 'trivially-degenerate'
-        verdict, and the well-defined pairs get standard verdicts."""
+        verdict, and the well-defined pairs get standard verdicts.
+
+        The identical-markups path intentionally produces 0/0 divisions
+        (NaN propagation through F̂, ρ̂², MCS). Suppress the NumPy
+        RuntimeWarnings these emit to keep the test logs clean — the
+        NaN propagation itself is the asserted-on behavior.
+        """
         df = _make_tiny_dgp(seed=11, T=20)
-        # df['markups_m3'] is already identical to markups_m1 by construction
-        # in _make_tiny_dgp; verify and use.
         assert np.allclose(df['markups_m1'], df['markups_m3']), (
             "fixture invariant: markups_m1 should equal markups_m3"
         )
 
         pyRVtest.options.verbose = False
-        results = pyRVtest.Problem(
-            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
-            instrument_formulation=pyRVtest.Formulation('0 + z1 + z2'),
-            product_data=df,
-            models=[
-                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m1'),
-                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m2'),
-                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m3'),
-            ],
-        ).solve()
+        with np.errstate(invalid='ignore', divide='ignore'):
+            results = pyRVtest.Problem(
+                cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+                instrument_formulation=pyRVtest.Formulation('0 + z1 + z2'),
+                product_data=df,
+                models=[
+                    pyRVtest.PerfectCompetition(user_supplied_markups='markups_m1'),
+                    pyRVtest.PerfectCompetition(user_supplied_markups='markups_m2'),
+                    pyRVtest.PerfectCompetition(user_supplied_markups='markups_m3'),
+                ],
+            ).solve()
 
         # Expectation: solve() ran to completion without exception.
         # The (0, 2) pair (m1 vs m3, identical) should be trivially-degenerate.
@@ -276,19 +281,24 @@ class TestTriviallyDegenerate:
 
     def test_mcs_pvalues_are_nan_for_models_in_identical_pair(self):
         """Models entangled in any trivially-degenerate pair get NaN MCS
-        p-values rather than crashing the multivariate_normal SVD."""
+        p-values rather than crashing the multivariate_normal SVD.
+
+        Suppresses NumPy RuntimeWarnings on NaN-propagation through
+        the divide / invalid paths (intentional and asserted-on).
+        """
         df = _make_tiny_dgp(seed=11, T=20)
         pyRVtest.options.verbose = False
-        results = pyRVtest.Problem(
-            cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
-            instrument_formulation=pyRVtest.Formulation('0 + z1 + z2'),
-            product_data=df,
-            models=[
-                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m1'),
-                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m2'),
-                pyRVtest.PerfectCompetition(user_supplied_markups='markups_m3'),
-            ],
-        ).solve()
+        with np.errstate(invalid='ignore', divide='ignore'):
+            results = pyRVtest.Problem(
+                cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+                instrument_formulation=pyRVtest.Formulation('0 + z1 + z2'),
+                product_data=df,
+                models=[
+                    pyRVtest.PerfectCompetition(user_supplied_markups='markups_m1'),
+                    pyRVtest.PerfectCompetition(user_supplied_markups='markups_m2'),
+                    pyRVtest.PerfectCompetition(user_supplied_markups='markups_m3'),
+                ],
+            ).solve()
         mcs = np.asarray(results.MCS_pvalues[0]).flatten()
         # Models 0 and 2 share identical markups → MCS p-values are NaN.
         assert np.isnan(mcs[0]), f"model 0 MCS p-value should be NaN; got {mcs[0]}"
@@ -648,23 +658,33 @@ class TestPrintedOutputIntegration:
     """Phase 2: glyphs and footer in printed __str__ output."""
 
     def test_pairwise_notes_section_appears_when_relevant(self):
-        """When a pair triggers any of the three notes (extra-precision,
-        indistinguishable, weakly separated), the printed output gains a
-        `Pairwise notes:` section. When nothing fires, the section is
-        absent — silence means the test is clean.
+        """``Pairwise notes:`` appears only when at least one of the two
+        notes fires:
+
+        * extra-precision (mpmath swap fired, lambda < 1e-10), OR
+        * indistinguishable (verdict = trivially-degenerate).
+
+        On a typical clean run the section is absent — silence means
+        the test is clean. The "weakly separated" footnote was removed
+        on 2026-05-01 (Lorenzo's audit found it firing on every CarRV
+        pair without signal value).
         """
         df = _make_tiny_dgp()
         results = _solve_two_models(df)
         out = str(results)
-        # The tiny DGP has near-collinear models in a small sample, so
-        # at least one pair will trigger weakly-separated. If nothing
-        # fires (rare for this fixture), the section is absent — also
-        # acceptable.
-        has_note = any(
-            np.isfinite(lam) and lam < 0.05
-            for j in range(len(results.lambda_dmss))
-            for lam in np.asarray(results.lambda_dmss[j]).flatten()
+        # Section should fire only when the engine actually produced
+        # a note-worthy condition.
+        has_indistinguishable = any(
+            v == 'trivially-degenerate'
+            for j in range(len(results.verdict))
+            for v in np.asarray(results.verdict[j]).flatten()
         )
+        has_extra_precision = any(
+            np.isfinite(F_hp)
+            for j in range(len(results.F_high_precision))
+            for F_hp in np.asarray(results.F_high_precision[j]).flatten()
+        )
+        has_note = has_indistinguishable or has_extra_precision
         if has_note:
             assert 'Pairwise notes:' in out, (
                 f"expected 'Pairwise notes:' in printed output when a "
