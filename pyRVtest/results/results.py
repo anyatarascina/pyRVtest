@@ -50,73 +50,125 @@ if TYPE_CHECKING:
 
 
 # ----------------------------------------------------------------------
-# F-stat reliability footer helpers (Phase 2 of the F-reliability work).
+# F-stat reliability footer helpers (2026-05-01 redesign).
+#
+# Verdict tiers in the redesigned diagnostic:
+#   - "robust"            : F clears worst-case CV across rho^2 ∈ [0, 0.99]
+#   - "plug-in dependent" : F clears plug-in CV(rhô²) but not worst-case
+#   - "weak"              : F clears no plug-in CV (no strength claim)
+#   - "trivially-degenerate": rhô² is NaN (identical-markup boundary)
 # ----------------------------------------------------------------------
 
-def _worst_cell_borderline(cells: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Among borderline cells, pick the one with the smallest CI lower bound
-    relative to its strongest claim's CV — that's the most-fragile case to
-    surface in the footer."""
-    return cells[0] if len(cells) == 1 else min(cells, key=lambda c: c['F_ci_low'])
 
+def _plug_in_dependent_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
+    """Build the plug-in-dependent footer line(s).
 
-def _borderline_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
-    """Build the borderline footer line(s). For a single cell, show the
-    specific F value, CI, and CV. For multiple cells, summarize the worst
-    case."""
+    For a single cell, show the specific F, plug-in CV, and worst-case CV.
+    For multiple cells, summarize the most fragile (smallest gap between F
+    and its worst-case CV).
+    """
     n = len(cells)
     suffix = '' if n == 1 else 's'
     if n == 1:
         c = cells[0]
         claim = c['claim_size'] or c['claim_power'] or '(none)'
-        # Choose the relevant CV for the strongest claim
-        if c['claim_size']:
-            # determine which size CV is "strongest"
-            cvs = c['cv_size']
-            relevant_cv = max(cv for cv in cvs if cv > 0 and c['F'] > cv)
-        elif c['claim_power']:
-            cvs = c['cv_power']
-            relevant_cv = max(cv for cv in cvs if cv > 0 and c['F'] > cv)
-        else:
-            relevant_cv = float('nan')
         return [
             [
-                f"  borderline (1 cell): F = {c['F']:.2f} "
-                f"(95% CI lower bound {c['F_ci_low']:.2f}), strongest claim \"{claim}\""
+                f"  plug-in dependent (1 cell): F = {c['F']:.2f}, strongest claim "
+                f"\"{claim}\" relies on rhô² = {c['rho_squared']:.2f}."
             ],
             [
-                f"     CI overlaps the relevant CV = {relevant_cv:.2f}: "
-                f"claim is decision-uncertain at the conventional 95% level."
+                f"     plug-in CV = {c['plug_in_cv']:.2f} (cleared) but "
+                f"worst-case CV across rho ∈ [0, 0.99] = {c['worst_case_cv']:.2f} "
+                f"(not cleared). Claim depends on rhô² being well-estimated; "
+                f"see ProblemResults.F_reliability_summary()."
             ],
         ]
-    # Multiple cells: summarize.
-    worst = _worst_cell_borderline(cells)
+    # Multi-cell summary: pick the cell with the smallest (F - worst_case_cv)
+    worst = min(
+        cells,
+        key=lambda c: c['F'] - (c['worst_case_cv'] or 0),
+    )
     return [
         [
-            f"  borderline ({n} cell{suffix}): worst-case F = {worst['F']:.2f} "
-            f"(95% CI lower bound {worst['F_ci_low']:.2f})."
+            f"  plug-in dependent ({n} cell{suffix}): the strongest claim relies "
+            f"on rhô² being well-estimated."
         ],
         [
-            "     for these cells the asymptotic 95% CI for F overlaps the "
-            "CV that supports the strongest claim — the strength claim is "
-            "decision-uncertain at conventional levels."
+            f"     worst case in this group: F = {worst['F']:.2f}, "
+            f"worst-case CV = {worst['worst_case_cv']:.2f}. "
+            f"See ProblemResults.F_reliability_summary() for per-cell detail."
         ],
     ]
 
 
-def _near_degenerate_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
-    """Build the near-degenerate footer line(s)."""
+def _numerically_unstable_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
+    """Build the 'numerically unstable' alert line(s).
+
+    These cells failed the high-precision (mpmath) cross-check: F̂_double
+    and F̂_mpmath disagree by enough to flip the F̂-vs-CV decision at the
+    cell's strongest plug-in CV. This is the diagnostic's strongest
+    alert — the user's strength claim depends on a value of F̂ that's
+    not numerically reliable.
+    """
+    n = len(cells)
+    suffix = '' if n == 1 else 's'
+    if n == 1:
+        c = cells[0]
+        F_d = c['F']
+        F_hp = c['F_high_precision']
+        plug_in_cv = c['plug_in_cv']
+        return [
+            [
+                f"  numerically unstable (1 cell): F (double) = {F_d:.3f}, "
+                f"F (high-precision) = {F_hp:.3f}, plug-in CV = {plug_in_cv:.3f}."
+            ],
+            [
+                "     The double-precision F̂ crosses the plug-in CV but the "
+                "high-precision F̂ does not. Trust the high-precision value: "
+                "the strength claim is not supported."
+            ],
+        ]
+    worst = min(cells, key=lambda c: c['F_high_precision'] - c['plug_in_cv'])
+    F_d = worst['F']
+    F_hp = worst['F_high_precision']
+    plug_in_cv = worst['plug_in_cv']
+    return [
+        [
+            f"  numerically unstable ({n} cell{suffix}): worst case has "
+            f"F (double) = {F_d:.3f}, F (high-precision) = {F_hp:.3f}, "
+            f"plug-in CV = {plug_in_cv:.3f}."
+        ],
+        [
+            "     For these cells, the double-precision F̂ supports a "
+            "strength claim but the high-precision F̂ does not. The claim "
+            "is not numerically reliable; see "
+            "F_reliability_summary() for per-cell detail."
+        ],
+    ]
+
+
+def _low_lambda_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
+    """Build the low-lambda informational line(s).
+
+    Fires on cells (any verdict) where lambda < threshold — a numerical-
+    fragility footnote about the rhô² and F̂ computations. Under the redesign
+    this is informational and does *not* invalidate the verdict; it just
+    notes that rhô² is being computed in the cancellation regime.
+    """
     n = len(cells)
     suffix = '' if n == 1 else 's'
     min_lambda = min(c['lambda'] for c in cells if np.isfinite(c['lambda']))
     return [
         [
-            f"  near-degenerate ({n} cell{suffix}): smallest lambda = {min_lambda:.3f}"
+            f"  low-separation geometry ({n} cell{suffix}): smallest lambda "
+            f"= {min_lambda:.3f}."
         ],
         [
-            "     F's denominator has lost most of its scale to cancellation; "
-            "F's value is numerically unreliable here. Treat as flagging weak "
-            "model separation rather than reporting a precise number."
+            "     rhô² is being computed near the Cauchy-Schwarz cancellation "
+            "boundary. Verdict above accounts for rhô² uncertainty via "
+            "worst-case CV; this is an informational footnote on numerical "
+            "precision in this region."
         ],
     ]
 
@@ -166,6 +218,14 @@ class Progress:
     verdict_list: Optional[List[Any]] = None
     strongest_claim_size_list: Optional[List[Any]] = None
     strongest_claim_power_list: Optional[List[Any]] = None
+    # Worst-case CVs across rho^2 ∈ [0, 0.99] (2026-05-01 redesign).
+    worst_case_cv_size_list: Optional[List[Any]] = None
+    worst_case_cv_power_list: Optional[List[Any]] = None
+    # High-precision F̂ / ρ̂² populated by the precision check
+    # (reliability_check='conditional' or 'always'). NaN for cells that
+    # didn't trigger the recompute.
+    F_high_precision_list: Optional[List[Any]] = None
+    rho_squared_high_precision_list: Optional[List[Any]] = None
     symbols_rv_list: Optional[List[Any]] = None
 
 
@@ -279,6 +339,10 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         self.verdict = progress.verdict_list
         self.strongest_claim_size = progress.strongest_claim_size_list
         self.strongest_claim_power = progress.strongest_claim_power_list
+        self.worst_case_cv_size = progress.worst_case_cv_size_list
+        self.worst_case_cv_power = progress.worst_case_cv_power_list
+        self.F_high_precision = progress.F_high_precision_list
+        self.rho_squared_high_precision = progress.rho_squared_high_precision_list
         self._symbols_rv_list = progress.symbols_rv_list
 
     def __str__(self) -> str:
@@ -385,9 +449,11 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             return []
 
         # Walk all (j, k, i) cells, collect verdicts and per-cell numbers.
-        flagged_borderline: List[dict] = []
-        flagged_near_deg: List[dict] = []
-        flagged_trivially: List[dict] = []
+        flagged_plug_in: List[Dict[str, Any]] = []
+        flagged_unstable: List[Dict[str, Any]] = []
+        flagged_weak: List[Dict[str, Any]] = []
+        flagged_trivially: List[Dict[str, Any]] = []
+        flagged_low_lambda: List[Dict[str, Any]] = []  # informational footnote
         max_rho2 = 0.0
         min_lambda = 1.0
         any_valid = False
@@ -400,13 +466,23 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                 else None
             )
             F_j = np.asarray(self.F[j])
-            ci_low_j = (
-                np.asarray(self.F_ci_low[j])
-                if getattr(self, 'F_ci_low', None) is not None
-                else None
-            )
             cv_size_j = self.F_cv_size_list[j]
             cv_power_j = self.F_cv_power_list[j]
+            wc_size_j = (
+                self.worst_case_cv_size[j]
+                if getattr(self, 'worst_case_cv_size', None) is not None
+                else None
+            )
+            wc_power_j = (
+                self.worst_case_cv_power[j]
+                if getattr(self, 'worst_case_cv_power', None) is not None
+                else None
+            )
+            F_hp_j = (
+                np.asarray(self.F_high_precision[j])
+                if getattr(self, 'F_high_precision', None) is not None
+                else None
+            )
             claim_size_j = (
                 self.strongest_claim_size[j]
                 if getattr(self, 'strongest_claim_size', None) is not None
@@ -427,46 +503,104 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                         continue
                     any_valid = True
                     rho_val = rho_j[k, i]
+                    rho_squared_val = float(rho_val ** 2) if np.isfinite(rho_val) else float('nan')
                     if np.isfinite(rho_val):
                         max_rho2 = max(max_rho2, rho_val ** 2)
-                    if lambda_j is not None and np.isfinite(lambda_j[k, i]):
-                        min_lambda = min(min_lambda, float(lambda_j[k, i]))
-                    if v == 'robust':
-                        continue
+                    lambda_val = (
+                        float(lambda_j[k, i])
+                        if lambda_j is not None and np.isfinite(lambda_j[k, i])
+                        else float('nan')
+                    )
+                    if np.isfinite(lambda_val):
+                        min_lambda = min(min_lambda, lambda_val)
+
+                    # For cell info: identify the "relevant CV" pair (plug-in
+                    # vs worst-case at the strongest claim).
+                    plug_in_cv = float('nan')
+                    worst_case_cv = float('nan')
+                    claim_size_str = (
+                        claim_size_j[k, i] if claim_size_j is not None else None
+                    )
+                    claim_power_str = (
+                        claim_power_j[k, i] if claim_power_j is not None else None
+                    )
+                    F_val = float(F_j[k, i])
+                    if claim_size_str is not None and cv_size_j[k, i] is not None:
+                        size_cvs = cv_size_j[k, i]
+                        size_finite = [
+                            c for c in size_cvs
+                            if c is not None and np.isfinite(c) and c > 0 and F_val > c
+                        ]
+                        if size_finite:
+                            plug_in_cv = max(float(c) for c in size_finite)
+                            if wc_size_j is not None and wc_size_j[k, i] is not None:
+                                wc_arr = wc_size_j[k, i]
+                                wc_finite = [
+                                    c for c in wc_arr
+                                    if c is not None and np.isfinite(c) and c > 0
+                                ]
+                                if wc_finite:
+                                    worst_case_cv = max(float(c) for c in wc_finite)
+                    elif claim_power_str is not None and cv_power_j[k, i] is not None:
+                        power_cvs = cv_power_j[k, i]
+                        power_finite = [
+                            c for c in power_cvs
+                            if c is not None and np.isfinite(c) and c > 0 and F_val > c
+                        ]
+                        if power_finite:
+                            plug_in_cv = max(float(c) for c in power_finite)
+                            if wc_power_j is not None and wc_power_j[k, i] is not None:
+                                wc_arr = wc_power_j[k, i]
+                                wc_finite = [
+                                    c for c in wc_arr
+                                    if c is not None and np.isfinite(c) and c > 0
+                                ]
+                                if wc_finite:
+                                    worst_case_cv = max(float(c) for c in wc_finite)
+
+                    F_hp_val = (
+                        float(F_hp_j[k, i])
+                        if F_hp_j is not None and np.isfinite(F_hp_j[k, i])
+                        else float('nan')
+                    )
                     cell_info = {
                         'instrument_set': j,
                         'pair': (k, i),
                         'F': float(F_j[k, i]) if np.isfinite(F_j[k, i]) else float('nan'),
-                        'F_ci_low': (
-                            float(ci_low_j[k, i])
-                            if ci_low_j is not None and np.isfinite(ci_low_j[k, i])
-                            else float('nan')
-                        ),
-                        'lambda': (
-                            float(lambda_j[k, i])
-                            if lambda_j is not None and np.isfinite(lambda_j[k, i])
-                            else float('nan')
-                        ),
-                        'claim_size': (
-                            claim_size_j[k, i] if claim_size_j is not None else None
-                        ),
-                        'claim_power': (
-                            claim_power_j[k, i] if claim_power_j is not None else None
-                        ),
-                        'cv_size': cv_size_j[k, i],
-                        'cv_power': cv_power_j[k, i],
+                        'F_high_precision': F_hp_val,
+                        'rho_squared': rho_squared_val,
+                        'lambda': lambda_val,
+                        'claim_size': claim_size_str,
+                        'claim_power': claim_power_str,
+                        'plug_in_cv': plug_in_cv,
+                        'worst_case_cv': worst_case_cv,
                     }
-                    if v == 'borderline':
-                        flagged_borderline.append(cell_info)
-                    elif v == 'near-degenerate':
-                        flagged_near_deg.append(cell_info)
+
+                    if v == 'numerically unstable':
+                        flagged_unstable.append(cell_info)
+                    elif v == 'plug-in dependent':
+                        flagged_plug_in.append(cell_info)
+                    elif v == 'weak':
+                        flagged_weak.append(cell_info)
                     elif v == 'trivially-degenerate':
                         flagged_trivially.append(cell_info)
+                    # 'robust' verdicts skip the flag list but still
+                    # contribute to max_rho2 / min_lambda above.
+
+                    # Low-lambda informational footnote — fires on any
+                    # non-NaN lambda below threshold, regardless of verdict.
+                    from ..solve.test_engine import RELIABILITY_LAMBDA_THRESHOLD
+                    if (np.isfinite(lambda_val)
+                            and lambda_val < RELIABILITY_LAMBDA_THRESHOLD):
+                        flagged_low_lambda.append(cell_info)
 
         if not any_valid:
             return []
 
-        any_flagged = bool(flagged_borderline or flagged_near_deg or flagged_trivially)
+        any_flagged = bool(
+            flagged_unstable or flagged_plug_in or flagged_weak
+            or flagged_trivially or flagged_low_lambda
+        )
         rows: List[List[str]] = []
 
         if not any_flagged:
@@ -479,15 +613,25 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         # Header for the reliability section
         rows.append(["F-stat reliability:"])
 
-        if flagged_borderline:
-            rows.extend(_borderline_lines(flagged_borderline))
-        if flagged_near_deg:
-            rows.extend(_near_degenerate_lines(flagged_near_deg))
+        # Lead with the strongest alert if any.
+        if flagged_unstable:
+            rows.extend(_numerically_unstable_lines(flagged_unstable))
+        if flagged_plug_in:
+            rows.extend(_plug_in_dependent_lines(flagged_plug_in))
+        if flagged_weak:
+            n = len(flagged_weak)
+            rows.append([
+                f"  weak ({n} cell{'s' if n != 1 else ''}): F clears no plug-in CV; "
+                f"no strength claim available."
+            ])
         if flagged_trivially:
             n = len(flagged_trivially)
             rows.append([
-                f"  triv-deg ({n} cell{'s' if n != 1 else ''}): models produce identical markups; F is undefined."
+                f"  trivially-degenerate ({n} cell{'s' if n != 1 else ''}): "
+                f"identical markups across the model pair; F undefined."
             ])
+        if flagged_low_lambda:
+            rows.extend(_low_lambda_lines(flagged_low_lambda))
         rows.append(["  See: results.F_reliability_summary() for per-cell detail."])
         return rows
 
@@ -718,25 +862,28 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         """Return per-cell F-stat reliability diagnostics.
 
         One row per (instrument set, model_i, model_j) with model_i < model_j.
-        Columns:
+        Columns (under the 2026-05-01 worst-case-CV redesign):
 
         - ``F``, ``rho_squared``: existing test statistic and DMSS rho².
-        - ``lambda_dmss``: numerical-cancellation depth, ``((σ_0+σ_1)² −
-          4σ_2²) / (σ_0+σ_1)²``. Below 0.05 the F value is unreliable.
-        - ``F_se``, ``F_ci_low``, ``F_ci_high``: asymptotic SE and 95% CI for
-          the population F under the paper's noncentral chi-squared
-          distribution at the implied noncentrality.
-        - ``strongest_claim_size``, ``strongest_claim_power``: human-readable
-          labels of the strongest size and power claims F supports
-          (e.g. ``"worst-case size <= 10%"``); ``None`` when F clears no CV.
-        - ``verdict``: one of ``"robust"``, ``"borderline"``,
-          ``"near-degenerate"``, or ``"trivially-degenerate"``.
-
-        See ``MEMO_F_reliability_diagnostic_2026-04-28.md`` for design and
-        calibration. The diagnostic is independent of and complementary to
-        the test's Type I error guarantee under the worst-case null
-        (DMSS Proposition 4) — it is a precision-of-the-point-estimate
-        question about the observed F.
+        - ``lambda_dmss``: numerical-cancellation depth,
+          ``((σ_0+σ_1)² − 4σ_2²) / (σ_0+σ_1)²``. Informational footnote
+          flagging when ρ̂² is computed in the cancellation regime; the
+          verdict no longer turns on this directly.
+        - ``F_se``, ``F_ci_low``, ``F_ci_high``: asymptotic SE and 95% CI
+          for F under the paper's noncentral chi-squared parametrization.
+          Retained for inspection; not used by the verdict (a follow-up
+          will replace these with a delta-method SE in v0.5).
+        - ``strongest_claim_size``, ``strongest_claim_power``: strongest
+          size/power claim F supports at the plug-in ρ̂² (e.g.,
+          ``"worst-case size <= 10%"``).
+        - ``worst_case_cv_size``, ``worst_case_cv_power``: ndarray of the
+          three CV columns at the worst-case ρ² ∈ [0, 0.99] (size CVs at
+          ρ² = 0.99 since they are increasing in ρ; power CVs at the
+          maximum across the table since power CVs decrease in ρ).
+        - ``verdict``: one of ``"robust"`` (F clears worst-case CV),
+          ``"plug-in dependent"`` (F clears plug-in but not worst-case),
+          ``"weak"`` (F clears no plug-in CV), or
+          ``"trivially-degenerate"`` (ρ̂² is NaN).
 
         Returns
         -------
@@ -761,6 +908,21 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             verdict_mat = self.verdict[j] if self.verdict is not None else None
             claim_size_mat = self.strongest_claim_size[j] if self.strongest_claim_size is not None else None
             claim_power_mat = self.strongest_claim_power[j] if self.strongest_claim_power is not None else None
+            wc_size_mat = (
+                self.worst_case_cv_size[j]  # type: ignore[index]
+                if getattr(self, 'worst_case_cv_size', None) is not None
+                else None
+            )
+            wc_power_mat = (
+                self.worst_case_cv_power[j]  # type: ignore[index]
+                if getattr(self, 'worst_case_cv_power', None) is not None
+                else None
+            )
+            F_hp_mat = (
+                np.asarray(self.F_high_precision[j])  # type: ignore[index]
+                if getattr(self, 'F_high_precision', None) is not None
+                else None
+            )
             for i in range(M):
                 for k in range(i + 1, M):
                     rho_ik = float(rho_mat[i, k])
@@ -792,6 +954,15 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                         'strongest_claim_power': (
                             claim_power_mat[i, k] if claim_power_mat is not None else None
                         ),
+                        'worst_case_cv_size': (
+                            wc_size_mat[i, k] if wc_size_mat is not None else None
+                        ),
+                        'worst_case_cv_power': (
+                            wc_power_mat[i, k] if wc_power_mat is not None else None
+                        ),
+                        'F_high_precision': (
+                            float(F_hp_mat[i, k]) if F_hp_mat is not None else float('nan')
+                        ),
                         'verdict': (
                             verdict_mat[i, k] if verdict_mat is not None else None
                         ),
@@ -799,9 +970,11 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         columns = [
             'instrument_set', 'instrument_set_label',
             'model_i', 'model_j', 'model_i_label', 'model_j_label',
-            'F', 'rho_squared', 'lambda_dmss',
+            'F', 'F_high_precision', 'rho_squared', 'lambda_dmss',
             'F_se', 'F_ci_low', 'F_ci_high',
-            'strongest_claim_size', 'strongest_claim_power', 'verdict',
+            'strongest_claim_size', 'strongest_claim_power',
+            'worst_case_cv_size', 'worst_case_cv_power',
+            'verdict',
         ]
         return pd.DataFrame.from_records(records, columns=columns)
 

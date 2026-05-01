@@ -44,17 +44,170 @@ _NDArray: TypeAlias = NDArray[Any]
 logger = logging.getLogger(__name__)
 
 
-# F-stat reliability diagnostic thresholds. Calibrated in
-# degeneracy-conduct-testing/code/calibration/ (see MEMO_F_reliability_diagnostic_2026-04-28.md).
-# These are module-level constants to keep the patch contained; can be promoted
-# to Problem.solve(reliability_thresholds=...) kwargs in a follow-up.
-RELIABILITY_LAMBDA_THRESHOLD = 0.05  # near-degenerate flagged when lambda < this
-RELIABILITY_CI_LEVEL = 1.96  # 95% CI half-width; borderline flagged when CI overlaps relevant CV
+# F-stat reliability diagnostic thresholds.
+#
+# Redesign (2026-05-01): under the worst-case-CV verdict architecture, lambda
+# is no longer the gating diagnostic. It is retained as a numerical-fragility
+# footnote on plug-in-dependent cells (see ``compute_instrument_results``).
+# The principled robustness signal is whether F clears the *worst-case* CV
+# across rho^2 in [0, 0.99], which is a free lookup on the existing critical-
+# value table.
+RELIABILITY_LAMBDA_THRESHOLD = 0.05  # numerical-fragility annotation on plug-in cells
+RELIABILITY_CI_LEVEL = 1.96  # 95% CI half-width; retained for the SE column
 
 # Worst-case size and best-case power levels corresponding to the three CVs
 # in the published table. Used for human-readable claim labels.
 _SIZE_LEVELS_PCT = (12.5, 10.0, 7.5)  # claim "worst-case size <= X%" if F > r_X (column order: r_125, r_10, r_075)
 _POWER_LEVELS_PCT = (50.0, 75.0, 95.0)  # claim "best-case power >= Y%" if F > r_Y (column order: r_50, r_75, r_95)
+
+
+def _lookup_cv_row(critical_values: Array, K_lookup: int, rho_lookup: float) -> int:
+    """Return the row index in a published-CV table for given (K, rho).
+
+    Helper for the worst-case CV scan. ``rho_lookup`` is matched against the
+    ``rho`` column to two-decimal precision (the table grid)."""
+    ind = np.where(
+        (critical_values['K'] == K_lookup)
+        & (np.round(critical_values['rho'], 2) == round(rho_lookup, 2))
+    )[0]
+    if ind.size == 0:
+        raise KeyError(
+            f"No critical-value table row for K={K_lookup}, rho={rho_lookup}."
+        )
+    return int(ind[0])
+
+
+def _recompute_F_high_precision(
+        phi_blocks: Tuple[_NDArray, _NDArray, _NDArray],
+        W_inverse: _NDArray,
+        weight_matrix: _NDArray,
+        g_i: _NDArray,
+        g_m: _NDArray,
+        K: int,
+        N: int,
+        prec: int = 50,
+) -> Tuple[float, float]:
+    """Recompute (F̂, ρ̂²) at high precision via mpmath.
+
+    Used in the 'conditional' / 'always' precision-check paths to obtain
+    a high-precision reference value for F̂ and ρ̂² so we can flag cells
+    where the double-precision computation has lost so much precision to
+    cancellation that the F̂-vs-CV decision could flip.
+
+    Recomputes σ̂_0, σ̂_1, σ̂_2 at high precision from the phi_gram blocks
+    + W_inverse — not just the F formula given σ̂'s — so cancellation
+    anywhere in the chain is captured.
+
+    Parameters
+    ----------
+    phi_blocks
+        Tuple ``(V_ii, V_mm, V_im)``; each KxK numpy array.
+    W_inverse
+        KxK demand-side inverse weighting matrix (the same one trace-
+        contracted to produce double-precision σ̂'s).
+    weight_matrix
+        GMM weighting matrix (the same one used in F's quadratic forms).
+    g_i, g_m
+        K-vectors (instrument-projected moments for each model).
+    K
+        Number of instruments / effective dz used by σ̂ scaling.
+    N
+        Sample size factor in F's overall scaling.
+    prec
+        mpmath working decimal digits. Default 50, ample for any
+        cancellation we might encounter.
+
+    Returns
+    -------
+    tuple of (F_high_precision, rho_squared_high_precision)
+        Both as Python floats. Caller compares to double-precision values
+        and decides whether the precision loss matters.
+    """
+    import mpmath  # type: ignore[import-untyped]
+
+    with mpmath.workdps(prec):
+        Vi = mpmath.matrix(phi_blocks[0].tolist())
+        Vm = mpmath.matrix(phi_blocks[1].tolist())
+        Vim = mpmath.matrix(phi_blocks[2].tolist())
+        Winv = mpmath.matrix(W_inverse.tolist())
+        Wgmm = mpmath.matrix(weight_matrix.tolist())
+        gi = mpmath.matrix([float(x) for x in np.asarray(g_i).flatten()])
+        gm = mpmath.matrix([float(x) for x in np.asarray(g_m).flatten()])
+
+        def trace_mp(M: Any) -> Any:
+            return sum(M[k, k] for k in range(M.rows))
+
+        sig0 = trace_mp(Vi * Winv) / K
+        sig1 = trace_mp(Vm * Winv) / K
+        sig2 = trace_mp(Vim * Winv) / K
+
+        sigma_sum = sig0 + sig1
+        # Factored denominator: cancellation in the (sigma_sum - 2 sig2)
+        # term, computed at high precision so the cancellation is
+        # absorbed by the available digits.
+        D_rho = (sigma_sum - 2 * sig2) * (sigma_sum + 2 * sig2)
+
+        rho_sq_num = (sig0 - sig1) ** 2
+        rho_squared = rho_sq_num / D_rho
+
+        def quad(g: Any, W: Any, h: Any) -> Any:
+            return (g.T * W * h)[0, 0]
+
+        F_num = (
+            sig1 * quad(gi, Wgmm, gi)
+            + sig0 * quad(gm, Wgmm, gm)
+            - 2 * sig2 * quad(gi, Wgmm, gm)
+        )
+        F = 2 * N * F_num / (K * D_rho)
+        return float(F), float(rho_squared)
+
+
+def _worst_case_cv_size(
+        critical_values_size: Array, K_effective: int,
+) -> _NDArray:
+    """Return the maximum size CV across rho ∈ [0, 0.99] at this K.
+
+    Size CVs are monotone increasing in rho^2 (paper Table 1, panel A);
+    the worst case sits at the high-rho corner of the table. The
+    returned array has three entries matching the column order
+    ``[r_125, r_10, r_075]``.
+
+    A user whose F exceeds this worst-case CV makes a strength claim
+    that is robust to ρ̂² estimation error: even if ρ̂² mismeasures the
+    population ρ², the claim still holds at the population's CV.
+    """
+    K_lookup = min(int(K_effective), 30)
+    # Walk the table at this K and pick the maximum at each column.
+    mask = critical_values_size['K'] == K_lookup
+    if not mask.any():
+        return np.array([np.nan, np.nan, np.nan])
+    block = critical_values_size[mask]
+    return np.array([
+        float(block['r_125'].max()),
+        float(block['r_10'].max()),
+        float(block['r_075'].max()),
+    ])
+
+
+def _worst_case_cv_power(
+        critical_values_power: Array, K_effective: int,
+) -> _NDArray:
+    """Return the maximum power CV across rho ∈ [0, 0.99] at this K.
+
+    Power CVs are monotone *decreasing* in rho^2 (paper Table 1, panel B),
+    so the hardest CV to clear sits at the low-rho corner of the table.
+    Returned in column order ``[r_50, r_75, r_95]``.
+    """
+    K_lookup = min(int(K_effective), 30)
+    mask = critical_values_power['K'] == K_lookup
+    if not mask.any():
+        return np.array([np.nan, np.nan, np.nan])
+    block = critical_values_power[mask]
+    return np.array([
+        float(block['r_50'].max()),
+        float(block['r_75'].max()),
+        float(block['r_95'].max()),
+    ])
 
 
 def compute_instrument_results(
@@ -66,6 +219,8 @@ def compute_instrument_results(
         critical_values_size: Array, critical_values_power: Array,
         endog_hat: Optional[Array] = None,
         gradient_gamma: Optional[Array] = None,
+        reliability_check: str = 'conditional',
+        reliability_precision_dps: int = 50,
 ) -> Dict[str, Any]:
     """Compute all test statistics for a single instrument set.
 
@@ -299,8 +454,21 @@ def compute_instrument_results(
     symbols_size = np.empty((M, M), dtype=object)
     symbols_power = np.empty((M, M), dtype=object)
 
-    # F-stat reliability diagnostic outputs. See
-    # MEMO_F_reliability_diagnostic_2026-04-28.md for design and calibration.
+    # F-stat reliability diagnostic outputs.
+    #
+    # Architecture (2026-05-01 redesign): the verdict turns on whether F
+    # clears the *worst-case* CV across rho^2 ∈ [0, 0.99], which is the
+    # ρ̂²-plug-in-robust strength claim. The Wald SE on F̂ is retained as
+    # an inspection column (F_se / F_ci_low / F_ci_high) but no longer
+    # gates a verdict tier. lambda is retained as a numerical-fragility
+    # footnote on plug-in-dependent cells.
+    #
+    # Verdict tiers:
+    #   - "robust": F > worst-case CV. Strength claim survives any rho^2.
+    #   - "plug-in dependent": F > plug-in CV but F <= worst-case CV.
+    #     Claim depends on ρ̂² being well-estimated.
+    #   - "weak": F <= plug-in CV. No strength claim available.
+    #   - "trivially-degenerate": ρ̂² is NaN (identical-markup boundary).
     lambda_dmss = np.full((M, M), np.nan)
     F_se = np.full((M, M), np.nan)
     F_ci_low = np.full((M, M), np.nan)
@@ -308,6 +476,14 @@ def compute_instrument_results(
     verdict = np.empty((M, M), dtype=object)
     strongest_claim_size = np.empty((M, M), dtype=object)
     strongest_claim_power = np.empty((M, M), dtype=object)
+    worst_case_cv_size = np.empty((M, M), dtype=object)
+    worst_case_cv_power = np.empty((M, M), dtype=object)
+    # High-precision F̂ / ρ̂² (populated only when the precision check
+    # fires under reliability_check='conditional' or 'always'). Stored
+    # for inspection in F_reliability_summary; NaN means the precision
+    # check did not run for this cell.
+    F_high_precision = np.full((M, M), np.nan)
+    rho_squared_high_precision = np.full((M, M), np.nan)
 
     phi_gram = compute_block_gram(problem, N, clustering_adjustment, phi)
     for (m, i) in itertools.product(range(M), range(M)):
@@ -322,8 +498,32 @@ def compute_instrument_results(
                 np.trace(variance[1] @ W_inverse),
                 np.trace(variance[2] @ W_inverse)
             ])
+            # F-stat reliability redesign (2026-05-01):
+            #   * F is computed via the algebraically simplified form
+            #     F = 2N · F_num / (K · D_rho), where
+            #     D_rho = (sigma_0 + sigma_1)^2 - 4 sigma_2^2.
+            #     Algebra in MEMO_F_reliability_diagnostic_2026-04-28.md
+            #     shows this equals (1 - rho^2) · unscaled_F as written in
+            #     paper eq. (17), but eliminates one of two redundant
+            #     cancellations: the (1 - rho^2) prefactor and the
+            #     (sigma_0 sigma_1 - sigma_2^2) F-denominator both go to
+            #     zero as rho -> 1 with their ratio finite. Computing each
+            #     separately in floating-point loses precision; the
+            #     simplified form has only one source of cancellation
+            #     (D_rho), concentrated at the genuine boundary.
+            #   * rho is computed via the factored denominator,
+            #     D_rho = (sigma_0+sigma_1 - 2 sigma_2) * (sigma_0+sigma_1 + 2 sigma_2).
+            #     The first factor is where Cauchy-Schwarz cancellation
+            #     happens; the second is well away from zero in normal
+            #     applications. Computing the product splits the
+            #     cancellation from a `large - large` form into a single
+            #     `small × large` product, which is more stable in floats.
+            sigma_sum = sigma[0] + sigma[1]
+            sigma_minus_diff = sigma_sum - 2 * sigma[2]
+            sigma_plus_diff = sigma_sum + 2 * sigma[2]
+            D_rho = sigma_minus_diff * sigma_plus_diff
             numerator_sqrt = sigma[0] - sigma[1]
-            denominator_sqrt = np.sqrt((sigma[0] + sigma[1]) ** 2 - 4 * sigma[2] ** 2)
+            denominator_sqrt = np.sqrt(D_rho)
             rho[i, m] = numerator_sqrt / denominator_sqrt
             rho_squared = rho[i, m] ** 2
 
@@ -335,19 +535,24 @@ def compute_instrument_results(
             ]).flatten()
             F_numerator = operations @ moments
             F_denominator = sigma[0] * sigma[1] - sigma[2] ** 2
+            # Kept for backward-compat callers reading ``unscaled_F`` from
+            # ProblemResults (rare; not part of the public API but exposed).
             unscaled_F[i, m] = N / (2 * K_effective) * F_numerator / F_denominator
-            F[i, m] = (1 - rho_squared) * unscaled_F[i, m]
+            # Simplified F: avoids the double cancellation of the literal
+            # paper formula. Equivalent at population, more accurate at
+            # high rho^2 in floating-point.
+            F[i, m] = 2 * N * F_numerator / (K_effective * D_rho)
 
             # F-stat reliability diagnostic — numerical-fragility part.
             # lambda = ((sigma_0+sigma_1)^2 - 4 sigma_2^2) / (sigma_0+sigma_1)^2
-            # measures how much of F's natural denominator scale has been
-            # lost to cancellation. lambda ∈ [0, 1] with 0 = total
-            # cancellation (F undefined), 1 = no cancellation. Below 0.05
-            # the F value is numerically unreliable under realistic
-            # sigma-noise (calibrated against the analytical_scale fixture).
-            sigma_sum = sigma[0] + sigma[1]
+            # measures how much of D_rho's natural scale has been lost to
+            # cancellation. Under the redesign, lambda is a footnote on
+            # plug-in-dependent cells rather than a verdict in its own
+            # right (the worst-case CV check below is the principled
+            # robustness signal). Retained for inspection in the summary
+            # and diagnostic-detail printing.
             if sigma_sum > 0:
-                lambda_dmss[i, m] = (sigma_sum ** 2 - 4 * sigma[2] ** 2) / (sigma_sum ** 2)
+                lambda_dmss[i, m] = D_rho / (sigma_sum ** 2)
             else:
                 lambda_dmss[i, m] = np.nan
 
@@ -385,6 +590,8 @@ def compute_instrument_results(
                 verdict[i, m] = "trivially-degenerate"
                 strongest_claim_size[i, m] = None
                 strongest_claim_power[i, m] = None
+                worst_case_cv_size[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
+                worst_case_cv_power[i, m] = np.array([np.nan, np.nan, np.nan], dtype=object)
                 continue
             rho_lookup = min(np.round(np.abs(rho_val), 2), 0.99)
             K_lookup = min(K_effective, 30)  # warning for K>30 fired above
@@ -413,22 +620,28 @@ def compute_instrument_results(
                 "^^" if F[i, m] < F_cv_power[i, m][2] else "^^^"
             )
 
-            # F-stat reliability verdict — strongest-claim identification + CI overlap.
+            # F-stat reliability verdict — worst-case CV architecture.
+            #
             # Determine the strongest size/power claim the user can make.
             # CV columns ordered as in the published table:
             #   F_cv_size: [r_125, r_10, r_075] (worst-case sizes 12.5%, 10%, 7.5%)
             #   F_cv_power: [r_50, r_75, r_95]  (best-case powers 50%, 75%, 95%)
-            # Strongest size claim = strictest size level (smallest %) that F clears.
-            # Strongest power claim = strictest power level (largest %) that F clears.
+            #
+            # At a given (K, rho), a CV of 0 means "DMSS guarantees this
+            # claim automatically without any F threshold" — see paper
+            # Sec 5.4: with 2-9 instruments and rs >= 0.075, the set S of
+            # dangerous noncentralities is empty, so size distortions are
+            # bounded without an F-strength check. We treat such auto-
+            # claims as supported. F-supported claims require F > CV.
             strongest_size_idx = -1
             for idx in range(3):
                 cv = F_cv_size[i, m][idx]
-                if cv > 0 and F[i, m] > cv:
+                if cv == 0 or (cv > 0 and F[i, m] > cv):
                     strongest_size_idx = idx  # later iterations overwrite with stricter
             strongest_power_idx = -1
             for idx in range(3):
                 cv = F_cv_power[i, m][idx]
-                if cv > 0 and F[i, m] > cv:
+                if cv == 0 or (cv > 0 and F[i, m] > cv):
                     strongest_power_idx = idx
 
             if strongest_size_idx >= 0:
@@ -444,31 +657,112 @@ def compute_instrument_results(
             else:
                 strongest_claim_power[i, m] = None
 
-            # CI-overlap check: borderline if the asymptotic 95% CI for the
-            # population F overlaps the relevant CV for either strongest claim.
-            # Equivalently: F - 1.96 SE(F) < CV.
-            size_borderline = False
-            if strongest_size_idx >= 0 and not np.isnan(F_ci_low[i, m]):
-                relevant_size_cv = F_cv_size[i, m][strongest_size_idx]
-                size_borderline = F_ci_low[i, m] < relevant_size_cv
-            power_borderline = False
-            if strongest_power_idx >= 0 and not np.isnan(F_ci_low[i, m]):
-                relevant_power_cv = F_cv_power[i, m][strongest_power_idx]
-                power_borderline = F_ci_low[i, m] < relevant_power_cv
+            # Worst-case CV scan: would the user's strength claim survive
+            # if rho^2 were anywhere in [0, 0.99]? This is the principled
+            # robustness check from the redesign — it does not require any
+            # finite-sample-aware SE, only a different lookup on the same
+            # CV table. Size CVs increase in rho; power CVs decrease.
+            worst_case_cv_size[i, m] = _worst_case_cv_size(
+                critical_values_size, K_effective,
+            )
+            worst_case_cv_power[i, m] = _worst_case_cv_power(
+                critical_values_power, K_effective,
+            )
 
-            if (not np.isnan(lambda_dmss[i, m])
-                    and lambda_dmss[i, m] < RELIABILITY_LAMBDA_THRESHOLD):
-                verdict[i, m] = "near-degenerate"
-            elif size_borderline or power_borderline:
-                verdict[i, m] = "borderline"
-            else:
+            # Three-tier verdict.
+            # A claim is "robust" when it survives at the worst-case CV
+            # across rho^2. Auto-claims (CV = 0 at all rho^2) are robust
+            # by definition. F-supported claims (F > plug-in CV > 0) are
+            # robust if F > worst-case CV. If neither size nor power
+            # claim is made, the verdict is "weak".
+            size_made = strongest_size_idx >= 0
+            power_made = strongest_power_idx >= 0
+            size_robust = True
+            power_robust = True
+            if size_made:
+                worst_size_cv = worst_case_cv_size[i, m][strongest_size_idx]
+                if worst_size_cv > 0:
+                    size_robust = F[i, m] > worst_size_cv
+                # else: auto-claim, robust by definition (size_robust=True)
+            if power_made:
+                worst_power_cv = worst_case_cv_power[i, m][strongest_power_idx]
+                if worst_power_cv > 0:
+                    power_robust = F[i, m] > worst_power_cv
+
+            if not (size_made or power_made):
+                verdict[i, m] = "weak"
+            elif size_robust and power_robust:
                 verdict[i, m] = "robust"
+            else:
+                verdict[i, m] = "plug-in dependent"
+
+            # High-precision precision check (reliability_check kwarg).
+            #
+            # Modes:
+            #   - 'off': skip the check entirely (preserves the
+            #     three-tier verdict above).
+            #   - 'conditional' (default): only fire when the cell is
+            #     in the precision-relevant band — λ < threshold AND
+            #     verdict is 'plug-in dependent'. The mpmath cost is
+            #     paid only when ρ̂² is in the cancellation regime AND
+            #     the strength claim might flip.
+            #   - 'always': fire on every non-trivial cell. Useful for
+            #     paper-table generation where speed isn't critical.
+            #
+            # When the high-precision F differs enough from the double-
+            # precision F to flip the test outcome at the strongest-
+            # claim CV, the verdict is upgraded to "numerically unstable".
+            should_check = False
+            if reliability_check == 'always':
+                should_check = True
+            elif reliability_check == 'conditional':
+                in_low_lambda = (
+                    not np.isnan(lambda_dmss[i, m])
+                    and lambda_dmss[i, m] < RELIABILITY_LAMBDA_THRESHOLD
+                )
+                in_band = (verdict[i, m] == 'plug-in dependent')
+                should_check = in_low_lambda and in_band
+            # else 'off' -> skip
+
+            if should_check:
+                phi_blocks = (variance[0], variance[1], variance[2])
+                F_hp, rho2_hp = _recompute_F_high_precision(
+                    phi_blocks=phi_blocks,
+                    W_inverse=W_inverse,
+                    weight_matrix=weight_matrix,
+                    g_i=g[i],
+                    g_m=g[m],
+                    K=K_effective,
+                    N=N,
+                    prec=reliability_precision_dps,
+                )
+                F_high_precision[i, m] = F_hp
+                rho_squared_high_precision[i, m] = rho2_hp
+
+                # Decide whether the high-precision F flips the verdict.
+                # The relevant test is whether F_hp would still clear
+                # the plug-in CV at the strongest-claim level — if it
+                # doesn't, the double-precision F̂'s strength claim is
+                # numerically unreliable.
+                hp_passes = True
+                if size_made and strongest_size_idx >= 0:
+                    plug_in_size = F_cv_size[i, m][strongest_size_idx]
+                    if plug_in_size > 0 and F_hp <= plug_in_size:
+                        hp_passes = False
+                if power_made and strongest_power_idx >= 0 and hp_passes:
+                    plug_in_power = F_cv_power[i, m][strongest_power_idx]
+                    if plug_in_power > 0 and F_hp <= plug_in_power:
+                        hp_passes = False
+                if not hp_passes:
+                    verdict[i, m] = "numerically unstable"
         else:
             symbols_size[i, m] = ""
             symbols_power[i, m] = ""
             verdict[i, m] = None
             strongest_claim_size[i, m] = None
             strongest_claim_power[i, m] = None
+            worst_case_cv_size[i, m] = None
+            worst_case_cv_power[i, m] = None
 
     # model confidence set
     all_model_combinations = list(itertools.combinations(range(M), 2))
@@ -507,6 +801,10 @@ def compute_instrument_results(
         'verdict': verdict,
         'strongest_claim_size': strongest_claim_size,
         'strongest_claim_power': strongest_claim_power,
+        'worst_case_cv_size': worst_case_cv_size,
+        'worst_case_cv_power': worst_case_cv_power,
+        'F_high_precision': F_high_precision,
+        'rho_squared_high_precision': rho_squared_high_precision,
     }
 
 

@@ -1453,7 +1453,9 @@ class Problem(Container, StringRepresentation):
             self, demand_adjustment: Optional[bool] = False,
             clustering_adjustment: Optional[bool] = False,
             costs_type: Optional[str] = 'linear',
-            mc_correction: Optional[Array] = None
+            mc_correction: Optional[Array] = None,
+            reliability_check: str = 'conditional',
+            reliability_precision_dps: int = 50,
     ) -> ProblemResults:
         r"""Solve the problem.
 
@@ -1499,6 +1501,22 @@ class Problem(Container, StringRepresentation):
         step_start_time = time.time()
 
         self._validate_solve_args(demand_adjustment, clustering_adjustment)
+
+        # F-stat reliability precision-check mode (2026-05-01 redesign).
+        # See ``pyRVtest/solve/test_engine.py::compute_instrument_results``
+        # for the full semantics. 'conditional' (default) only fires the
+        # mpmath recompute when a cell is in the precision-relevant band
+        # (low lambda + plug-in dependent verdict). 'always' recomputes
+        # every cell at high precision (paper-table generation). 'off'
+        # skips the check entirely (Monte Carlo / tight loops).
+        if reliability_check not in ('off', 'conditional', 'always'):
+            raise ValidationError(
+                f"Expected reliability_check to be 'off', 'conditional', "
+                f"or 'always'. "
+                f"Received {reliability_check!r}. "
+                f"Fix: pick one of the documented modes — 'conditional' "
+                f"(default) is right for most users."
+            )
 
         M = self.M
         N = self.N
@@ -1650,6 +1668,12 @@ class Problem(Container, StringRepresentation):
         verdict_list = [None] * L
         strongest_claim_size_list = [None] * L
         strongest_claim_power_list = [None] * L
+        # Worst-case CV outputs (2026-05-01 redesign).
+        worst_case_cv_size_list = [None] * L
+        worst_case_cv_power_list = [None] * L
+        # High-precision F̂ / ρ̂² populated by the precision check.
+        F_high_precision_list = [None] * L
+        rho_squared_high_precision_list = [None] * L
 
         for instrument in range(L):
             grad_gamma_l = (gradient_gamma_per_instrument[instrument]
@@ -1659,6 +1683,8 @@ class Problem(Container, StringRepresentation):
                 H_prime_wd, H, h_i, h, clustering_adjustment,
                 critical_values_size, critical_values_power, endog_hat_per_instrument[instrument],
                 grad_gamma_l,
+                reliability_check=reliability_check,
+                reliability_precision_dps=reliability_precision_dps,
             )
             g_list[instrument] = r['g']
             Q_list[instrument] = r['Q']
@@ -1681,6 +1707,10 @@ class Problem(Container, StringRepresentation):
             verdict_list[instrument] = r['verdict']
             strongest_claim_size_list[instrument] = r['strongest_claim_size']
             strongest_claim_power_list[instrument] = r['strongest_claim_power']
+            worst_case_cv_size_list[instrument] = r['worst_case_cv_size']
+            worst_case_cv_power_list[instrument] = r['worst_case_cv_power']
+            F_high_precision_list[instrument] = r['F_high_precision']
+            rho_squared_high_precision_list[instrument] = r['rho_squared_high_precision']
 
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, markups_orthogonal, marginal_cost,
@@ -1693,6 +1723,10 @@ class Problem(Container, StringRepresentation):
             verdict_list=verdict_list,
             strongest_claim_size_list=strongest_claim_size_list,
             strongest_claim_power_list=strongest_claim_power_list,
+            worst_case_cv_size_list=worst_case_cv_size_list,
+            worst_case_cv_power_list=worst_case_cv_power_list,
+            F_high_precision_list=F_high_precision_list,
+            rho_squared_high_precision_list=rho_squared_high_precision_list,
             symbols_rv_list=symbols_rv_list,
         ))
         logger.info(f"Solved the problem after {format_seconds(time.time() - step_start_time)}.")
