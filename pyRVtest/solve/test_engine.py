@@ -164,6 +164,14 @@ def _recompute_F_high_precision(
         # absorbed by the available digits.
         D_rho = (sigma_sum - 2 * sig2) * (sigma_sum + 2 * sig2)
 
+        # NaN guard: when models produce identical instrument-projected
+        # moments (the trivially-degenerate boundary), D_rho is zero
+        # even at 50-digit mpmath precision. Return NaN rather than
+        # raising ZeroDivisionError; the caller's trivially-degenerate
+        # gate downstream propagates the right verdict.
+        if D_rho == 0:
+            return float('nan'), float('nan')
+
         rho_sq_num = (sig0 - sig1) ** 2
         rho_squared = rho_sq_num / D_rho
 
