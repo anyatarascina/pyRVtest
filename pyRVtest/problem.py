@@ -1536,10 +1536,10 @@ class Problem(Container, StringRepresentation):
         # F-stat reliability precision-check mode (2026-05-01 redesign).
         # See ``pyRVtest/solve/test_engine.py::compute_instrument_results``
         # for the full semantics. 'conditional' (default) only fires the
-        # mpmath recompute when a cell is in the precision-relevant band
-        # (low lambda + plug-in dependent verdict). 'always' recomputes
-        # every cell at high precision (paper-table generation). 'off'
-        # skips the check entirely (Monte Carlo / tight loops).
+        # mpmath recompute when lambda_dmss < 1e-10 (the cancellation-
+        # fragility band). 'always' recomputes every cell at high
+        # precision (paper-table generation). 'off' skips the check
+        # entirely (Monte Carlo / tight loops).
         if reliability_check not in ('off', 'conditional', 'always'):
             raise ValidationError(
                 f"Expected reliability_check to be 'off', 'conditional', "

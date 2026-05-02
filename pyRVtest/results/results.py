@@ -65,14 +65,15 @@ if TYPE_CHECKING:
 # is transparent. F_high_precision and rho_squared_high_precision columns
 # let users inspect what the swap was.
 #
-# Footer surfaces three concrete user-facing notes. None says "warning";
+# Footer surfaces two concrete user-facing notes. Neither says "warning";
 # they describe what's true about the user's setup or what the engine did:
 #   * recomputed with extra precision  — mpmath replaced the F/ρ̂² we report
 #   * indistinguishable                — the test is undefined for this pair
-#   * weakly separated                 — the test still works but with limited
-#                                         power to discriminate these models
-# Section appears only when at least one note fires; nothing is rendered
-# when all pairs are robust and no extra-precision recompute happened.
+# The "weakly separated" footnote at lambda < 0.05 was removed on 2026-05-01
+# after Lorenzo's audit found it firing on 15/15 CarRV cells with no
+# signal-discrimination value. Section appears only when at least one note
+# fires; nothing is rendered when all pairs are robust and no extra-precision
+# recompute happened.
 # ----------------------------------------------------------------------
 
 
@@ -811,14 +812,15 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         Columns (under the 2026-05-01 worst-case-CV redesign):
 
         - ``F``, ``rho_squared``: existing test statistic and DMSS rho².
+          When mpmath fires (lambda < 1e-10), these store the
+          higher-precision values; F_high_precision and
+          rho_squared_high_precision expose the swap explicitly.
         - ``lambda_dmss``: numerical-cancellation depth,
-          ``((σ_0+σ_1)² − 4σ_2²) / (σ_0+σ_1)²``. Informational footnote
-          flagging when ρ̂² is computed in the cancellation regime; the
-          verdict no longer turns on this directly.
+          ``((σ_0+σ_1)² − 4σ_2²) / (σ_0+σ_1)²``. Informational; surfaces
+          the cancellation regime where mpmath replaced float64.
         - ``F_se``, ``F_ci_low``, ``F_ci_high``: asymptotic SE and 95% CI
           for F under the paper's noncentral chi-squared parametrization.
-          Retained for inspection; not used by the verdict (a follow-up
-          will replace these with a delta-method SE in v0.5).
+          Retained for inspection; not used by the verdict.
         - ``strongest_claim_size``, ``strongest_claim_power``: strongest
           size/power claim F supports at the plug-in ρ̂² (e.g.,
           ``"worst-case size <= 10%"``).
@@ -826,10 +828,11 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
           three CV columns at the worst-case ρ² ∈ [0, 0.99] (size CVs at
           ρ² = 0.99 since they are increasing in ρ; power CVs at the
           maximum across the table since power CVs decrease in ρ).
-        - ``verdict``: one of ``"robust"`` (F clears worst-case CV),
-          ``"plug-in dependent"`` (F clears plug-in but not worst-case),
-          ``"weak"`` (F clears no plug-in CV), or
-          ``"trivially-degenerate"`` (ρ̂² is NaN).
+          Informational only; the verdict uses the plug-in CVs.
+        - ``verdict``: one of ``"robust"`` (F clears at least one
+          plug-in CV), ``"weak"`` (F clears no plug-in CV), or
+          ``"trivially-degenerate"`` (ρ̂² is NaN, i.e. identical-markup
+          boundary).
 
         Returns
         -------

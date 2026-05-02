@@ -10,8 +10,9 @@ Covers (post 2026-05-01 worst-case-CV redesign):
 - The trivially-degenerate verdict fires when two models produce identical
   markups (existing NaN guard at solve/test_engine.py).
 - Verdict label is one of the documented values per cell.
-- The three-tier verdict (robust / plug-in dependent / weak) responds
-  correctly to F's relationship with plug-in and worst-case CVs.
+- The verdict (robust / weak / trivially-degenerate) responds
+  correctly to F's relationship with the plug-in CVs. (Worst-case
+  CVs are exposed as data columns but no longer drive the verdict.)
 
 Design and calibration: MEMO_F_reliability_diagnostic_2026-04-28.md
 (original) and MEMO_F_reliability_redesign_2026-05-01.md (this branch).
@@ -228,7 +229,7 @@ class TestTriviallyDegenerate:
         engine_path = (
             Path(pyRVtest.__file__).parent / 'solve' / 'test_engine.py'
         )
-        source = engine_path.read_text()
+        source = engine_path.read_text(encoding='utf-8')
         # The NaN guard branch should assign 'trivially-degenerate' to verdict.
         assert "verdict[i, m] = \"trivially-degenerate\"" in source, (
             "expected the NaN-guard branch to set verdict to 'trivially-degenerate'"
@@ -482,20 +483,20 @@ class TestWorstCaseCV:
 
 
 class TestVerdictTiers:
-    """Three-tier verdict (robust / plug-in dependent / weak) responds
-    correctly to F vs plug-in CV vs worst-case CV."""
+    """Verdict (robust / weak / trivially-degenerate) responds correctly
+    to F vs plug-in CVs. Worst-case CVs are exposed as data columns but
+    no longer drive the verdict."""
 
     def test_K_in_2_to_9_size_auto_robust(self):
         """At K in [2, 9], size CVs are zero across all rho (paper Sec 5.4
         — set S of dangerous noncentralities is empty). Cells should
         therefore be size-robust automatically: strongest_claim_size
-        should report the strictest level (7.5%), and the verdict should
-        not be 'plug-in dependent' on the size axis alone."""
+        should report the strictest level (7.5%), and a strongest size
+        claim should always fire on the size axis."""
         df = _make_tiny_dgp()
         results = _solve_two_models(df)  # uses 2 instruments
-        # Walk all valid cells: they should report a size claim and not be
-        # 'plug-in dependent' purely from a size mismatch (with K=2, both
-        # plug-in and worst-case size CVs are zero).
+        # Walk all valid cells: they should report a size claim because
+        # at K=2 the size CV table is identically zero (auto-claim).
         for j in range(len(results.F)):
             verdict_mat = results.verdict[j]
             claim_mat = results.strongest_claim_size[j]
@@ -544,7 +545,7 @@ class TestFHatSimplifiedFormulaParity:
 class TestReliabilityCheckFlag:
     """The reliability_check kwarg controls when the mpmath precision check
     runs. 'off' skips, 'always' fires for every cell, 'conditional' (default)
-    fires only when lambda < threshold AND verdict is 'plug-in dependent'."""
+    fires only when lambda < LAMBDA_PRECISION_THRESHOLD (1e-10)."""
 
     def test_off_skips_high_precision(self):
         df = _make_tiny_dgp()
@@ -638,18 +639,19 @@ class TestReliabilityCheckFlag:
             problem.solve(reliability_check='loose')
 
 
-class TestPlugInDependentDisplay:
-    """Footer renders the plug-in-dependent line correctly when at least
-    one cell falls into that tier (synthetic stress test)."""
+class TestVerdictColumnIntegrity:
+    """F_reliability_summary's verdict column reports only documented
+    values. The 2026-05-01 redesign collapsed the previous four-tier
+    set to three: robust, weak, trivially-degenerate."""
 
-    def test_plug_in_dependent_label_in_summary(self):
+    def test_verdict_label_in_summary(self):
         df = _make_tiny_dgp()
         results = _solve_two_models(df)
-        # Whether or not any cell falls into 'plug-in dependent', the
-        # F_reliability_summary should be well-formed and show the
-        # verdict column with valid values.
+        # F_reliability_summary should be well-formed and the verdict
+        # column should contain only the three documented values (NaN
+        # entries for cells where the diagnostic didn't run are dropped).
         out = results.F_reliability_summary()
-        valid = {'robust', 'plug-in dependent', 'weak', 'trivially-degenerate'}
+        valid = {'robust', 'weak', 'trivially-degenerate'}
         for v in out['verdict'].dropna():
             assert v in valid, f"unexpected verdict {v!r}"
 
