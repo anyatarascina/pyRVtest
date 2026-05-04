@@ -106,7 +106,8 @@ rc_result = problem.solve(sigma=initial_sigma,pi=initial_pi,iteration=iteration,
                             optimization=optim, method='1s')
 
 #rc_result.to_pickle("/home/md/Desktop/RVpaper_demand.p")
-#rc_result = pickle.load("/home/md/Desktop/RVpaper_demand.p","rb"))
+# with open("/home/md/Desktop/RVpaper_demand.p",'rb') as file:
+#     rc_result = pickle.load(file)
 
 # %% Data
 #product_data = pd.read_csv(dpath('product_data.csv'),low_memory=False)
@@ -147,7 +148,7 @@ Models=[
 product_data["clustering_ids"] = product_data.market_ids 
 
 # %% Run test without first stage adjustment
-testing_problem = pyRV.Problem(
+testing_problem0 = pyRV.Problem(
     cost_formulation = Cost,
     instrument_formulation = Instr,
     models = Models,      
@@ -155,21 +156,22 @@ testing_problem = pyRV.Problem(
     demand_results = rc_result
     )
 
-testing_results = testing_problem.solve(
+testing_results0 = testing_problem0.solve(
     demand_adjustment = False,
     clustering_adjustment=True
     )
-
+print(testing_results0)
 # %% Run test with first stage adjustment
-testing_problem = pyRV.Problem(
+testing_problem1 = pyRV.Problem(
     cost_formulation = Cost,
     instrument_formulation = Instr ,
-    model_formulations = Models,      
+    models = Models,      
     product_data = product_data,
     demand_results = rc_result
     )
 
-testing_results = testing_problem.solve(
+testing_results1 = testing_problem1.solve(
     demand_adjustment = True,
     clustering_adjustment=True
     )
+print(testing_results1)
