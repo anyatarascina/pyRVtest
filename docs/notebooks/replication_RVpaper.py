@@ -164,7 +164,7 @@ testing_results = testing_problem.solve(
 testing_problem = pyRV.Problem(
     cost_formulation = Cost,
     instrument_formulation = Instr ,
-    model_formulations = Models,      
+    models = Models,
     product_data = product_data,
     demand_results = rc_result
     )

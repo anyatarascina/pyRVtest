@@ -344,16 +344,28 @@ def _analytical_markup_derivative(
 ) -> _NDArray:
     """Implicit-differentiation closed form for d(markup)/d(theta) in one market.
 
-    Returns ``(J_t, n_theta)`` — every theta column at once. Theta-independent
-    intermediates (``D_inv``, ``D_CC_inv``, ``Schur``) are computed once per
-    call instead of once per theta.
+    Accepts ``dD_dtheta`` as either a 3-D tensor of shape ``(J_t, J_t, n_theta)``
+    (batched call from :func:`compute_demand_adjustment`) or a 2-D matrix of
+    shape ``(J_t, J_t)`` for single-theta callers (per-class
+    ``_markup_derivative`` checks in ``tests/test_models.py``). 3-D input
+    returns ``(J_t, n_theta)``; 2-D input returns ``(J_t,)``.
+
+    Theta-independent intermediates (``D_inv``, ``D_CC_inv``, ``Schur``) are
+    computed once per call instead of once per theta.
 
     Matches the inline algebra in the pre-v0.4 ``Problem._compute_analytical_demand_adjustment``;
     the alpha column uses the same formula as the sigma columns (rather than
     the ``-mu_t / alpha`` shortcut). The two forms are algebraically identical
     and numerically agree to a few ULP.
     """
+    squeeze = dD_dtheta.ndim == 2
+    if squeeze:
+        dD_dtheta = dD_dtheta[..., None]
     n_theta = dD_dtheta.shape[2]
+
+    def _out(arr: _NDArray) -> _NDArray:
+        return arr[..., 0] if squeeze else arr
+
     if model_type == 'bertrand':
         # d_mu_k = -solve(A, (O_t * dD_k.T) @ mu_t); broadcast over k.
         A = O_t * D_t.T
@@ -361,22 +373,22 @@ def _analytical_markup_derivative(
         dA_all = O_t[..., None] * dD_dtheta.transpose(1, 0, 2)
         # rhs[i, k] = sum_j dA_all[i, j, k] * mu_t[j]
         rhs = np.einsum('ijk,j->ik', dA_all, mu_t)
-        return -np.linalg.solve(A, rhs)
+        return _out(-np.linalg.solve(A, rhs))
     if model_type == 'cournot':
         D_inv = np.linalg.inv(D_t)
         # dD_inv[:, :, k] = -D_inv @ dD_dtheta[:, :, k] @ D_inv (vectorized over k)
         dD_inv = -np.einsum('ij,jln,lm->imn', D_inv, dD_dtheta, D_inv)
         # d_mu[:, k] = -(O_t * dD_inv[:, :, k]) @ s_t  ⇒  einsum collapse j with s_t
-        return -np.einsum('ij,ijk,j->ik', O_t, dD_inv, s_t)
+        return _out(-np.einsum('ij,ijk,j->ik', O_t, dD_inv, s_t))
     if model_type == 'monopoly':
         # rhs[i, k] = sum_j dD_dtheta[j, i, k] * mu_t[j]
         rhs = np.einsum('jik,j->ik', dD_dtheta, mu_t)
-        return -np.linalg.solve(D_t.T, rhs)
+        return _out(-np.linalg.solve(D_t.T, rhs))
     if model_type == 'mix_cournot_bertrand':
         b_t = mix_flag_m[idx].flatten().astype(bool)
         c_t = ~b_t
         if not (c_t.any() and b_t.any()):
-            return np.zeros((J_t, n_theta))
+            return _out(np.zeros((J_t, n_theta)))
         D_BB = D_t[np.ix_(b_t, b_t)]
         D_BC = D_t[np.ix_(b_t, c_t)]
         D_CB = D_t[np.ix_(c_t, b_t)]
@@ -409,9 +421,9 @@ def _analytical_markup_derivative(
         d_mu = np.zeros((J_t, n_theta))
         d_mu[b_t, :] = d_mu_B
         d_mu[c_t, :] = d_mu_C
-        return d_mu
+        return _out(d_mu)
     # Perfect competition, constant-markup, or unknown model type: zero gradient.
-    return np.zeros((J_t, n_theta))
+    return _out(np.zeros((J_t, n_theta)))
 
 
 def _perturb_and_rebuild_markups(
