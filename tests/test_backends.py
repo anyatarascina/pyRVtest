@@ -129,6 +129,51 @@ class TestPyBLPBackendJacobian:
                                    err_msg="State not restored after perturbed() context exit")
 
 
+class TestPyBLPBackendBatchedJacobianGradient:
+    """``jacobian_gradient_all_markets`` (PERF: batched across markets) must
+    return per-market blocks identical to the per-market ``jacobian_gradient``
+    path it replaces, and must restore PyBLP state after batched perturbation.
+    """
+
+    def test_batched_blocks_match_per_market(self, pyblp_logit_results):
+        """For each market, batched dict[t] equals jacobian_gradient(t)."""
+        backend = PyBLPBackend(pyblp_logit_results)
+        market_ids = pyblp_logit_results.problem.products.market_ids.flatten()
+        all_batched = backend.jacobian_gradient_all_markets()
+        # Check every market, not just one — bug could be in slicing logic.
+        for t in np.unique(market_ids):
+            assert t in all_batched, f"Market {t!r} missing from batched dict"
+            per_market = backend.jacobian_gradient(t)
+            np.testing.assert_allclose(
+                all_batched[t], per_market, atol=1e-14,
+                err_msg=f"Batched gradient differs from per-market call at market {t!r}",
+            )
+
+    def test_state_restored_after_batched_call(self, pyblp_logit_results):
+        """compute_jacobian() must return its un-perturbed value after the batched call."""
+        backend = PyBLPBackend(pyblp_logit_results)
+        before = backend.compute_jacobian().copy()
+        backend.jacobian_gradient_all_markets()
+        after = backend.compute_jacobian()
+        np.testing.assert_allclose(
+            after, before, atol=1e-14, equal_nan=True,
+            err_msg="State not restored after jacobian_gradient_all_markets()",
+        )
+
+    def test_batched_block_shape(self, pyblp_logit_results):
+        """Each per-market block has shape (J_t, J_t, n_theta)."""
+        backend = PyBLPBackend(pyblp_logit_results)
+        market_ids = pyblp_logit_results.problem.products.market_ids.flatten()
+        n_theta = backend.n_parameters
+        all_batched = backend.jacobian_gradient_all_markets()
+        for t in np.unique(market_ids):
+            J_t = int(np.sum(market_ids == t))
+            assert all_batched[t].shape == (J_t, J_t, n_theta), (
+                f"Market {t!r}: expected shape ({J_t}, {J_t}, {n_theta}), "
+                f"got {all_batched[t].shape}"
+            )
+
+
 class TestPyBLPBackendDemandMoments:
     """demand_moments returns the values DMSS eq. (77) expects."""
 

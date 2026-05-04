@@ -165,7 +165,7 @@ print(testing_results0)
 testing_problem1 = pyRV.Problem(
     cost_formulation = Cost,
     instrument_formulation = Instr ,
-    models = Models,      
+    models = Models,
     product_data = product_data,
     demand_results = rc_result
     )

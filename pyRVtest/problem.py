@@ -1727,6 +1727,12 @@ class Problem(Container, StringRepresentation):
                 f"Received {type(clustering_adjustment).__name__}. "
                 f"Fix: pass clustering_adjustment=True or False."
             )
+        if costs_type is not None and costs_type not in ('linear', 'log'):
+            raise ValueError(
+                f"Expected costs_type to be 'linear' or 'log'. "
+                f"Received {costs_type!r}. "
+                f"Fix: pass costs_type='linear' (default) or costs_type='log'."
+            )
         if costs_type == "log" and demand_adjustment:
             warnings.warn(
                 "costs_type='log' is ignored when demand_adjustment=True; "
