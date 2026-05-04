@@ -49,6 +49,95 @@ if TYPE_CHECKING:
     from ..problem import Problem
 
 
+# ----------------------------------------------------------------------
+# Pairwise-notes footer helpers (2026-05-01 final).
+#
+# Verdict tiers (three tiers + degenerate guard):
+#   - "robust"               : F-hat clears at least one plug-in CV
+#                              (DMSS-standard pass)
+#   - "weak"                 : F-hat clears no plug-in CV
+#                              (DMSS-standard fail; no strength claim)
+#   - "trivially-degenerate" : rho-hat or RV-variance is NaN
+#                              (identical-markup boundary)
+#
+# When mpmath fired (lambda < 1e-10), the F-hat and rho-hat values stored
+# on results.F and results.rho are the *high-precision* ones — the swap
+# is transparent. F_high_precision and rho_squared_high_precision columns
+# let users inspect what the swap was.
+#
+# Footer surfaces two concrete user-facing notes. Neither says "warning";
+# they describe what's true about the user's setup or what the engine did:
+#   * recomputed with extra precision  — mpmath replaced the F/ρ̂² we report
+#   * indistinguishable                — the test is undefined for this pair
+# The "weakly separated" footnote at lambda < 0.05 was removed on 2026-05-01
+# after Lorenzo's audit found it firing on 15/15 CarRV cells with no
+# signal-discrimination value. Section appears only when at least one note
+# fires; nothing is rendered when all pairs are robust and no extra-precision
+# recompute happened.
+# ----------------------------------------------------------------------
+
+
+def _format_pair_clause(cells: List[Dict[str, Any]], key_pair_label: str) -> str:
+    """Compose ``"N pair[s] (key)"`` for the lead line of a footnote.
+
+    For a single cell, ``"1 pair (i, j)"`` (the only pair is the key).
+    For multiple cells, ``"N pairs (key_pair_label: (i, j))"`` so the
+    user can locate the most-relevant case in F_reliability_summary().
+    The caller passes ``key_pair_label`` (e.g. ``"least separated"``)
+    and chooses which cell is the "key" by sorting ``cells`` upstream.
+    """
+    n = len(cells)
+    if n == 1:
+        i, j = cells[0]['pair']
+        return f"1 pair ({i}, {j})"
+    key_i, key_j = cells[0]['pair']  # caller-sorted; index 0 is the key
+    return f"{n} pairs ({key_pair_label}: ({key_i}, {key_j}))"
+
+
+def _extra_precision_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
+    """``recomputed with extra precision`` footnote.
+
+    Fires on cells where lambda < LAMBDA_PRECISION_THRESHOLD (1e-10);
+    the engine swapped to mpmath transparently and the F / rho^2 the user
+    sees in the test table are the high-precision values. Order cells by
+    ascending lambda so the "most-cancellation" pair leads.
+    """
+    cells = sorted(cells, key=lambda c: c['lambda'])
+    pair_clause = _format_pair_clause(cells, key_pair_label='most cancellation')
+    return [
+        [f"  recomputed with extra precision: {pair_clause}."],
+        [
+            "    Float64 was insufficient; reported F and ρ̂² are "
+            "higher-precision values."
+        ],
+    ]
+
+
+def _indistinguishable_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
+    """``indistinguishable`` footnote.
+
+    Fires on cells where the verdict is ``trivially-degenerate``: the
+    pair of models produces identical instrument-projected moments, so
+    the RV test (and therefore F, TRV, MCS) are undefined. Order by
+    ascending pair indices for stable display.
+    """
+    cells = sorted(cells, key=lambda c: c['pair'])
+    pair_clause = _format_pair_clause(cells, key_pair_label='first')
+    return [
+        [f"  indistinguishable: {pair_clause}."],
+        [
+            "    Models produce the same markups; F and TRV are undefined."
+        ],
+    ]
+
+
+# NOTE: The ``weakly separated by these instruments`` footnote was
+# removed on 2026-05-01 after Lorenzo's audit observed it firing on
+# 15/15 CarRV cells — at that frequency it adds no signal. Lambda is
+# still computed and exposed on F_reliability_summary() for users who
+# want to inspect instrument-projected moment similarity per pair.
+
+
 @dataclass
 class Progress:
     """Structured information passed from Problem.solve to ProblemResults.
@@ -83,6 +172,26 @@ class Progress:
     symbols_power_list: Array
     endogenous_cost_coefficient: Optional[NDArray] = None
     tau_list_per_instrument: Optional[List[Any]] = None
+    # F-stat reliability diagnostic (added in feat/f-reliability). Optional so
+    # older pickled Progress instances stay constructible. ProblemResults
+    # treats missing diagnostic fields as None and falls back to the legacy
+    # display path.
+    lambda_dmss_list: Optional[List[Any]] = None
+    F_se_list: Optional[List[Any]] = None
+    F_ci_low_list: Optional[List[Any]] = None
+    F_ci_high_list: Optional[List[Any]] = None
+    verdict_list: Optional[List[Any]] = None
+    strongest_claim_size_list: Optional[List[Any]] = None
+    strongest_claim_power_list: Optional[List[Any]] = None
+    # Worst-case CVs across rho^2 ∈ [0, 0.99] (2026-05-01 redesign).
+    worst_case_cv_size_list: Optional[List[Any]] = None
+    worst_case_cv_power_list: Optional[List[Any]] = None
+    # High-precision F̂ / ρ̂² populated by the precision check
+    # (reliability_check='conditional' or 'always'). NaN for cells that
+    # didn't trigger the recompute.
+    F_high_precision_list: Optional[List[Any]] = None
+    rho_squared_high_precision_list: Optional[List[Any]] = None
+    symbols_rv_list: Optional[List[Any]] = None
 
 
 class ProblemResults(StringRepresentation):  # type: ignore[misc]
@@ -190,6 +299,20 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         # the Problem was constructed with market_side='labor'. Falls back
         # to 'product' for older pickles that predate the attribute.
         self._market_side: str = getattr(progress.problem, '_market_side', 'product')
+        # F-stat reliability diagnostic (additive). See
+        # MEMO_F_reliability_diagnostic_2026-04-28.md.
+        self.lambda_dmss = progress.lambda_dmss_list
+        self.F_se = progress.F_se_list
+        self.F_ci_low = progress.F_ci_low_list
+        self.F_ci_high = progress.F_ci_high_list
+        self.verdict = progress.verdict_list
+        self.strongest_claim_size = progress.strongest_claim_size_list
+        self.strongest_claim_power = progress.strongest_claim_power_list
+        self.worst_case_cv_size = progress.worst_case_cv_size_list
+        self.worst_case_cv_power = progress.worst_case_cv_power_list
+        self.F_high_precision = progress.F_high_precision_list
+        self.rho_squared_high_precision = progress.rho_squared_high_precision_list
+        self._symbols_rv_list = progress.symbols_rv_list
 
     def __str__(self) -> str:
         """Format results information as a string."""
@@ -202,18 +325,51 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
     def _format_results_tables(self, j: int) -> str:
         """Formation information about the testing results as a string."""
 
+        # F-stat reliability glyph: cells with verdict != robust get a marker
+        # appended to their F value. Loaded once per call; falls back to ""
+        # if the diagnostic was not computed (older pickles).
+        verdict_list = getattr(self, 'verdict', None)
+        verdict_arr = verdict_list[j] if verdict_list is not None else None
+
+        def _f_value_with_glyph(k: int, i: int) -> str:
+            base = str(round(self.F[j][k, i], 1))
+            if verdict_arr is None:
+                return base
+            v = verdict_arr[k, i]
+            if v is None or v == 'robust':
+                return base
+            # Any non-robust verdict gets the warning glyph.
+            return base + '⚠'
+
         # construct the data
+        # Phase 3 (feat/f-reliability): the row-2 cell under each TRV value
+        # now carries the TRV two-sided significance symbol (`*`/`**`/`***`
+        # at |TRV| > 1.64/1.96/2.58). The row-2 cell under each F value
+        # carries the dagger size symbol (`†`/`††`/`†††`) plus the caret
+        # power symbol (`^`/`^^`/`^^^`). The dagger swap frees `*` for TRV.
+        # Pre-Phase-3 pickled results lack ``_symbols_rv_list``; in that case
+        # the TRV row-2 cell stays blank (legacy behavior).
+        rv_symbols_list = getattr(self, '_symbols_rv_list', None)
+        rv_symbols_arr = rv_symbols_list[j] if rv_symbols_list is not None else None
+
+        def _trv_symbol(k: int, i: int) -> str:
+            if rv_symbols_arr is None:
+                return ""
+            sym = rv_symbols_arr[k, i]
+            return sym if sym is not None else ""
+
         data: List[List[str]] = []
         number_models = len(self.markups)
         for k in range(number_models):
             rv_results = [round(self.TRV[j][k, i], 3) for i in range(number_models)]
-            f_stat_results = [round(self.F[j][k, i], 1) for i in range(number_models)]
+            f_stat_results = [_f_value_with_glyph(k, i) for i in range(number_models)]
             pvalues_results = [str(round(self.MCS_pvalues[j][k][0], 3))]
+            rv_symbols_row = [_trv_symbol(k, i) for i in range(number_models)]
             symbols_results = [
                 self._symbols_size_list[j][k, i] + " " + self._symbols_power_list[j][k, i] for i in range(number_models)
             ]
             data.append([str(k)] + rv_results + [str(k)] + f_stat_results + [str(k)] + pvalues_results)
-            data.append([""] + ["" for i in range(number_models)] + [""] + symbols_results + [""] + [""])
+            data.append([""] + rv_symbols_row + [""] + symbols_results + [""] + [""])
 
         # construct the header
         blanks = ["  " for i in range(number_models)]
@@ -237,10 +393,198 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             )
         else:
             title = "Testing Results - Instruments z{0}".format(j)
+
+        # F-stat reliability footer (only on the last printed table).
+        # Aggregates verdicts across all instrument sets and emits one
+        # line per fragility type that fired, plus an "all robust" line
+        # if nothing fired. Returns [] for the non-last tables.
+        extra_notes: List[List[str]] = []
+        if last_table:
+            extra_notes = self._build_F_reliability_footer()
+
         return format_table(
             header, subheader, *data, title=title, include_notes=last_table,
-            line_indices=[number_models, 2 * number_models + 1]
+            line_indices=[number_models, 2 * number_models + 1],
+            extra_notes=extra_notes,
         )
+
+    def _build_F_reliability_footer(self) -> List[List[str]]:
+        """Build the ``Pairwise notes:`` footer aggregated across instrument sets.
+
+        Returns a list of rows (each a list of strings, the first is the
+        line text) suitable for ``format_table(extra_notes=...)``. Returns
+        an empty list when the diagnostic was not computed OR when no
+        pairwise note fires (no all-clear line — silence means no
+        actionable issue).
+        """
+        if getattr(self, 'verdict', None) is None:
+            return []
+
+        # Walk all (j, k, i) cells, collect verdicts and per-cell numbers.
+        # Two categories of notes:
+        #   * trivially_pairs       — verdict = trivially-degenerate
+        #   * extra_precision_pairs — mpmath swap fired (lambda < 1e-10)
+        # The "weakly separated" footnote at lambda < 0.05 was removed
+        # on 2026-05-01 after Lorenzo's audit found it firing on 15/15
+        # CarRV cells with no signal-discrimination value.
+        trivially_pairs: List[Dict[str, Any]] = []
+        extra_precision_pairs: List[Dict[str, Any]] = []
+        any_valid = False
+        # Bind list attributes to locals so mypy can narrow Optional[List]
+        # inside the loop. The early-return at the top of this method
+        # already guaranteed self.verdict is not None.
+        verdict_list = self.verdict
+        assert verdict_list is not None
+        rho_list = self.rho
+        F_list = self.F
+        F_cv_size_list_local = self.F_cv_size_list
+        F_cv_power_list_local = self.F_cv_power_list
+        lambda_list = getattr(self, 'lambda_dmss', None)
+        wc_size_list_local = getattr(self, 'worst_case_cv_size', None)
+        wc_power_list_local = getattr(self, 'worst_case_cv_power', None)
+        F_hp_list_local = getattr(self, 'F_high_precision', None)
+        claim_size_list_local = getattr(self, 'strongest_claim_size', None)
+        claim_power_list_local = getattr(self, 'strongest_claim_power', None)
+        for j in range(len(verdict_list)):
+            verdict_j = verdict_list[j]
+            rho_j = np.asarray(rho_list[j])
+            lambda_j = (
+                np.asarray(lambda_list[j]) if lambda_list is not None else None
+            )
+            F_j = np.asarray(F_list[j])
+            cv_size_j = F_cv_size_list_local[j]
+            cv_power_j = F_cv_power_list_local[j]
+            wc_size_j = (
+                wc_size_list_local[j] if wc_size_list_local is not None else None
+            )
+            wc_power_j = (
+                wc_power_list_local[j] if wc_power_list_local is not None else None
+            )
+            F_hp_j = (
+                np.asarray(F_hp_list_local[j])
+                if F_hp_list_local is not None else None
+            )
+            claim_size_j = (
+                claim_size_list_local[j]
+                if claim_size_list_local is not None else None
+            )
+            claim_power_j = (
+                claim_power_list_local[j]
+                if claim_power_list_local is not None else None
+            )
+            M = verdict_j.shape[0]
+            for k in range(M):
+                for i in range(M):
+                    if k >= i:
+                        continue  # only upper triangle is computed
+                    v = verdict_j[k, i]
+                    if v is None:
+                        continue
+                    any_valid = True
+                    rho_val = rho_j[k, i]
+                    rho_squared_val = float(rho_val ** 2) if np.isfinite(rho_val) else float('nan')
+                    lambda_val = (
+                        float(lambda_j[k, i])
+                        if lambda_j is not None and np.isfinite(lambda_j[k, i])
+                        else float('nan')
+                    )
+
+                    # For cell info: identify the "relevant CV" pair (plug-in
+                    # vs worst-case at the strongest claim).
+                    plug_in_cv = float('nan')
+                    worst_case_cv = float('nan')
+                    claim_size_str = (
+                        claim_size_j[k, i] if claim_size_j is not None else None
+                    )
+                    claim_power_str = (
+                        claim_power_j[k, i] if claim_power_j is not None else None
+                    )
+                    F_val = float(F_j[k, i])
+                    if claim_size_str is not None and cv_size_j[k, i] is not None:
+                        size_cvs = cv_size_j[k, i]
+                        size_finite = [
+                            c for c in size_cvs
+                            if c is not None and np.isfinite(c) and c > 0 and F_val > c
+                        ]
+                        if size_finite:
+                            plug_in_cv = max(float(c) for c in size_finite)
+                            if wc_size_j is not None and wc_size_j[k, i] is not None:
+                                wc_arr = wc_size_j[k, i]
+                                wc_finite = [
+                                    c for c in wc_arr
+                                    if c is not None and np.isfinite(c) and c > 0
+                                ]
+                                if wc_finite:
+                                    worst_case_cv = max(float(c) for c in wc_finite)
+                    elif claim_power_str is not None and cv_power_j[k, i] is not None:
+                        power_cvs = cv_power_j[k, i]
+                        power_finite = [
+                            c for c in power_cvs
+                            if c is not None and np.isfinite(c) and c > 0 and F_val > c
+                        ]
+                        if power_finite:
+                            plug_in_cv = max(float(c) for c in power_finite)
+                            if wc_power_j is not None and wc_power_j[k, i] is not None:
+                                wc_arr = wc_power_j[k, i]
+                                wc_finite = [
+                                    c for c in wc_arr
+                                    if c is not None and np.isfinite(c) and c > 0
+                                ]
+                                if wc_finite:
+                                    worst_case_cv = max(float(c) for c in wc_finite)
+
+                    F_hp_val = (
+                        float(F_hp_j[k, i])
+                        if F_hp_j is not None and np.isfinite(F_hp_j[k, i])
+                        else float('nan')
+                    )
+                    cell_info = {
+                        'instrument_set': j,
+                        'pair': (k, i),
+                        'F': float(F_j[k, i]) if np.isfinite(F_j[k, i]) else float('nan'),
+                        'F_high_precision': F_hp_val,
+                        'rho_squared': rho_squared_val,
+                        'lambda': lambda_val,
+                        'claim_size': claim_size_str,
+                        'claim_power': claim_power_str,
+                        'plug_in_cv': plug_in_cv,
+                        'worst_case_cv': worst_case_cv,
+                    }
+
+                    if v == 'trivially-degenerate':
+                        trivially_pairs.append(cell_info)
+                    # 'robust' and 'weak' verdicts are the standard test
+                    # outcomes (DMSS pass / fail) and don't generate
+                    # pairwise notes. Only 'trivially-degenerate' does,
+                    # since it signals the test is undefined for that
+                    # pair.
+
+                    # Pre-pool for the precision note.
+                    from ..solve.test_engine import LAMBDA_PRECISION_THRESHOLD
+                    if (np.isfinite(F_hp_val)
+                            and np.isfinite(lambda_val)
+                            and lambda_val < LAMBDA_PRECISION_THRESHOLD):
+                        extra_precision_pairs.append(cell_info)
+
+        if not any_valid:
+            return []
+
+        any_note = bool(extra_precision_pairs or trivially_pairs)
+        if not any_note:
+            return []
+
+        rows: List[List[str]] = []
+        rows.append(["Pairwise notes:"])
+
+        # Order: extra-precision (engine action) -> indistinguishable
+        # (test undefined). Both tell the user something specific that
+        # affected the displayed numbers or verdict for the listed pairs.
+        if extra_precision_pairs:
+            rows.extend(_extra_precision_lines(extra_precision_pairs))
+        if trivially_pairs:
+            rows.extend(_indistinguishable_lines(trivially_pairs))
+        rows.append(["  Detail: results.F_reliability_summary()."])
+        return rows
 
     def to_pickle(self, path: Union[str, Path]) -> None:
         """Save these results as a pickle file. This function is copied from PyBLP.
@@ -525,6 +869,128 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         frame = pd.DataFrame.from_records(records, columns=columns)
         frame.attrs['alpha'] = alpha
         return frame
+
+    def F_reliability_summary(self) -> 'pd.DataFrame':
+        """Return per-cell F-stat reliability diagnostics.
+
+        One row per (instrument set, model_i, model_j) with model_i < model_j.
+        Columns (under the 2026-05-01 worst-case-CV redesign):
+
+        - ``F``, ``rho_squared``: existing test statistic and DMSS rho².
+          When mpmath fires (lambda < 1e-10), these store the
+          higher-precision values; F_high_precision and
+          rho_squared_high_precision expose the swap explicitly.
+        - ``lambda_dmss``: numerical-cancellation depth,
+          ``((σ_0+σ_1)² − 4σ_2²) / (σ_0+σ_1)²``. Informational; surfaces
+          the cancellation regime where mpmath replaced float64.
+        - ``F_se``, ``F_ci_low``, ``F_ci_high``: asymptotic SE and 95% CI
+          for F under the paper's noncentral chi-squared parametrization.
+          Retained for inspection; not used by the verdict.
+        - ``strongest_claim_size``, ``strongest_claim_power``: strongest
+          size/power claim F supports at the plug-in ρ̂² (e.g.,
+          ``"worst-case size <= 10%"``).
+        - ``worst_case_cv_size``, ``worst_case_cv_power``: ndarray of the
+          three CV columns at the worst-case ρ² ∈ [0, 0.99] (size CVs at
+          ρ² = 0.99 since they are increasing in ρ; power CVs at the
+          maximum across the table since power CVs decrease in ρ).
+          Informational only; the verdict uses the plug-in CVs.
+        - ``verdict``: one of ``"robust"`` (F clears at least one
+          plug-in CV), ``"weak"`` (F clears no plug-in CV), or
+          ``"trivially-degenerate"`` (ρ̂² is NaN, i.e. identical-markup
+          boundary).
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-form frame with ``L * M * (M - 1) / 2`` rows.
+        """
+        import pandas as pd
+
+        L = self._number_of_instrument_sets()
+        M = self._number_of_models()
+        iv_labels = self._instrument_set_labels()
+        model_labels = self._model_labels()
+
+        records: List[dict[str, Any]] = []
+        for j in range(L):
+            f_mat = np.asarray(self.F[j])
+            rho_mat = np.asarray(self.rho[j])
+            lam_mat = np.asarray(self.lambda_dmss[j]) if self.lambda_dmss is not None else None
+            se_mat = np.asarray(self.F_se[j]) if self.F_se is not None else None
+            ci_lo_mat = np.asarray(self.F_ci_low[j]) if self.F_ci_low is not None else None
+            ci_hi_mat = np.asarray(self.F_ci_high[j]) if self.F_ci_high is not None else None
+            verdict_mat = self.verdict[j] if self.verdict is not None else None
+            claim_size_mat = self.strongest_claim_size[j] if self.strongest_claim_size is not None else None
+            claim_power_mat = self.strongest_claim_power[j] if self.strongest_claim_power is not None else None
+            wc_size_mat = (
+                self.worst_case_cv_size[j]  # type: ignore[index]
+                if getattr(self, 'worst_case_cv_size', None) is not None
+                else None
+            )
+            wc_power_mat = (
+                self.worst_case_cv_power[j]  # type: ignore[index]
+                if getattr(self, 'worst_case_cv_power', None) is not None
+                else None
+            )
+            F_hp_mat = (
+                np.asarray(self.F_high_precision[j])  # type: ignore[index]
+                if getattr(self, 'F_high_precision', None) is not None
+                else None
+            )
+            for i in range(M):
+                for k in range(i + 1, M):
+                    rho_ik = float(rho_mat[i, k])
+                    rho2_ik = rho_ik ** 2 if np.isfinite(rho_ik) else float('nan')
+                    records.append({
+                        'instrument_set': j,
+                        'instrument_set_label': iv_labels[j],
+                        'model_i': i,
+                        'model_j': k,
+                        'model_i_label': model_labels[i],
+                        'model_j_label': model_labels[k],
+                        'F': float(f_mat[i, k]),
+                        'rho_squared': rho2_ik,
+                        'lambda_dmss': (
+                            float(lam_mat[i, k]) if lam_mat is not None else float('nan')
+                        ),
+                        'F_se': (
+                            float(se_mat[i, k]) if se_mat is not None else float('nan')
+                        ),
+                        'F_ci_low': (
+                            float(ci_lo_mat[i, k]) if ci_lo_mat is not None else float('nan')
+                        ),
+                        'F_ci_high': (
+                            float(ci_hi_mat[i, k]) if ci_hi_mat is not None else float('nan')
+                        ),
+                        'strongest_claim_size': (
+                            claim_size_mat[i, k] if claim_size_mat is not None else None
+                        ),
+                        'strongest_claim_power': (
+                            claim_power_mat[i, k] if claim_power_mat is not None else None
+                        ),
+                        'worst_case_cv_size': (
+                            wc_size_mat[i, k] if wc_size_mat is not None else None
+                        ),
+                        'worst_case_cv_power': (
+                            wc_power_mat[i, k] if wc_power_mat is not None else None
+                        ),
+                        'F_high_precision': (
+                            float(F_hp_mat[i, k]) if F_hp_mat is not None else float('nan')
+                        ),
+                        'verdict': (
+                            verdict_mat[i, k] if verdict_mat is not None else None
+                        ),
+                    })
+        columns = [
+            'instrument_set', 'instrument_set_label',
+            'model_i', 'model_j', 'model_i_label', 'model_j_label',
+            'F', 'F_high_precision', 'rho_squared', 'lambda_dmss',
+            'F_se', 'F_ci_low', 'F_ci_high',
+            'strongest_claim_size', 'strongest_claim_power',
+            'worst_case_cv_size', 'worst_case_cv_power',
+            'verdict',
+        ]
+        return pd.DataFrame.from_records(records, columns=columns)
 
     def to_latex(
         self,

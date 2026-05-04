@@ -1466,7 +1466,9 @@ class Problem(Container, StringRepresentation):
             self, demand_adjustment: Optional[bool] = False,
             clustering_adjustment: Optional[bool] = False,
             costs_type: Optional[str] = 'linear',
-            mc_correction: Optional[Array] = None
+            mc_correction: Optional[Array] = None,
+            reliability_check: str = 'conditional',
+            reliability_precision_dps: int = 50,
     ) -> ProblemResults:
         r"""Solve the problem.
 
@@ -1481,20 +1483,41 @@ class Problem(Container, StringRepresentation):
         demand_adjustment: Optional[bool]
             (optional, default is False) Configuration that allows user to specify whether to compute a two-step demand
             adjustment. Options are True or False.
-        clustering_adjustment: Optional[str]
-            (optional, default is unadjusted) Configuration that specifies whether to compute clustered standard errors.
+        clustering_adjustment: Optional[bool]
+            (optional, default is False) Configuration that specifies whether to compute clustered standard errors.
             Options are True or False.
         costs_type: Optional[str]
-            (optional, default is ``'linear'``) Functional form for marginal cost. ``'linear'`` uses
-            :math:`p - \text{markup}` directly; ``'log'`` substitutes :math:`\log(p - \text{markup})` before
-            running the test. Only effective when ``demand_adjustment=False``; emits a ``UserWarning`` and
-            falls back to linear costs when combined with ``demand_adjustment=True``. Raises
-            ``ValueError`` if any implied marginal cost is non-positive under ``'log'``.
+            (optional, default is ``'linear'``) Form of the marginal-cost regression. ``'linear'`` regresses implied
+            marginal cost on cost shifters in levels (the standard DMSS specification). ``'log'`` regresses log
+            marginal cost on cost shifters; pyRVtest takes the log of implied marginal cost before residualization,
+            and the test statistic is computed in that transformed space. Only effective when
+            ``demand_adjustment=False``; emits a ``UserWarning`` and falls back to linear costs when combined with
+            ``demand_adjustment=True``. Raises ``ValueError`` if any implied marginal cost is non-positive under
+            ``'log'``.
         mc_correction: Optional[Array]
-            *Deprecated since v0.4; will be removed in v0.6.* User-supplied additive correction added to
-            ``marginal_cost`` before the test. Must have the same shape as ``problem.markups`` (``M`` x ``N``).
+            *Deprecated since v0.4; will be removed in v0.6.* Additive correction applied to implied marginal
+            cost after the cost-type transformation but before the residualization step. Must be shape
+            ``(M, N)`` where ``M`` is the number of conduct models and ``N`` is the number of observations.
             For supported cost-side adjustments, pass ``endogenous_cost_component`` at :class:`Problem`
             construction time instead.
+        reliability_check: str
+            (optional, default is ``'conditional'``) Controls when the high-precision (mpmath) safety net for
+            F̂ and ρ̂² fires. Three modes:
+
+            * ``'conditional'`` — fire only when ``lambda_dmss < 1e-10`` for a pair (the regime where float64
+              cancellation in :math:`D_\rho` may have left fewer than ~6 significant figures in F̂). Typical
+              applications never trigger this; the cost is amortized over the few cells that need it.
+            * ``'always'`` — recompute every pair via mpmath. Useful for paper-table generation when you want
+              the published numbers to be authoritative regardless of float64 conditioning. ~100-1000× per-pair
+              slowdown compared to ``'off'``.
+            * ``'off'`` — never fire mpmath. Pure double-precision throughout. Use this in tight loops (Monte
+              Carlo) where the safety net would just be cost.
+
+        reliability_precision_dps: int
+            (optional, default is 50) Decimal digits of precision used by mpmath when the safety net fires.
+            Defaults are chosen so the high-precision recompute carries at least ~30 more digits than float64,
+            comfortably above any cancellation a typical application can produce. Increase only if you have a
+            specific reason; decreasing below ~20 may not buy enough margin to be worth the swap.
 
         Returns
         -------
@@ -1523,6 +1546,22 @@ class Problem(Container, StringRepresentation):
         step_start_time = time.time()
 
         self._validate_solve_args(demand_adjustment, clustering_adjustment, costs_type)
+
+        # F-stat reliability precision-check mode (2026-05-01 redesign).
+        # See ``pyRVtest/solve/test_engine.py::compute_instrument_results``
+        # for the full semantics. 'conditional' (default) only fires the
+        # mpmath recompute when lambda_dmss < 1e-10 (the cancellation-
+        # fragility band). 'always' recomputes every cell at high
+        # precision (paper-table generation). 'off' skips the check
+        # entirely (Monte Carlo / tight loops).
+        if reliability_check not in ('off', 'conditional', 'always'):
+            raise ValidationError(
+                f"Expected reliability_check to be 'off', 'conditional', "
+                f"or 'always'. "
+                f"Received {reliability_check!r}. "
+                f"Fix: pick one of the documented modes — 'conditional' "
+                f"(default) is right for most users."
+            )
 
         M = self.M
         N = self.N
@@ -1674,6 +1713,21 @@ class Problem(Container, StringRepresentation):
         F_cv_power_list = [None] * L
         symbols_size_list = [None] * L
         symbols_power_list = [None] * L
+        symbols_rv_list = [None] * L
+        # F-stat reliability diagnostic (additive; see test_engine.py)
+        lambda_dmss_list = [None] * L
+        F_se_list = [None] * L
+        F_ci_low_list = [None] * L
+        F_ci_high_list = [None] * L
+        verdict_list = [None] * L
+        strongest_claim_size_list = [None] * L
+        strongest_claim_power_list = [None] * L
+        # Worst-case CV outputs (2026-05-01 redesign).
+        worst_case_cv_size_list = [None] * L
+        worst_case_cv_power_list = [None] * L
+        # High-precision F̂ / ρ̂² populated by the precision check.
+        F_high_precision_list = [None] * L
+        rho_squared_high_precision_list = [None] * L
 
         for instrument in range(L):
             grad_gamma_l = (gradient_gamma_per_instrument[instrument]
@@ -1683,6 +1737,8 @@ class Problem(Container, StringRepresentation):
                 H_prime_wd, H, h_i, h, clustering_adjustment,
                 critical_values_size, critical_values_power, endog_hat_per_instrument[instrument],
                 grad_gamma_l,
+                reliability_check=reliability_check,
+                reliability_precision_dps=reliability_precision_dps,
             )
             g_list[instrument] = r['g']
             Q_list[instrument] = r['Q']
@@ -1697,13 +1753,35 @@ class Problem(Container, StringRepresentation):
             F_cv_power_list[instrument] = r['F_cv_power']
             symbols_size_list[instrument] = r['symbols_size']
             symbols_power_list[instrument] = r['symbols_power']
+            symbols_rv_list[instrument] = r['symbols_rv']
+            lambda_dmss_list[instrument] = r['lambda_dmss']
+            F_se_list[instrument] = r['F_se']
+            F_ci_low_list[instrument] = r['F_ci_low']
+            F_ci_high_list[instrument] = r['F_ci_high']
+            verdict_list[instrument] = r['verdict']
+            strongest_claim_size_list[instrument] = r['strongest_claim_size']
+            strongest_claim_power_list[instrument] = r['strongest_claim_power']
+            worst_case_cv_size_list[instrument] = r['worst_case_cv_size']
+            worst_case_cv_power_list[instrument] = r['worst_case_cv_power']
+            F_high_precision_list[instrument] = r['F_high_precision']
+            rho_squared_high_precision_list[instrument] = r['rho_squared_high_precision']
 
         results = ProblemResults(Progress(
             self, markups, markups_downstream, markups_upstream, markups_orthogonal, marginal_cost,
             tau_list, g_list, Q_list, RV_numerator_list, RV_denominator_list,
             test_statistic_RV_list, F_statistic_list, MCS_p_values_list, rho_list, unscaled_F_statistic_list,
             F_cv_size_list, F_cv_power_list, symbols_size_list, symbols_power_list,
-            endogenous_cost_coefficient, tau_list_per_instrument
+            endogenous_cost_coefficient, tau_list_per_instrument,
+            lambda_dmss_list=lambda_dmss_list, F_se_list=F_se_list,
+            F_ci_low_list=F_ci_low_list, F_ci_high_list=F_ci_high_list,
+            verdict_list=verdict_list,
+            strongest_claim_size_list=strongest_claim_size_list,
+            strongest_claim_power_list=strongest_claim_power_list,
+            worst_case_cv_size_list=worst_case_cv_size_list,
+            worst_case_cv_power_list=worst_case_cv_power_list,
+            F_high_precision_list=F_high_precision_list,
+            rho_squared_high_precision_list=rho_squared_high_precision_list,
+            symbols_rv_list=symbols_rv_list,
         ))
         logger.info(f"Solved the problem after {format_seconds(time.time() - step_start_time)}.")
         logger.info("")

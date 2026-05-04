@@ -4,8 +4,10 @@ from pathlib import Path
 
 from setuptools import find_packages, setup
 
-# define a function that reads a file in this directory
-read = lambda p: Path(Path(__file__).resolve().parent / p).read_text()
+# define a function that reads a file in this directory.
+# Explicit utf-8 — Windows defaults to cp1252 via Path.read_text() and
+# fails on README.rst's non-ASCII characters during pip install.
+read = lambda p: Path(Path(__file__).resolve().parent / p).read_text(encoding='utf-8')
 
 # set up the package
 setup(

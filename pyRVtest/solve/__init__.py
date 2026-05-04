@@ -21,4 +21,9 @@ Examples
 True
 """
 
-__all__: list[str] = []
+from typing import List
+
+# Use ``List[str]`` (typing) rather than ``list[str]`` (PEP 585) so the
+# package-level import chain works on Python 3.7/3.8, matching the
+# ``python_requires='>=3.7'`` declaration in setup.py.
+__all__: List[str] = []

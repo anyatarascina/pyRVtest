@@ -68,9 +68,19 @@ def output(message: Any) -> None:
 def format_table(
         header: Sequence[Any], subheader: Sequence[Any], *data: Sequence[Any], title: Optional[str] = None,
         include_notes: bool = False, include_border: bool = True, include_header: bool = True,
-        include_subheader: bool = True, line_indices: Container[int] = ()) -> str:
+        include_subheader: bool = True, line_indices: Container[int] = (),
+        extra_notes: Optional[Sequence[Sequence[str]]] = None) -> str:
     """Format table information as a string, which has fixed widths, vertical lines after any specified indices, and
     optionally a title, border, header, subheader, and F-stat significance notes.
+
+    Parameters
+    ----------
+    extra_notes : optional sequence of sequence of str
+        Additional note lines appended after the standard significance notes
+        when ``include_notes`` is True. Each inner sequence is one row.
+        Used by ``ProblemResults._format_results_tables`` to attach the
+        F-stat reliability footer; passed empty / None for tables that
+        don't need it.
     """
 
     # construct the header rows
@@ -124,12 +134,27 @@ def format_table(
         lines.append("=" * len(template.format(*[""] * len(widths))))
     if include_notes:
         notes: List[List[str]] = []
+        # TRV significance markers (Phase 3 of feat/f-reliability).
         notes.append(
-            ['*, **, or *** indicate that F > cv for a worst-case size of 0.125, 0.10, and 0.075 given d_z and rho']
+            ['TRV significance (two-sided, asymptotic):']
         )
         notes.append(
-            ['^, ^^, or ^^^ indicate that F > cv for a best-case power of 0.50, 0.75, and 0.95 given d_z and rho']
+            ['  *, **, or *** indicate |TRV| > 1.64, 1.96, 2.58 (10%, 5%, 1% two-sided)']
         )
+        # F-stat significance markers (size symbols moved from `*` to `†`
+        # in Phase 3 to free `*` for TRV; power symbols unchanged).
+        notes.append(
+            ['F-stat significance (DMSS):']
+        )
+        notes.append(
+            ['  †, ††, or ††† indicate F > cv for a worst-case size of 0.125, 0.10, and 0.075 given d_z and rho']
+        )
+        notes.append(
+            ['  ^, ^^, or ^^^ indicate F > cv for a best-case power of 0.50, 0.75, and 0.95 given d_z and rho']
+        )
+        if extra_notes:
+            for row in extra_notes:
+                notes.append(list(row))
         notes_rows = [[str(c) for c in r] + [""] * (len(header) - len(r)) for r in notes]
         lines.extend([template_notes.format(*r) for r in notes_rows])
         lines.append("=" * len(template_notes.format(*[""] * len(widths))))
