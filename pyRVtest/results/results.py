@@ -170,7 +170,7 @@ class Progress:
     F_cv_power_list: Array
     symbols_size_list: Array
     symbols_power_list: Array
-    endogenous_cost_coefficient: Optional[NDArray] = None
+    endogenous_cost_coefficient: Optional[NDArray[Any]] = None
     tau_list_per_instrument: Optional[List[Any]] = None
     # F-stat reliability diagnostic (added in feat/f-reliability). Optional so
     # older pickled Progress instances stay constructible. ProblemResults

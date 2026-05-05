@@ -11,7 +11,8 @@ ProblemResults, build_markups, build_ownership, etc.) is unchanged.
 
 from . import data, options
 # New v0.4 subpackages (empty skeletons until their populating steps).
-from . import backends, instruments, models, solve
+from . import backends, estimators, instruments, models, solve
+from .estimators import LogitEstimator, NestedLogitEstimator
 from .exceptions import (
     BackendError,
     DemandBackendError,
@@ -47,7 +48,9 @@ __all__ = [
     'evaluate_first_order_conditions', 'read_pickle', 'Formulation', 'ModelFormulation', 'Problem', 'Models',
     'Products', 'ProblemResults', 'PanelResults', '__version__',
     # v0.4 subpackage namespaces (populated in later migration steps)
-    'backends', 'instruments', 'models', 'solve',
+    'backends', 'estimators', 'instruments', 'models', 'solve',
+    # In-package demand estimators (logit + nested-logit 2SLS).
+    'LogitEstimator', 'NestedLogitEstimator',
     # v0.4 step 5a: class-based ConductModel API.
     'ConductModel', 'Bertrand', 'Cournot', 'Monopoly', 'PerfectCompetition',
     'MixCournotBertrand', 'PartialCollusion', 'CustomConductModel',

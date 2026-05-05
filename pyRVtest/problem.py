@@ -184,6 +184,117 @@ def _normalize_demand_params_rho(demand_params: dict) -> dict:
     return normalized
 
 
+_INLINE_ESTIMATOR_CONFIG_KEYS = frozenset({
+    'estimate', 'formulation_X', 'formulation_Z', 'nesting_ids_column',
+    'auto_construct_within_share_iv', 'market_ids_column',
+    'shares_column', 'prices_column', 'W_demand',
+})
+
+
+def _run_inline_demand_estimator(
+        demand_params: dict, product_data: Mapping,
+) -> Tuple[dict, Mapping]:
+    """Execute the in-package estimator selected by ``demand_params['estimate']``.
+
+    Returns ``(populated_demand_params, possibly_augmented_product_data)``.
+    Auto-IV in the nested-logit path appends a ``count_in_nest_iv`` column
+    to ``product_data``; we forward that augmented copy so the downstream
+    ``Problem`` machinery can find the new column.
+
+    Disallows mixing inline-estimation keys with already-estimated values
+    (``alpha`` / ``beta`` / ``rho``): if the user supplies the answer they
+    don't need the estimator. Refuses unknown estimator kinds and unknown
+    config keys with a Fix line.
+    """
+    from .estimators import LogitEstimator, NestedLogitEstimator
+
+    kind = demand_params.get('estimate')
+
+    already_populated = {
+        k for k in ('alpha', 'beta', 'rho', 'sigma',
+                    'demand_instrument_columns', 'x_columns', 'W_demand')
+        if k in demand_params and k != 'W_demand'  # W_demand handled separately
+    }
+    if already_populated:
+        raise ValueError(
+            f"Expected demand_params with 'estimate' to be a fresh estimator "
+            f"configuration (no prefilled estimates). "
+            f"Received demand_params with both 'estimate'={kind!r} and "
+            f"already-set keys {sorted(already_populated)}. "
+            f"Fix: drop 'estimate' and pass the prefilled values directly, "
+            f"or drop the prefilled values and let the estimator produce them."
+        )
+
+    unknown = set(demand_params) - _INLINE_ESTIMATOR_CONFIG_KEYS
+    if unknown:
+        raise ValueError(
+            f"Expected demand_params (with 'estimate') to contain only "
+            f"estimator-config keys: {sorted(_INLINE_ESTIMATOR_CONFIG_KEYS)}. "
+            f"Received unknown keys {sorted(unknown)}. "
+            f"Fix: drop or rename the unknown keys; estimator output "
+            f"populates alpha/beta/rho/etc. internally."
+        )
+
+    common_kwargs = dict(
+        product_data=product_data,
+        formulation_X=demand_params.get('formulation_X'),
+        formulation_Z=demand_params.get('formulation_Z'),
+        market_ids_column=demand_params.get('market_ids_column', 'market_ids'),
+        shares_column=demand_params.get('shares_column', 'shares'),
+        prices_column=demand_params.get('prices_column', 'prices'),
+        W_demand=demand_params.get('W_demand'),
+    )
+
+    if kind == 'logit':
+        if 'nesting_ids_column' in demand_params:
+            raise ValueError(
+                "Expected demand_params['nesting_ids_column'] to be paired "
+                "with estimate='nested_logit'. "
+                f"Received estimate='logit' with nesting_ids_column="
+                f"{demand_params['nesting_ids_column']!r}. "
+                "Fix: drop nesting_ids_column for plain logit, or change "
+                "estimate to 'nested_logit'."
+            )
+        if 'auto_construct_within_share_iv' in demand_params:
+            raise ValueError(
+                "Expected demand_params['auto_construct_within_share_iv'] "
+                "to be paired with estimate='nested_logit'. "
+                "Received estimate='logit' with the auto-IV flag set. "
+                "Fix: drop auto_construct_within_share_iv for plain logit, "
+                "or change estimate to 'nested_logit'."
+            )
+        estimator = LogitEstimator(**common_kwargs)
+        return estimator.solve(), product_data
+
+    if kind == 'nested_logit':
+        if 'nesting_ids_column' not in demand_params:
+            raise ValueError(
+                "Expected demand_params['nesting_ids_column'] when "
+                "estimate='nested_logit'. "
+                "Received nested-logit configuration without it. "
+                "Fix: pass demand_params['nesting_ids_column']='<column>'."
+            )
+        estimator = NestedLogitEstimator(
+            nesting_ids_column=demand_params['nesting_ids_column'],
+            auto_construct_within_share_iv=demand_params.get(
+                'auto_construct_within_share_iv', False,
+            ),
+            **common_kwargs,
+        )
+        populated = estimator.solve()
+        # Auto-IV adds a column to a copy of product_data; forward that copy
+        # so the downstream Problem code path can find count_in_nest_iv.
+        return populated, estimator.product_data
+
+    raise ValueError(
+        f"Expected demand_params['estimate'] to be one of "
+        f"'logit' or 'nested_logit'. "
+        f"Received {kind!r}. "
+        f"Fix: pass one of those names, or drop the 'estimate' key and "
+        f"supply alpha / beta / rho directly."
+    )
+
+
 def _apply_conduct_to_fields(
         m, conduct, product_data, tier,
         models_downstream, models_upstream, firm_ids_downstream, firm_ids_upstream,
@@ -1115,6 +1226,16 @@ class Problem(Container, StringRepresentation):
                 "demand_params needed); (b) wrap a manually computed "
                 "labor-supply Jacobian in pyRVtest.backends.UserSuppliedBackend."
             )
+        # In-package demand-estimation shortcut: when demand_params carries
+        # an 'estimate' key, run the appropriate 2SLS estimator here and
+        # replace demand_params with the populated dict it returns. The
+        # downstream alpha / rho validation below then runs against the
+        # estimator's output, so user-supplied dicts and inline-estimated
+        # dicts share a single validation path.
+        if demand_params is not None and 'estimate' in demand_params:
+            demand_params, product_data = _run_inline_demand_estimator(
+                demand_params, product_data,
+            )
         if demand_params is not None:
             if 'alpha' not in demand_params:
                 raise ValueError(
@@ -1891,9 +2012,20 @@ class Problem(Container, StringRepresentation):
         if self.demand_params is not None:
             dp = self.demand_params
             rho_nonzero = [s for s in dp.get('rho', []) if s > 0]
+            # Auto-augment product_data with a literal '1' column if any
+            # x_columns / demand_instrument_columns reference it but the
+            # raw data does not (mirrors `_backend_from_demand_results` for
+            # the `Formulation('1 + ...')` path so the LogitEstimator output
+            # works without users hand-adding an intercept column).
+            raw = self._product_data_raw
+            referenced = list(dp.get('x_columns') or []) + list(
+                dp.get('demand_instrument_columns') or []
+            )
+            if '1' in referenced and '1' not in self._raw_product_data_columns(raw):
+                raw = self._augment_with_intercept_column(raw)
             shared_kwargs = dict(
                 alpha=dp['alpha'],
-                product_data=self._product_data_raw,
+                product_data=raw,
                 beta=dp.get('beta'),
                 x_columns=dp.get('x_columns'),
                 demand_instrument_columns=dp.get('demand_instrument_columns'),
