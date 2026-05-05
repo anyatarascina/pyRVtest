@@ -1,4 +1,4 @@
-"""Reverse adapter: ModelFormulation -> ConductModel / Vertical (v0.4 step 5b').
+"""Reverse adapter: ModelFormulation -> ConductModel / Vertical.
 
 After step 5b', the internal pipeline (Models recarray construction,
 Problem bookkeeping, _compute_markups) reads from ``ConductModel`` /
@@ -70,9 +70,9 @@ def from_model_formulation(
             advalorem_tax_salient=mf._advalorem_tax_salient,
         )
     # Simple (non-vertical) case: all config lives on the one class.
-    # v0.4.0rc1: ``ModelFormulation(user_supplied_markups='col',
+    # ``ModelFormulation(user_supplied_markups='col',
     # ownership_downstream='firm_ids')`` (no ``model_downstream``) is a
-    # production pattern from pre-v0.4 user code. Route it to the
+    # production pattern from the older user code. Route it to the
     # first-class ``UserSuppliedMarkups`` class instead of asserting.
     if mf._model_downstream is None and mf._user_supplied_markups is not None:
         return UserSuppliedMarkups(

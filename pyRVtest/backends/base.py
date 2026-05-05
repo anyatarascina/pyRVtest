@@ -1,6 +1,6 @@
 """Protocols for demand backends.
 
-v0.4 step 3a. Defines two Protocol classes (PEP 544 structural subtyping):
+Defines two Protocol classes (PEP 544 structural subtyping):
 
   - `DemandBackend`: the core interface. Every backend implements this.
     Provides `compute_jacobian`, `compute_hessian`, `perturbed` context

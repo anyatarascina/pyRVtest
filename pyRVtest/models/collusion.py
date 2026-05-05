@@ -1,17 +1,11 @@
 """PartialCollusion: price-setting with a kappa-modified ownership matrix.
 
-v0.4 step 5a. Pre-v0.4 partial collusion was expressed as a Bertrand
-``ModelFormulation`` with ``kappa_specification_downstream`` set (e.g.,
-``'collusion_row'``); the math is identical to Bertrand with a modified
-ownership matrix. This module introduces ``PartialCollusion`` as a
-distinct class that signals intent at the call site and enforces that
-``kappa_specification`` is supplied.
-
-Mathematically, ``PartialCollusion`` shares the Bertrand FOC — the
-difference lives entirely in how the ownership matrix is constructed
-(kappa modifies off-diagonal elements) at ``Models`` / ``Problem`` setup.
-Consequently, ``_compute_markup`` and ``_markup_derivative`` inherit
-unchanged from ``Bertrand``.
+``PartialCollusion`` shares the Bertrand FOC; the difference lives
+entirely in how the ownership matrix is constructed (kappa modifies
+off-diagonal elements) at ``Models`` / ``Problem`` setup.
+``_compute_markup`` and ``_markup_derivative`` therefore inherit
+unchanged from ``Bertrand``. The class signals intent at the call site
+and enforces that ``kappa_specification`` is supplied.
 """
 
 from __future__ import annotations

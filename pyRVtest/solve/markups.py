@@ -1,12 +1,12 @@
 """Markups-assembly stage.
 
-v0.4 step 8b extraction. Hosts :func:`compute`, the stage that builds
+Hosts :func:`compute`, the stage that builds
 per-model markups by dispatching to
 :func:`pyRVtest.markups._compute_markups` with the ``Problem``'s
 constructed demand backend. The returned tuple
 ``(markups, markups_downstream, markups_upstream)`` matches what
 ``_compute_markups`` has always returned — no math change relative to
-the pre-step-8 call site.
+the old call site.
 
 The module-level ``pyRVtest.markups`` module (which still owns
 ``build_markups``, ``_compute_markups``, ``build_ownership`` etc.) is
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 def compute(problem: Any) -> Tuple[List[_NDArray], List[_NDArray], List[_NDArray]]:
     """Build per-model markups using the Problem's demand backend.
 
-    Moved from ``Problem._perturb_and_build_markups`` in v0.4 step 8b.
+    Moved from ``Problem._perturb_and_build_markups``.
     No behavioral change.
 
     Parameters
@@ -58,7 +58,7 @@ def compute(problem: Any) -> Tuple[List[_NDArray], List[_NDArray], List[_NDArray
 
     Notes
     -----
-    v0.4 step 4g: after step 4f deleted the inline demand-adjustment
+    after step 4f deleted the inline demand-adjustment
     methods that mutated ``self.demand_results._sigma`` / ``._pi`` /
     ``._beta`` / ``._rho`` directly, nothing mutates demand state
     behind the backend's cache. Routing through

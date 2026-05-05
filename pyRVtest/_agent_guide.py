@@ -1,4 +1,4 @@
-"""Agent-guide exporter (v0.4 step 23).
+"""Agent-guide exporter.
 
 Exposes :func:`show_agent_guide`, a small helper that prints the
 contents of ``AGENTS.md`` at the repository root to stdout. Target
@@ -83,7 +83,7 @@ def show_agent_guide() -> None:
     # AGENTS.md
     ...
     """
-    # v0.4 step 18: these ``print`` calls are intentionally stdout-bound.
+    # these ``print`` calls are intentionally stdout-bound.
     # ``show_agent_guide`` is a user-facing REPL helper whose whole contract
     # is "dump the guide onto stdout so the user (or the AI assistant
     # consuming the REPL output) can read it." Routing through ``logging``

@@ -1,20 +1,14 @@
 """Output formatting and legacy ``output()`` shim.
 
-This module originally wrapped ``print`` behind a verbose-gated ``output()``
-helper re-exported from pyblp. In v0.4 step 18 the rest of pyRVtest was
-switched to the standard :mod:`logging` module at per-module loggers
-(``pyRVtest.problem``, ``pyRVtest.backends.logit``, etc.), and the old
-call sites were rewritten to use ``logger.info(...)`` directly.
-
-For one release we keep ``pyRVtest.output.output`` available as a
-compatibility shim: it routes its argument through ``logger.info`` on the
-``pyRVtest.output`` logger and emits a :class:`DeprecationWarning` on the
-first call. No pyRVtest code should call it; it exists solely so that a
-user who imported ``from pyRVtest.output import output`` in v0.3 keeps
-running during the v0.4 -> v0.6 deprecation window.
-
-The long-term formatting helper :func:`format_table` stays here and is
-unchanged.
+Status messages from pyRVtest go through per-module
+:mod:`logging` loggers (``pyRVtest.problem``,
+``pyRVtest.backends.logit``, etc.). :func:`pyRVtest.output.output` is a
+compatibility shim that routes its argument through ``logger.info`` on
+the ``pyRVtest.output`` logger and emits a :class:`DeprecationWarning`
+on first call. It exists solely so that ``from pyRVtest.output import
+output`` keeps working through the v0.6 deprecation window; new code
+should not call it. :func:`format_table` is the long-term formatting
+helper.
 """
 
 from __future__ import annotations
@@ -24,14 +18,12 @@ import warnings
 from typing import Any, Container, List, Optional, Sequence
 
 
-# v0.4 step 18: per-module logger. Users can silence the shim with
+# Silence the deprecation shim with
 # ``logging.getLogger("pyRVtest.output").setLevel(logging.WARNING)``.
 logger = logging.getLogger(__name__)
 
 
-# Module-level flag so the DeprecationWarning fires only once per Python
-# session, following the project's existing deprecation-hygiene pattern
-# (see pyRVtest.formulation for the reference implementation).
+# Fire the DeprecationWarning only once per Python session.
 _output_shim_deprecation_warned: bool = False
 
 

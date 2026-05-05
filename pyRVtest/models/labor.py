@@ -1,6 +1,6 @@
 """Labor-side conduct models: Monopsony, BertrandWages, CournotEmployment, NashBargaining.
 
-v0.4 step 14a. Sign conventions flip relative to product-side models:
+Sign conventions flip relative to product-side models:
 labor supply is upward-sloping in wages (``ds/dw > 0`` for
 employment-on-wage), so the first-order conditions pick up markdowns
 (``w - MRP``) rather than markups (``p - MC``). The math is a

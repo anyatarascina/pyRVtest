@@ -1,4 +1,4 @@
-"""Custom exception hierarchy for pyRVtest (v0.4 step 19).
+"""Custom exception hierarchy for pyRVtest.
 
 The hierarchy is deliberately minimal. Only categories used by 2+
 call sites are kept as distinct classes. Every custom class also

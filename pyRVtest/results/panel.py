@@ -1,6 +1,6 @@
 """Multi-problem aggregation of :class:`ProblemResults`.
 
-v0.4 step 10: ``PanelResults`` aggregates a panel of
+``PanelResults`` aggregates a panel of
 :class:`pyRVtest.ProblemResults` — one per market-year, subsample, or
 other exchangeable partition — into a single panel-level view. The
 motivating use case is the AFSSZ scalable conduct-testing workflow (step
@@ -171,7 +171,7 @@ class PanelResults:
                 )
             elif expected_signature is not None and signature is not None \
                     and signature != expected_signature:
-                # v0.4.0rc1 follow-up (audit B1 / Lorenzo P1 item 4): same
+                # same
                 # count but different roster identity would otherwise be a
                 # silent mislabel at ``summary_df`` / ``rejection_rates``
                 # time, because those methods pull labels from the first

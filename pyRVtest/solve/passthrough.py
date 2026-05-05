@@ -1,6 +1,6 @@
 """Stand-alone ``build_passthrough`` public helper.
 
-v0.4 step 11. Surfaces the Villas-Boas (2007) passthrough-matrix
+Surfaces the Villas-Boas (2007) passthrough-matrix
 construction (currently :func:`pyRVtest.markups.construct_passthrough_matrix`
 and :func:`pyRVtest.markups._construct_passthrough_from_hessian`) as a
 user-callable diagnostic decoupled from :meth:`pyRVtest.Problem.solve`.

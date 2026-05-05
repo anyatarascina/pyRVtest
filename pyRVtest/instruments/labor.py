@@ -1,6 +1,6 @@
 """Labor-side instrument constructors.
 
-v0.4 step 13. Mechanical, vectorized helpers for labor-market testing
+Mechanical, vectorized helpers for labor-market testing
 specifications. Each helper accepts ``product_data`` (``pandas.DataFrame``,
 ``dict``, or structured record array -- anything supporting ``d[col]``
 column access) and returns a numpy array aligned row-for-row with the input.

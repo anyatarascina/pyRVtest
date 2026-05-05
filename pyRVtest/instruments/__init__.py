@@ -1,6 +1,6 @@
 """Testing-IV constructors for product-side and labor-side specifications.
 
-v0.4 step 13. Mechanical, vectorized constructors for building columns that
+Mechanical, vectorized constructors for building columns that
 users pass to :class:`pyRVtest.Problem` via ``instrument_formulation``.
 
 These are thin convenience helpers; they do not encode methodology opinions

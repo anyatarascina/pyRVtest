@@ -1,4 +1,4 @@
-"""Base class for all conduct models (v0.4 step 5a).
+"""Base class for all conduct models.
 
 `ConductModel` holds the shared configuration fields (ownership column
 name, kappa specification, user-supplied markups, taxes, vertical
@@ -44,7 +44,7 @@ __all__ = ['ConductModel']
 _NDArray: TypeAlias = NDArray[Any]
 
 
-# v0.4 OQ 14: once-per-session flags for the model-level tax deprecations.
+# once-per-session flags for the model-level tax deprecations.
 # Keyed by the warning kind ('unit_tax', 'advalorem_tax') so a session with
 # many Bertrand instances carrying a legacy unit_tax emits one warning
 # rather than one per instance. Tests that exercise the warning reset this
@@ -76,14 +76,11 @@ _MODEL_ADVALOREM_TAX_DEPRECATION_MSG = (
 def _maybe_warn_per_model_tax_deprecation(field: str, stacklevel: int = 3) -> None:
     """Emit the v0.7-removal DeprecationWarning for per-model tax kwargs.
 
-    Fires once per Python session per ``field`` value ('unit_tax' or
-    'advalorem_tax'), using ``_legacy_tax_deprecation_warned`` as the
-    guard. Called from ``ConductModel.__init__`` and ``Vertical.__init__``
-    at construction time so users see the warning when they write
-    ``pyRVtest.Bertrand(unit_tax='col')`` — rc1 follow-up to Lorenzo's
-    2026-04-18 P1 item 7 (the warning previously fired only at
-    ``Problem.__init__`` solve-preparation time, so users wiring the
-    model in a helper function never saw it).
+    Fires once per Python session per ``field`` value (``'unit_tax'`` or
+    ``'advalorem_tax'``), using ``_legacy_tax_deprecation_warned`` as
+    the guard. Called from ``ConductModel.__init__`` and
+    ``Vertical.__init__`` at construction time so users see the warning
+    immediately when they write ``pyRVtest.Bertrand(unit_tax='col')``.
     """
     if field in _legacy_tax_deprecation_warned:
         return
@@ -188,13 +185,13 @@ class ConductModel:
         self.cost_scaling: Optional[Union[str, float, int]] = cost_scaling
         self.vertical_integration = vertical_integration
         self.mix_flag = mix_flag
-        # v0.4 OQ 14: per-model salience flags for Problem-level taxes.
+        # per-model salience flags for Problem-level taxes.
         # Default True means the model sees the Problem-level tax; False
         # makes this model opt out (used for salience tests).
         self.unit_tax_salient = unit_tax_salient
         self.advalorem_tax_salient = advalorem_tax_salient
         self._validate_shared_config()
-        # rc1 follow-up (Lorenzo P1 item 7, 2026-04-18): emit the
+        # emit the
         # per-model tax deprecation at construction time so users who
         # write e.g. ``pyRVtest.Bertrand(unit_tax='col')`` see the
         # v0.7-removal warning during migration, not only when the
@@ -238,7 +235,7 @@ class ConductModel:
                 f"Received {self.advalorem_payer!r}. "
                 f"Fix: pass advalorem_payer='firm' or 'consumer'."
             )
-        # v0.4 OQ 14: per-model salience flags must be booleans. Reject
+        # per-model salience flags must be booleans. Reject
         # truthy-but-non-bool values (e.g. strings) with an actionable
         # error so users don't accidentally pass column names here.
         if not isinstance(self.unit_tax_salient, bool):

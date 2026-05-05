@@ -116,22 +116,18 @@ demand_adjustment_weight : `str`
     first-stage correction when ``demand_adjustment=True`` and ``demand_results`` is a pyblp
     results object.
 
-    - ``'W'`` (default, pyRVtest v0.3.3+): use ``demand_results.W``, the weight matrix actually
-      used in the GMM estimation step. For ``method='1s'`` this is the 2SLS weight
+    - ``'W'`` (default): use ``demand_results.W``, the weight matrix actually used in the
+      GMM estimation step. For ``method='1s'`` this is the 2SLS weight
       :math:`(Z'Z/N)^{-1}`. For ``method='2s'`` this is the efficient weight that pyblp used
       in step 2. This matches the DMSS Appendix C formulation, which specifies Λ with the
       weight used to estimate θ̂.
-    - ``'updated_W'``: use ``demand_results.updated_W``, pyblp's "next-step" efficient weight
-      computed from current-step residuals. This was the pyRVtest behavior prior to v0.3.3.
-      Setting this reproduces prior output for backwards comparison.
+    - ``'updated_W'``: use ``demand_results.updated_W``, pyblp's "next-step" efficient
+      weight computed from current-step residuals. Provided for backwards comparison; not
+      DMSS-consistent because it does not match the weight used to estimate θ̂.
 
     This option only affects the PyBLP path (when ``demand_results`` is passed). The
     ``demand_params`` analytic path uses :math:`(Z'Z/N)^{-1}` by default; to reproduce a
     different weight there, pass ``demand_params['W_demand']`` explicitly.
-
-    **Why this was changed:** using ``updated_W`` did not correspond to the weight actually
-    used in estimation and gave incorrect first-stage corrections per DMSS. See CClean-fixes
-    memo, item on "first-stage correction weight matrix."
 
 Examples
 --------
@@ -168,10 +164,9 @@ psd_atol = psd_rtol = 1e-8
 ndraws = 99999
 random_seed = 1
 
-# Controls which pyblp weight matrix is used in the DMSS demand-adjustment correction.
-# 'W' (default): the weight actually used in estimation (correct).
-# 'updated_W': the pre-v0.3.3 behavior (pyblp's "next-step" efficient weight). Set to
-# this value to reproduce pre-v0.3.3 TRV/F values for validation or replication.
+# Which pyblp weight matrix to use in the DMSS demand-adjustment correction.
+# 'W' is the weight actually used in estimation (DMSS-consistent); 'updated_W' is
+# pyblp's next-step efficient weight, provided only for backwards comparison.
 demand_adjustment_weight = 'W'
 
 

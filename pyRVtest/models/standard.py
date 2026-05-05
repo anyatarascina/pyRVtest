@@ -1,14 +1,9 @@
 """Standard conduct models: Bertrand, Cournot, Monopoly, PerfectCompetition.
 
-v0.4 step 5a. Each class implements ``_compute_markup`` and
-``_markup_derivative`` as a thin wrapper around the math that previously
-lived in ``pyRVtest/markups.py::evaluate_first_order_conditions`` and
-``pyRVtest/solve/demand_adjustment.py::_analytical_markup_derivative``.
-
-The math is unchanged; these classes reorganize it into polymorphic
-dispatch. Step 5b wires ``Problem`` to consume these instances
-directly; step 5c keeps ``ModelFormulation(model_downstream='bertrand',
-...)`` working as a deprecation alias that constructs the right class.
+Each class implements ``_compute_markup`` and ``_markup_derivative``.
+``ModelFormulation(model_downstream='bertrand', ...)`` and the other
+string-form aliases still work via a deprecation shim that constructs
+the corresponding class.
 """
 
 from __future__ import annotations

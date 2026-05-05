@@ -1,6 +1,6 @@
-"""Conduct model library: class-based API (v0.4 step 5).
+"""Conduct model library: class-based API.
 
-As of v0.4 step 5a the mechanical conduct classes land:
+As of the mechanical conduct classes land:
 
     from pyRVtest.models import (
         ConductModel,
@@ -84,10 +84,10 @@ __all__ = [
     'CustomConductModel',
     'UserSuppliedMarkups',
     'Vertical',
-    # v0.4 step 12: Dearing et al. (2026) simple-markup models.
+    # Dearing et al. (2026) simple-markup models.
     'RuleOfThumb',
     'ConstantMarkup',
-    # v0.4 step 14a: labor-side conduct models.
+    # labor-side conduct models.
     'Monopsony',
     'BertrandWages',
     'CournotEmployment',

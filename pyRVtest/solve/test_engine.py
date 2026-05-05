@@ -1,14 +1,10 @@
 """RV test statistic, F-statistic, and MCS p-value computation.
 
-v0.4 step 8d extraction. Hosts the test-engine computations moved from
-``Problem._compute_instrument_results``, ``Problem._compute_mcs``, and
-the block-gram bookkeeping helpers ``Problem._compute_block_gram`` /
-``Problem._extract_block``. No math change relative to the pre-step-8
-inline code — pure code move.
-
 The :class:`pyRVtest.Problem` orchestrator calls
 :func:`compute_instrument_results` once per instrument set and folds
 the per-instrument results into the final :class:`ProblemResults`.
+:func:`compute_mcs` and the block-gram bookkeeping helpers
+(:func:`compute_block_gram`, :func:`extract_block`) live alongside.
 """
 
 from __future__ import annotations
@@ -249,14 +245,14 @@ def compute_instrument_results(
 ) -> Dict[str, Any]:
     """Compute all test statistics for a single instrument set.
 
-    Moved from ``Problem._compute_instrument_results`` in v0.4 step 8d.
+    Moved from ``Problem._compute_instrument_results``.
     Math is unchanged.
     """
     instruments = problem.products["Z{0}".format(instrument)]
     K = np.shape(instruments)[1]
     K_effective = K - 1 if endog_hat is not None else K
 
-    # v0.4.0rc1: the tabulated F-statistic critical values (size and power) are
+    # the tabulated F-statistic critical values (size and power) are
     # defined for K=1..30. For larger instrument sets we fall back to the K=30
     # row, which can produce conservative / stale diagnostics. Emit a
     # ``UserWarning`` so the user knows the reported stars are approximate.
@@ -613,7 +609,7 @@ def compute_instrument_results(
                 F_ci_low[i, m] = F[i, m] - RELIABILITY_CI_LEVEL * F_se[i, m]
                 F_ci_high[i, m] = F[i, m] + RELIABILITY_CI_LEVEL * F_se[i, m]
 
-            # v0.4.0rc1 follow-up: guard the critical-values lookup against
+            # guard the critical-values lookup against
             # a NaN rho. Two model pairs with identical markups (e.g. a
             # salience test with opt-out producing the same raw markups)
             # push the F-stat denominator to zero, yielding NaN rho.
@@ -871,7 +867,7 @@ def compute_mcs(
 ) -> Array:
     """Compute model confidence set p-values by iteratively eliminating the worst-fitting model.
 
-    Moved from ``Problem._compute_mcs`` in v0.4 step 8d. Math is
+    Moved from ``Problem._compute_mcs``. Math is
     unchanged. Stateless (no ``self``): ``options.random_seed`` and
     ``options.ndraws`` are read directly from the global options module.
 
@@ -949,7 +945,7 @@ def compute_block_gram(
 ) -> Array:
     """Compute the ``(M*K, M*K)`` block Gram matrix for all model pairs at once.
 
-    Moved from ``Problem._compute_block_gram`` in v0.4 step 8d. Math is
+    Moved from ``Problem._compute_block_gram``. Math is
     unchanged.
 
     Returns gram such that the ``(K, K)`` variance block for model pair
@@ -985,6 +981,6 @@ def compute_block_gram(
 def extract_block(gram: Array, i: int, m: int, K: int) -> Array:
     """Extract a ``(K, K)`` block from the block Gram matrix.
 
-    Moved from ``Problem._extract_block`` in v0.4 step 8d.
+    Moved from ``Problem._extract_block``.
     """
     return gram[i * K:(i + 1) * K, m * K:(m + 1) * K]

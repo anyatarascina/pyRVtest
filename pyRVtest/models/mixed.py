@@ -1,14 +1,9 @@
 """Mixed Cournot-Bertrand: Morrow-Skerlos (2011) Schur-complement formulation.
 
-v0.4 step 5a. Extracts the math previously in
-``pyRVtest/markups.py::_compute_mix_cournot_bertrand_markups`` and the
-corresponding branch of ``_analytical_markup_derivative`` into a
-polymorphic class.
-
 User code specifies which products are Bertrand vs Cournot via a
-``mix_flag`` column (boolean: True = Bertrand, False = Cournot). Within
-a market the Bertrand products have their FOC modified by the Schur
-complement to account for feedback from Cournot quantities.
+``mix_flag`` column (boolean: ``True`` = Bertrand, ``False`` = Cournot).
+Within a market the Bertrand products have their FOC modified by the
+Schur complement to account for feedback from Cournot quantities.
 """
 
 from __future__ import annotations

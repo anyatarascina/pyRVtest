@@ -1,14 +1,13 @@
 """Analytical demand Jacobian/Hessian for plain logit + shared module-level helpers.
 
-v0.4 step 3c landed the initial version; this file was split post-step-3
-for user-facing clarity (tracebacks + API docs). Contents now:
+landed the initial version; this file was split for user-facing clarity (tracebacks + API docs). Contents now:
 
   - Module-level functions for logit and nested-logit math
     (`compute_analytical_jacobian`, `_logit_jacobian`,
     `_nested_logit_jacobian`, `_nested_logit_jacobian_derivative`,
     `compute_analytical_hessian`, `_infer_nesting_columns`). Originally
-    lived in `pyRVtest/demand_jacobian.py`, moved here in v0.4 step 3c;
-    the shim module was removed in v0.4 step 4g.
+    lived in `pyRVtest/demand_jacobian.py`, moved here;
+    the shim module was removed.
 
   - `LogitBackend` class: plain-logit (rho=[]) DemandBackend wrapper
     that also implements `SupportsDemandAdjustment`. Parameter count
@@ -22,7 +21,7 @@ subclasses `LogitBackend`. Users who want nested logit do:
     # or, for submodule access:
     from pyRVtest.backends.nested_logit import NestedLogitBackend
 
-v0.4 step 4c adds `SupportsDemandAdjustment` methods (`demand_moments`,
+adds `SupportsDemandAdjustment` methods (`demand_moments`,
 `xi_gradient`, `jacobian_gradient`) to `LogitBackend`. They key on
 `self._rho` — length-0 for plain logit, length-L for nested via
 `NestedLogitBackend`. `NestedLogitBackend` inherits these methods
@@ -44,7 +43,7 @@ from pyblp.utilities.basics import Array
 from ..exceptions import DemandBackendError
 from ..solve.demand_adjustment import _residualize_on_xd
 
-# v0.4 step 18: per-module logger. Silence this subsystem specifically with
+# per-module logger. Silence this subsystem specifically with
 # ``logging.getLogger("pyRVtest.backends.logit").setLevel(logging.WARNING)``.
 logger = logging.getLogger(__name__)
 
@@ -63,8 +62,7 @@ __all__ = [
 
 
 # ===========================================================================
-# Module-level analytical-jacobian helpers (originally in
-# pyRVtest/demand_jacobian.py before v0.4 step 3c moved them here).
+# Module-level analytical-jacobian helpers.
 # ===========================================================================
 
 
@@ -294,7 +292,7 @@ def compute_analytical_hessian(alpha: float, rho: List[float], s: Array,
     Uses a closed-form ``dD/ds`` for plain logit (``rho == []`` or all-zero
     rho) and 1-level nested logit (single non-zero rho). For 2+ nesting
     levels, falls back to a centered finite difference of the Jacobian w.r.t.
-    shares (v0.4 step 7 scope limitation).
+    shares.
 
     The Hessian is assembled via the chain rule
 
@@ -534,7 +532,7 @@ class LogitBackend:
     with the DemandBackend class API. Only parameter is alpha (the price
     coefficient). `perturbed(0, delta)` shifts alpha by delta.
 
-    v0.4 step 4c: if the demand-adjustment state (``beta``, ``x_columns``,
+    if the demand-adjustment state (``beta``, ``x_columns``,
     ``demand_instrument_columns``, optionally ``W_demand``) is provided
     at construction, the backend implements ``SupportsDemandAdjustment``.
     Without it, ``demand_moments`` / ``xi_gradient`` / ``jacobian_gradient``
@@ -637,7 +635,7 @@ class LogitBackend:
             self._jacobian_cache = saved_cache
 
     # -----------------------------------------------------------------
-    # SupportsDemandAdjustment (v0.4 step 4c)
+    # SupportsDemandAdjustment
     # -----------------------------------------------------------------
 
     def demand_moments(self) -> Tuple[Array, Array, Array]:

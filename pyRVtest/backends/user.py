@@ -1,6 +1,6 @@
 """UserSuppliedBackend: escape hatch for researcher-supplied demand systems.
 
-v0.4 step 3d. Wraps a precomputed stacked Jacobian (and optionally a
+Wraps a precomputed stacked Jacobian (and optionally a
 per-market Hessian callable) into the DemandBackend protocol.
 
 This backend implements the CORE protocol (compute_jacobian,

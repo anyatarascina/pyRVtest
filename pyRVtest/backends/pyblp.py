@@ -1,18 +1,12 @@
 """PyBLPBackend: wraps pyblp.ProblemResults behind the DemandBackend protocol.
 
-v0.4 step 3b. Encapsulates the private-attribute access (`_sigma`, `_pi`,
-`_beta`, `_rho`, `_delta`) that was previously scattered across
-`Problem._compute_demand_adjustment_gradient`. The rest of pyRVtest
-sees only `compute_jacobian`, `compute_hessian`, `perturbed`, and the
-demand-adjustment inputs (`demand_moments`, `xi_gradient`,
-`jacobian_gradient`).
+Encapsulates the private-attribute access (``_sigma``, ``_pi``,
+``_beta``, ``_rho``, ``_delta``) so the rest of pyRVtest sees only
+``compute_jacobian``, ``compute_hessian``, ``perturbed``, and the
+demand-adjustment inputs (``demand_moments``, ``xi_gradient``,
+``jacobian_gradient``).
 
-This file makes the class IMPORTABLE and unit-testable. Sub-step 3e
-rewires `_compute_markups` and the demand-adjustment pipeline to use
-it.
-
-Parameter enumeration order matches the existing
-`_compute_demand_adjustment_gradient`: sigma (flat in column-major order
+Parameter enumeration order: sigma (flat in column-major order
 over K2 × K2), then pi (flat over K2 × D), then alpha (the price
 coefficient in beta), then rho (each entry for nested logit). This
 preserves gradient-index compatibility with the current code.
@@ -224,22 +218,20 @@ class PyBLPBackend:
 
         ZD = r.problem.products.ZD
         WD = self._select_weight_matrix()
-        # v0.4 step 4b: shared 2SLS-residualize helper (single source of truth).
+        # shared 2SLS-residualize helper (single source of truth).
         return _residualize_on_xd(partial_y_theta, XD, ZD, WD)
 
     def jacobian_gradient_all_markets(self) -> Dict[Any, _NDArray]:
         """Finite-difference d(D)/d(theta) for every market in one batched pass.
 
-        Returns a dict ``{market_id: (J_t, J_t, n_theta)}``. The outer
-        analytical-derivative loop in
-        :func:`pyRVtest.solve.demand_adjustment.compute_demand_adjustment`
-        previously called :meth:`jacobian_gradient` per market, which made the
-        BLP contraction count scale as ``n_markets * 2 * n_theta``. Pyblp's
+        Returns a dict ``{market_id: (J_t, J_t, n_theta)}``. Pyblp's
         perturbation state is global (a single ``compute_delta`` after a
-        parameter shift updates the full stacked Jacobian), so each ``theta_k``
-        only needs ``2`` perturbations (``+eps/2`` and ``-eps/2``) regardless
-        of how many markets the data spans. This method does exactly that and
-        slices the per-market blocks afterwards.
+        parameter shift updates the full stacked Jacobian), so each
+        ``theta_k`` only needs ``2`` perturbations (``+eps/2`` and
+        ``-eps/2``) regardless of how many markets the data spans. The
+        per-market blocks are sliced out of the resulting stacked Jacobian.
+        Compared to a per-market loop, the BLP contraction count drops
+        from ``n_markets * 2 * n_theta`` to ``2 * n_theta``.
 
         Numerical equivalence: each per-market block matches the corresponding
         per-market call of :meth:`jacobian_gradient` to floating-point

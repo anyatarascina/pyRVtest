@@ -201,7 +201,7 @@ def _compute_markups(
     if constant_markup is None:
         constant_markup = [None] * number_models
 
-    # v0.4 step 4g: demand Jacobian comes from the backend when provided,
+    # demand Jacobian comes from the backend when provided,
     # or from pyblp_results for the legacy no-backend path (used only by
     # build_markups() public API when the user passes a pyblp results
     # object directly).
@@ -364,7 +364,7 @@ def evaluate_first_order_conditions(
         elif model_type == 'perfect_competition':
             markups[index, :] = np.zeros((len(shares), 1))
         elif model_type == 'constant_markup':
-            # v0.4 step 12: Dearing et al. (2026) Example 7. The markup
+            # Dearing et al. (2026) Example 7. The markup
             # is a model primitive (per-product dollar markup), supplied
             # as a scalar or as a column of product_data and broadcast
             # into a per-row (N, 1) array upstream of this call.

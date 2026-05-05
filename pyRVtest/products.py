@@ -1,6 +1,6 @@
 """Product data structured as a record array.
 
-v0.4 step 2: extracted verbatim from `pyRVtest/problem.py`. No logic
+extracted verbatim from `pyRVtest/problem.py`. No logic
 change. Type hints added to local variables where mypy --strict
 requires explicit declarations. PyBLP internals (`Array`, `Data`,
 `RecArray`, `Groups`, `extract_matrix`, `structure_matrices`) are

@@ -1,13 +1,18 @@
-"""Demand / supply backend protocols and implementations.
+"""Demand and supply backend protocols and implementations.
 
-As of v0.4 step 3a, the `DemandBackend` and `SupportsDemandAdjustment`
-protocols are defined in `base.py` and re-exported here. Concrete
-implementations (PyBLPBackend, LogitBackend, NestedLogitBackend,
-UserSuppliedBackend) land in sub-steps 3b/3c/3d. The LaborSupplyBackend
-skeleton lands in step 14.
+The :class:`DemandBackend` Protocol (defined in :mod:`.base`) is the
+core interface every demand backend implements: ``compute_jacobian``,
+``compute_hessian``, parameter enumeration, and the ``perturbed``
+context manager. :class:`SupportsDemandAdjustment` is an optional
+mixin for backends that can supply first-stage correction inputs
+(``xi``, ``Z_D``, ``W_D``, gradients) for the DMSS Appendix C
+demand-adjustment correction.
 
-See `.claude/plans/v0.4-refactor.md` §4.1 for the module layout and §3
-for the PyBLPBackend prototype design.
+Concrete implementations: :class:`PyBLPBackend`, :class:`LogitBackend`,
+:class:`NestedLogitBackend`, :class:`UserSuppliedBackend`. A bare
+labor-supply skeleton (:class:`LaborSupplyBackend`) is exposed for the
+v0.5 labor-side workflow; calling its math methods raises
+``NotImplementedError`` in v0.4.
 
 Examples
 --------
@@ -29,6 +34,5 @@ __all__ = [
     'DemandBackend', 'SupportsDemandAdjustment',
     'PyBLPBackend', 'LogitBackend', 'NestedLogitBackend',
     'UserSuppliedBackend',
-    # v0.4 step 14b: labor-side skeleton; full impl in v0.5.
     'LaborSupplyBackend',
 ]

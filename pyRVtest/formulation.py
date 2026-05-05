@@ -18,7 +18,7 @@ class Formulation(_PyblpFormulation):  # type: ignore[misc]  # pyblp has no stub
     r"""pyRVtest Formulation: PyBLP's Formulation plus known-coefficient cost shifters.
 
     pyRVtest subclasses :class:`pyblp.Formulation` to add
-    ``known_coefficients``, a v0.4 OQ 14 addition that lets users
+    ``known_coefficients`` that lets users
     specify cost shifters with known (non-estimated) coefficients.
     These shifters enter the effective-price computation in
     :meth:`Problem.solve` directly, in the same slot as per-unit
@@ -235,7 +235,7 @@ class ModelFormulation(object):
 
     Examples
     --------
-    ``ModelFormulation`` is the legacy (pre-v0.4) string-based API; new
+    ``ModelFormulation`` is the legacy string-based API; new
     code should prefer the class-based :class:`pyRVtest.Bertrand`,
     :class:`pyRVtest.Cournot`, etc. The legacy form still works and
     emits a ``DeprecationWarning`` on first construction:
@@ -268,7 +268,7 @@ class ModelFormulation(object):
     _unit_tax_salient: bool
     _advalorem_tax_salient: bool
 
-    # v0.4 step 5c: once-per-session DeprecationWarning. Class-level flag so
+    # once-per-session DeprecationWarning. Class-level flag so
     # the warning fires on the first ModelFormulation construction of the
     # Python session and not again. Tests that want to verify the warning
     # directly reset this flag to False before checking.
@@ -288,7 +288,7 @@ class ModelFormulation(object):
         without any data.
         """
 
-        # v0.4 step 5c: fire a DeprecationWarning on the first ModelFormulation
+        # fire a DeprecationWarning on the first ModelFormulation
         # construction of the session. Users should migrate to the class-based
         # ConductModel API (pyRVtest.Bertrand, pyRVtest.Cournot, etc.).
         if not ModelFormulation._deprecation_warned:
@@ -407,7 +407,7 @@ class ModelFormulation(object):
                 f"Received mix_flag={mix_flag!r} with model_downstream={model_downstream!r}. "
                 f"Fix: drop mix_flag, or set model_downstream='mix_cournot_bertrand'."
             )
-        # v0.4 OQ 14: per-model salience flags for Problem-level taxes.
+        # per-model salience flags for Problem-level taxes.
         if not isinstance(unit_tax_salient, bool):
             raise TypeError(
                 f"Expected unit_tax_salient to be True or False. "

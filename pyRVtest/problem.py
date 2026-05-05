@@ -34,9 +34,7 @@ from .solve.test_engine import (
     extract_block as _extract_block_stage,
 )
 
-# v0.4 step 18: per-module logger. Emits INFO-level progress messages that
-# previously went through pyblp's ``output()`` helper. Users can silence this
-# subsystem specifically with
+# INFO-level progress messages. Silence this subsystem with
 # ``logging.getLogger("pyRVtest.problem").setLevel(logging.WARNING)``.
 logger = logging.getLogger(__name__)
 
@@ -48,7 +46,7 @@ _DEMAND_PARAMS_SIGMA_DEPRECATION_MSG = (
     "details."
 )
 
-# v0.4 step 6b: once-per-session flag for the sigma -> rho deprecation warning.
+# once-per-session flag for the sigma -> rho deprecation warning.
 # Module-level rather than class-level because demand_params is consumed by
 # Problem.__init__ and we only want one warning per Python session regardless
 # of how many Problem() calls trigger it.
@@ -67,11 +65,8 @@ _MC_CORRECTION_DEPRECATION_MSG = (
 # the sigma -> rho pattern above.
 _mc_correction_deprecation_warned = False
 
-# v0.4 OQ 14: the generic per-model tax deprecation warning emission +
-# shared once-per-session flag live on ``pyRVtest/models/base.py`` so
-# they fire at ``ConductModel.__init__`` / ``Vertical.__init__`` time
-# (rc1 follow-up, Lorenzo P1 item 7). Re-exported here so the
-# conflict-warning path below can share the same guard set.
+# Re-export the per-model tax deprecation guard from models.base so the
+# conflict-warning path below shares the same once-per-session flag.
 from .models.base import (
     _legacy_tax_deprecation_warned,
     _MODEL_UNIT_TAX_DEPRECATION_MSG,  # noqa: F401 — backward-compat re-export
@@ -92,7 +87,7 @@ def _validate_problem_tax_kwargs(
         advalorem_tax: Optional[str],
         advalorem_payer: Optional[str],
 ) -> Optional[str]:
-    """Validate Problem-level tax kwargs introduced in v0.4 OQ 14.
+    """Validate Problem-level tax kwargs.
 
     Returns a normalized ``advalorem_payer`` (mapping ``'firms'`` ->
     ``'firm'`` and ``'consumers'`` -> ``'consumer'`` for parity with the
@@ -304,7 +299,7 @@ def _apply_conduct_to_fields(
     """Fill per-tier (downstream / upstream) fields of the Models recarray from
     a ConductModel / CustomConductModel / MixCournotBertrand instance.
 
-    Helper for ``Models.__new__`` (v0.4 step 5b'). Keeps the per-tier logic
+    Helper for ``Models.__new__``. Keeps the per-tier logic
     in one place so downstream and upstream paths share the same ownership,
     kappa, and custom-model dispatch.
     """
@@ -337,7 +332,7 @@ def _apply_conduct_to_fields(
         mix_flag[m] = extract_matrix(product_data, conduct.mix_flag).flatten().astype(bool)
 
 
-# v0.4 step 14c: labor-side column-name defaults and aliasing helpers.
+# labor-side column-name defaults and aliasing helpers.
 #
 # ``Problem(market_side='labor')`` accepts a ``column_names`` override
 # following plan Open Question 6: defaults map 'price' -> 'wages' and
@@ -726,7 +721,7 @@ class Models(object):
     ) -> RecArray:
         """Structure model data for the pipeline.
 
-        v0.4 step 5b': ``models`` is a sequence of
+        ``models`` is a sequence of
         ``pyRVtest.models.ConductModel`` or ``pyRVtest.models.Vertical``
         instances (the canonical intermediate form). ``Problem.__init__``
         converts ``ModelFormulation`` inputs to this form via
@@ -734,7 +729,7 @@ class Models(object):
         ``ModelFormulation`` instances passed directly are accepted for
         backward compatibility (translated inline).
 
-        v0.4 OQ 14: accepts Problem-level tax kwargs
+        accepts Problem-level tax kwargs
         (``problem_unit_tax``, ``problem_advalorem_tax``,
         ``problem_advalorem_payer``) that are applied to every model
         with salience flag ``True``, per Scenarios 1-6 in the plan.
@@ -831,7 +826,7 @@ class Models(object):
             if config.vertical_integration is not None:
                 vertical_integration[m] = extract_matrix(product_data, config.vertical_integration)
                 vertical_integration_index[m] = config.vertical_integration
-            # v0.4 OQ 14: resolve effective tax source per model per the
+            # resolve effective tax source per model per the
             # precedence in plan Scenarios 1-6:
             #   1. legacy model-level unit_tax wins (with DeprecationWarning)
             #   2. otherwise Problem-level unit_tax if unit_tax_salient
@@ -913,7 +908,7 @@ class Models(object):
                 user_supplied_markups[m] = extract_matrix(product_data, config.user_supplied_markups)
                 user_supplied_markups_name[m] = config.user_supplied_markups
 
-            # v0.4 step 12: ConstantMarkup and RuleOfThumb thread their
+            # ConstantMarkup and RuleOfThumb thread their
             # per-row markup vectors through the Models recarray via the
             # 'constant_markup' field.
             from .models.constant import ConstantMarkup as _ConstantMarkup, RuleOfThumb as _RuleOfThumb
@@ -975,11 +970,8 @@ class Container(abc.ABC):
     models: RecArray
     _w_formulation: Tuple[ColumnFormulation, ...]
     _Z_formulation: Tuple[ColumnFormulation, ...]
-    # v0.4 step 6a: Dict_Z_formulation is a PER-INSTANCE mutable dict. Pre-v0.4
-    # it was a class-level attribute with ``= {}`` at the class body, which
-    # meant two concurrent Problem instances shared the same dict (the second
-    # instance's Z column formulations were appended to the first's). See the
-    # per-instance assignment in ``Container.__init__`` below.
+    # Per-instance mutable dict; the per-instance assignment lives in
+    # ``Container.__init__`` below to avoid sharing across Problem instances.
     Dict_Z_formulation: Dict[Union[str, tuple], Tuple[Optional[Array], Any]]
 
     @abc.abstractmethod
@@ -1063,7 +1055,7 @@ class Problem(Container, StringRepresentation):
     unique_product_ids: Array
     T: int
     N: int
-    # v0.4 step 6a: Dict_K is a PER-INSTANCE mutable dict. See the matching
+    # Dict_K is a PER-INSTANCE mutable dict. See the matching
     # comment on Container.Dict_Z_formulation — the class-level ``= {}``
     # made two concurrent Problems share instrument counts.
     Dict_K: Dict[Union[str, tuple], Tuple[Optional[Array]]]
@@ -1091,7 +1083,7 @@ class Problem(Container, StringRepresentation):
             advalorem_payer: Optional[str] = None) -> None:
         """Initialize the underlying economy with product and agent data before absorbing fixed effects.
 
-        v0.4 step 14c adds two labor-side keyword arguments:
+        Labor-side keyword arguments:
 
         market_side : str, optional
             One of ``'product'`` (default — unchanged behavior) or
@@ -1108,7 +1100,7 @@ class Problem(Container, StringRepresentation):
             ``{'price': '<wage-col>', 'shares': '<employment-share-col>'}``.
             Only meaningful when ``market_side='labor'``.
 
-        v0.4 OQ 14 adds Problem-level tax arguments:
+        Problem-level tax arguments:
 
         unit_tax : str, optional
             Column name in ``product_data`` holding per-unit taxes.
@@ -1128,7 +1120,7 @@ class Problem(Container, StringRepresentation):
         logger.info("Initializing the problem ...")
         start_time = time.time()
 
-        # v0.4 step 14c: resolve market_side + column_names first so every
+        # resolve market_side + column_names first so every
         # downstream validation step sees the resolved labor-column mapping.
         if market_side not in ('product', 'labor'):
             raise ValidationError(
@@ -1161,12 +1153,10 @@ class Problem(Container, StringRepresentation):
         else:
             self._labor_column_names = None
 
-        # v0.4 step 5b + 5b': ``models=`` is the new class-based API;
-        # ``model_formulations=`` is the legacy alias. Mutually exclusive.
-        # Internally everything is ConductModel / Vertical: we translate
-        # model_formulations to that form here, so the downstream pipeline
-        # (Models.__new__, _compute_markups, etc.) sees a single canonical
-        # type.
+        # ``models=`` is the new class-based API; ``model_formulations=`` is
+        # the legacy alias. Mutually exclusive. Internally everything is
+        # ConductModel / Vertical: model_formulations is translated to that
+        # form here so the downstream pipeline sees a single canonical type.
         if models is not None and model_formulations is not None:
             raise TypeError(
                 "Expected exactly one of `models=` (class-based, preferred) or "
@@ -1184,7 +1174,7 @@ class Problem(Container, StringRepresentation):
         else:
             _legacy_model_formulations = None
 
-        # v0.4 step 14c: reject product-side models on a labor-side problem
+        # reject product-side models on a labor-side problem
         # (and vice versa). Defensive: ``models`` may be ``None`` if the
         # caller supplied precomputed markup_data; the check below only
         # fires when we actually have conduct-model instances to inspect.
@@ -1204,7 +1194,7 @@ class Problem(Container, StringRepresentation):
                 "logit/nested-logit path, or demand_results=<pyblp.ProblemResults> "
                 "for pyblp-driven BLP / nested-logit estimation."
             )
-        # v0.4 step 14c (Lorenzo methodology note, 2026-04-18): demand_params
+        # demand_params
         # drives _construct_demand_backend, which currently only builds
         # product-side backends (LogitBackend / NestedLogitBackend). The
         # labor-side LaborSupplyBackend is a v0.4 skeleton with deferred
@@ -1252,7 +1242,7 @@ class Problem(Container, StringRepresentation):
                     f"Received {alpha!r}. "
                     f"Fix: pass the estimated price coefficient, which must be < 0."
                 )
-            # v0.4 step 6b: 'rho' is the canonical nested-logit parameter name
+            # 'rho' is the canonical nested-logit parameter name
             # (aligns with pyblp). 'sigma' remains accepted as a deprecated
             # alias for backwards compatibility; emit a DeprecationWarning once
             # per session. Mutually exclusive.
@@ -1349,7 +1339,7 @@ class Problem(Container, StringRepresentation):
                         f"and include the plain linear column."
                     )
 
-        # v0.4 OQ 14: Problem-level tax validation. Normalize the payer
+        # Problem-level tax validation. Normalize the payer
         # string (maps 'firms' -> 'firm', 'consumers' -> 'consumer') so
         # downstream code sees one canonical spelling.
         advalorem_payer = _validate_problem_tax_kwargs(
@@ -1374,7 +1364,7 @@ class Problem(Container, StringRepresentation):
                 f"Fix: add the column, or drop Problem(advalorem_tax=...)."
             )
 
-        # v0.4 OQ 14: resolve known-coefficient cost shifters from the
+        # resolve known-coefficient cost shifters from the
         # cost formulation. The validator on Formulation already checked
         # types; here we check column existence in product_data and the
         # no-overlap-with-parsed-formula invariant. Store the resolved
@@ -1434,12 +1424,12 @@ class Problem(Container, StringRepresentation):
 
         self.cost_formulation = cost_formulation
         self.instrument_formulation = instrument_formulation
-        # v0.4 OQ 14: keep Problem-level tax kwargs on self for repr /
+        # keep Problem-level tax kwargs on self for repr /
         # inspection / downstream bookkeeping. Stored in normalized form.
         self._problem_unit_tax: Optional[str] = unit_tax
         self._problem_advalorem_tax: Optional[str] = advalorem_tax
         self._problem_advalorem_payer: Optional[str] = advalorem_payer
-        # v0.4 OQ 14: resolved known-coefficient shifters consumed in
+        # resolved known-coefficient shifters consumed in
         # Problem.solve's prices_effective computation. List of
         # (column_name, gamma, (N, 1) array) tuples.
         self._known_coefficient_shifters: List[Tuple[str, float, Array]] = known_coef_arrays
@@ -1455,7 +1445,7 @@ class Problem(Container, StringRepresentation):
         self.markups = markups
         self.endogenous_cost_component = endogenous_cost_component
 
-        # v0.4 step 4e: construct the demand backend exactly once at Problem
+        # construct the demand backend exactly once at Problem
         # init. Downstream code (Problem.solve, _perturb_and_build_markups,
         # the unified compute_demand_adjustment in solve/demand_adjustment.py)
         # uses this single object. `None` only when neither demand_results nor
@@ -1469,7 +1459,7 @@ class Problem(Container, StringRepresentation):
         self.N = self.products.shape[0]
         self.T = self.unique_market_ids.size
         self.L = len(self.instrument_formulation) if hasattr(self.instrument_formulation, '__len__') else 1
-        # v0.4 step 6a: initialize Dict_K as an instance attribute. The prior
+        # initialize Dict_K as an instance attribute. The prior
         # class-level `Dict_K = {}` meant two concurrent Problem instances
         # would share the dict and accumulate each other's instrument counts.
         self.Dict_K = {}
@@ -1653,7 +1643,7 @@ class Problem(Container, StringRepresentation):
         >>> results = problem.solve(demand_adjustment=False)  # doctest: +SKIP
         """
 
-        # v0.4 step 8e: this method is an orchestrator. Each stage lives in
+        # this method is an orchestrator. Each stage lives in
         # ``pyRVtest/solve/*.py``:
         #   1. ``solve.markups.compute``        -> per-model markups via the demand backend
         #   2. (inline)                         -> tax-adjustment + log / mc_correction bookkeeping
@@ -1709,7 +1699,7 @@ class Problem(Container, StringRepresentation):
         unit_tax = self.models["unit_tax"]
         advalorem_tax = self.models["advalorem_tax"]
         cost_scaling = self.models["cost_scaling"]
-        # v0.4 OQ 14: sum of known-coefficient cost shifters (gamma_k *
+        # sum of known-coefficient cost shifters (gamma_k *
         # x_k). Applied uniformly to every model m: known-coefficient
         # shifters are DGP-level (Dearing et al. 2026), not model-level
         # behavioral choices, so they do not carry a salience flag.
@@ -1803,10 +1793,6 @@ class Problem(Container, StringRepresentation):
         gradient_markups = H_prime_wd = H = h_i = h = None
         gradient_gamma_per_instrument = None
         if demand_adjustment:
-            # v0.4 step 4e: single code path via the unified function in
-            # solve/demand_adjustment.py. Closes the silent capability gap
-            # where the analytical path previously returned
-            # gradient_gamma_per_instrument=None.
             from .solve.demand_adjustment import compute_demand_adjustment
             mc_base_for_grad = (
                 marginal_cost_base if self.endogenous_cost_component is not None else None
@@ -1988,7 +1974,7 @@ class Problem(Container, StringRepresentation):
     def _construct_demand_backend(self):
         """Build the backend from demand_results or demand_params at Problem init time.
 
-        v0.4 step 4e: single construction point for the backend. Returns `None` when
+        single construction point for the backend. Returns `None` when
         neither demand_results nor demand_params is supplied (user_supplied_markups-only
         path). Otherwise:
           - `demand_results is not None`: route to ``NestedLogitBackend`` when
@@ -2184,9 +2170,8 @@ class Problem(Container, StringRepresentation):
     def _perturb_and_build_markups(self):
         """Build per-model markups using this Problem's demand backend.
 
-        Thin delegation to :func:`pyRVtest.solve.markups.compute` after
-        the v0.4 step 8b extraction. Kept as a method for backward-
-        compatible access from test fixtures and
+        Thin wrapper around :func:`pyRVtest.solve.markups.compute`. Kept
+        as a method for access from test fixtures and from
         :func:`pyRVtest.solve.passthrough.build_passthrough`.
         """
         return _markups_stage(self)
@@ -2194,9 +2179,9 @@ class Problem(Container, StringRepresentation):
     def _prepare_orthogonal_variables(self, M: int, N: int, markups_effective: list, marginal_cost: Array):
         """Absorb fixed effects and residualize markups and marginal costs w.r.t. cost shifters.
 
-        Thin delegation to :func:`pyRVtest.solve.orthogonalize.residualize`
-        after the v0.4 step 8a extraction. Kept as a method for
-        backward-compatible access from subclasses / tests.
+        Thin wrapper around
+        :func:`pyRVtest.solve.orthogonalize.residualize`. Kept as a
+        method for access from subclasses and tests.
         """
         return _residualize_stage(self, M, N, markups_effective, marginal_cost)
 
@@ -2212,10 +2197,9 @@ class Problem(Container, StringRepresentation):
     ) -> dict:
         """Compute all test statistics for a single instrument set.
 
-        Thin delegation to
-        :func:`pyRVtest.solve.test_engine.compute_instrument_results`
-        after the v0.4 step 8d extraction. Kept as a method for
-        backward-compatible access from subclasses / tests.
+        Thin wrapper around
+        :func:`pyRVtest.solve.test_engine.compute_instrument_results`.
+        Kept as a method for access from subclasses and tests.
         """
         return _compute_instrument_results_stage(
             self, instrument, M, N, omega, demand_adjustment,
@@ -2230,9 +2214,8 @@ class Problem(Container, StringRepresentation):
     ) -> Array:
         """Compute model confidence set p-values by iteratively eliminating the worst-fitting model.
 
-        Thin delegation to :func:`pyRVtest.solve.test_engine.compute_mcs`
-        after the v0.4 step 8d extraction. Kept as a method for
-        backward-compatible access from subclasses / tests.
+        Thin wrapper around :func:`pyRVtest.solve.test_engine.compute_mcs`.
+        Kept as a method for access from subclasses and tests.
         """
         return _compute_mcs_stage(
             rv_test_statistic, sigma_mcs, model_confidence_set_variance, M, all_model_combinations,
@@ -2241,20 +2224,19 @@ class Problem(Container, StringRepresentation):
     def _compute_iv_correction(self, instrument: int, M: int, N: int, marginal_cost: list):
         """Run per-model 2SLS to estimate the coefficient on the endogenous cost component.
 
-        Thin delegation to
-        :func:`pyRVtest.solve.endogenous_cost.iv_correct` after the v0.4
-        step 8c extraction. Kept as a method for backward-compatible
-        access from :func:`pyRVtest.solve.demand_adjustment.compute_demand_adjustment`.
+        Thin wrapper around
+        :func:`pyRVtest.solve.endogenous_cost.iv_correct`. Kept as a
+        method for access from
+        :func:`pyRVtest.solve.demand_adjustment.compute_demand_adjustment`.
         """
         return _iv_correct_stage(self, instrument, M, N, marginal_cost)
 
     def _compute_block_gram(self, N: int, clustering_adjustment: bool, var: Array) -> Array:
         """Compute the (M*K, M*K) block Gram matrix for all model pairs at once.
 
-        Thin delegation to
-        :func:`pyRVtest.solve.test_engine.compute_block_gram` after the
-        v0.4 step 8d extraction. Kept as a method for backward-compatible
-        access from subclasses / tests.
+        Thin wrapper around
+        :func:`pyRVtest.solve.test_engine.compute_block_gram`. Kept as a
+        method for access from subclasses and tests.
         """
         return _compute_block_gram_stage(self, N, clustering_adjustment, var)
 
@@ -2262,7 +2244,7 @@ class Problem(Container, StringRepresentation):
     def _extract_block(gram: Array, i: int, m: int, K: int) -> Array:
         """Extract a (K, K) block from the block Gram matrix.
 
-        Thin delegation to :func:`pyRVtest.solve.test_engine.extract_block`
-        after the v0.4 step 8d extraction.
+        Thin wrapper around
+        :func:`pyRVtest.solve.test_engine.extract_block`.
         """
         return _extract_block_stage(gram, i, m, K)

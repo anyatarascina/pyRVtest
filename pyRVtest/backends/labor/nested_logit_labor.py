@@ -1,6 +1,6 @@
 """LaborSupplyBackend: nested-logit-style labor-supply demand backend (skeleton).
 
-v0.4 step 14b. This is a deliberately-bare skeleton: the class shape,
+This is a deliberately-bare skeleton: the class shape,
 constructor signature, and the ``DemandBackend`` protocol members exist
 so downstream wiring (``Problem(market_side='labor')``, the
 ``_construct_demand_backend`` dispatch, pickling round-trips, test

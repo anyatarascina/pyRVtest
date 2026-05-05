@@ -1,6 +1,6 @@
 """Vertical model: downstream + upstream conduct with Villas-Boas passthrough.
 
-v0.4 step 5a. ``Vertical`` is a composer class that bundles two
+``Vertical`` is a composer class that bundles two
 ``ConductModel`` instances (downstream and upstream) with the shared
 tax / cost-scaling / vertical-integration configuration that applies
 to the COMBINED vertical model. It is NOT itself a ``ConductModel``
@@ -144,11 +144,11 @@ class Vertical:
         self.advalorem_payer = advalorem_payer
         self.cost_scaling = cost_scaling
         self.user_supplied_markups = user_supplied_markups
-        # v0.4 OQ 14: per-model salience flags for Problem-level taxes.
+        # per-model salience flags for Problem-level taxes.
         self.unit_tax_salient = unit_tax_salient
         self.advalorem_tax_salient = advalorem_tax_salient
         self._validate_shared_config()
-        # rc1 follow-up (Lorenzo P1 item 7, 2026-04-18): same construction-
+        # same construction-
         # time deprecation-warning trigger as ConductModel.__init__.
         from .base import _maybe_warn_per_model_tax_deprecation
         if unit_tax is not None:
@@ -187,7 +187,7 @@ class Vertical:
                 f"Received {self.advalorem_payer!r}. "
                 f"Fix: pass advalorem_payer='firm' or 'consumer'."
             )
-        # v0.4 OQ 14: per-model salience flags must be booleans.
+        # per-model salience flags must be booleans.
         if not isinstance(self.unit_tax_salient, bool):
             raise TypeError(
                 f"Expected unit_tax_salient on Vertical(...) to be True or "

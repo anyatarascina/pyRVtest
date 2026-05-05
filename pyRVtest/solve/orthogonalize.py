@@ -1,6 +1,6 @@
 """Orthogonalization stage: residualize markups and marginal cost on cost shifters.
 
-v0.4 step 8a extraction. Hosts the stage that absorbs cost-side fixed
+Hosts the stage that absorbs cost-side fixed
 effects and residualizes markups / marginal cost on the (exogenous)
 cost-shifter matrix ``w``. The linear-regression coefficient on the
 exogenous shifters is also returned as ``tau_list``. Exported:
@@ -35,7 +35,7 @@ __all__ = ['qr_residualize', 'residualize']
 _NDArray: TypeAlias = NDArray[Any]
 
 
-# v0.4 step 18 convention: per-module logger. Users can silence this
+# per-module logger. Users can silence this
 # stage specifically with
 # ``logging.getLogger('pyRVtest.solve.orthogonalize').setLevel(logging.WARNING)``.
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ def residualize(
 ) -> Tuple[_NDArray, _NDArray, _NDArray]:
     """Absorb fixed effects and residualize markups / mc on cost shifters.
 
-    Moved from ``Problem._prepare_orthogonal_variables`` in v0.4 step 8a.
+    Moved from ``Problem._prepare_orthogonal_variables``.
     Math is unchanged.
 
     When ``problem.endogenous_cost_component`` is set, the endogenous

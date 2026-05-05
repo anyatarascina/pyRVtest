@@ -1,6 +1,6 @@
 """NestedLogitBackend: analytical DemandBackend for L-level nested logit.
 
-Split from `pyRVtest/backends/logit.py` during v0.4 step 3 follow-up for
+Split from `pyRVtest/backends/logit.py` for
 user-facing clarity: tracebacks and generated API docs point at the
 right file. `LogitBackend` stays in `logit.py` because it handles the
 plain-logit (rho=[]) case; this module imports it as the parent class.
@@ -42,7 +42,7 @@ class NestedLogitBackend(LogitBackend):
     Parameters are ordered: theta = [alpha, rho_1, rho_2, ..., rho_L].
     `perturbed(0, delta)` shifts alpha; `perturbed(1+i, delta)` shifts rho[i].
 
-    v0.4 step 4c: rho values of exactly 0 are filtered at construction to match
+    rho values of exactly 0 are filtered at construction to match
     the ``compute_analytical_jacobian`` convention (a zero rho collapses that
     nesting level to plain logit, so it contributes nothing to theta).
     ``demand_moments`` / ``xi_gradient`` / ``jacobian_gradient`` are inherited

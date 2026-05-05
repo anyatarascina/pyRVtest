@@ -1,6 +1,6 @@
 """CustomConductModel: user-supplied markup formula.
 
-v0.4 step 5a. Supersedes the ``model_downstream='other'`` +
+Supersedes the ``model_downstream='other'`` +
 ``custom_model_specification`` callable path with a cleaner class API.
 The deprecation alias (step 5c) keeps the old string+dict usage
 working.

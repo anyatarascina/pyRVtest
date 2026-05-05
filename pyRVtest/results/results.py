@@ -1,6 +1,6 @@
 """Conduct testing results and export helpers.
 
-v0.4 step 9: extracted from the former ``pyRVtest/results.py`` module so
+extracted from the former ``pyRVtest/results.py`` module so
 the ``results/`` subpackage can hold additional files (``panel.py``,
 ``aggregation.py``, ``diagnostics.py``) as later steps populate them.
 ``pyRVtest/results/__init__.py`` re-exports ``Progress`` and
@@ -294,7 +294,7 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         self._symbols_power_list = progress.symbols_power_list
         self.endogenous_cost_coefficient = progress.endogenous_cost_coefficient
         self.tau_list_per_instrument = progress.tau_list_per_instrument
-        # v0.4 step 14d: propagate market_side from the Problem so __str__
+        # propagate market_side from the Problem so __str__
         # can switch to labor-side terminology (markdown / MRP / wage) when
         # the Problem was constructed with market_side='labor'. Falls back
         # to 'product' for older pickles that predate the attribute.
@@ -381,8 +381,7 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         last_table = False
         if j == (len(self.TRV) - 1):
             last_table = True
-        # v0.4 step 14d: labor-side title banner. Product-side keeps the
-        # pre-v0.4 title byte-for-byte ("Testing Results - Instruments z{0}");
+        # labor-side title banner. Product-side keeps the  # Title format ("Testing Results - Instruments z{0}");
         # labor-side gets a suffix so ``print(results)`` shows the
         # markdown / MRP / wage terminology even though the underlying
         # statistics are identical.
@@ -605,7 +604,7 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             pickle.dump(self, handle)
 
     # ------------------------------------------------------------------
-    # v0.4 step 9: export helpers
+    # export helpers
     # ------------------------------------------------------------------
 
     def _number_of_models(self) -> int:
@@ -623,7 +622,7 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         possible, falling back to ``"z{instrument_set}"`` when no
         labels are available (for example, when ``self.problem`` does
         not expose ``instrument_formulation`` — primarily a defensive
-        guard for pickled pre-v0.4 ``ProblemResults``).
+        guard for pickled older ``ProblemResults``).
         """
         L = self._number_of_instrument_sets()
         instrument_formulation = getattr(self.problem, 'instrument_formulation', None)
@@ -1076,7 +1075,7 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         return md
 
     # ------------------------------------------------------------------
-    # v0.4 OQ 15: Dearing pass-through diagnostics
+    # Dearing pass-through diagnostics
     # ------------------------------------------------------------------
 
     # Supported metrics for :meth:`passthrough_comparison`. Centralised

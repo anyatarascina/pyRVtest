@@ -1,6 +1,6 @@
 """Testing-pipeline stages: markups, orthogonalize, demand adjustment, test engine.
 
-Placeholder for v0.4 step 8 (split of `Problem.solve`). Each module in
+Each module in
 this subpackage corresponds to a stage of the RV testing pipeline:
 
   markups.py           - build_markups, evaluate_foc

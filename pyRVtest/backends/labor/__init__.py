@@ -1,6 +1,6 @@
 """Labor-side demand/supply backends.
 
-v0.4 step 14b re-exports the :class:`LaborSupplyBackend` skeleton.
+re-exports the :class:`LaborSupplyBackend` skeleton.
 The full Almagro-Sood-style labor supply backend is deferred to v0.5+
 pending real labor-project data; this module ships the class shape and
 ``DemandBackend`` protocol surface so that ``Problem(market_side='labor')``

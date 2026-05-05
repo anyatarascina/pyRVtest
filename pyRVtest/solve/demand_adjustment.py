@@ -1,25 +1,22 @@
 """Demand-adjustment first-stage correction (DMSS 2024 Appendix C eq. 77).
 
-v0.4 step 4b lands `_residualize_on_xd`, the shared 2SLS profile-out
-helper. v0.4 step 4d lands `compute_demand_adjustment`, the unified
-implementation that replaces `Problem._compute_analytical_demand_adjustment`
-and `Problem._compute_demand_adjustment_gradient`. Both inline methods
-are dead code after step 4e wires the unified function into
-`Problem.solve`; step 4f deletes them.
+Hosts :func:`_residualize_on_xd` (a shared 2SLS profile-out helper) and
+:func:`compute_demand_adjustment` (the unified implementation called by
+``Problem.solve`` when ``demand_adjustment=True``). The unified function
+is generic over any :class:`SupportsDemandAdjustment` backend.
 
-The unified function is generic over any `SupportsDemandAdjustment`
-backend. `PyBLPBackend` supplies pyblp-side quantities; `LogitBackend`
-and `NestedLogitBackend` supply analytical logit / nested-logit
-quantities. `UserSuppliedBackend` does not implement
-`SupportsDemandAdjustment` and is rejected with a clear error.
+Backend coverage:
 
-Closes a known capability gap: the analytical inline path previously
-returned `gradient_gamma_per_instrument=None`, silently disabling the
-endogenous-cost gamma correction for `demand_params` users. After
-step 4 lands, `demand_params + endogenous_cost_component +
-demand_adjustment=True` computes the gamma gradient the same way the
-`demand_results` path always has. See Decisions Log in
-`.claude/plans/v0.4-refactor.md` for the capability-parity rationale.
+- :class:`PyBLPBackend` supplies pyblp-side quantities.
+- :class:`LogitBackend` and :class:`NestedLogitBackend` supply
+  analytical logit / nested-logit quantities.
+- :class:`UserSuppliedBackend` does not implement
+  :class:`SupportsDemandAdjustment` and is rejected with a clear error.
+
+The implementation includes the endogenous-cost ``gamma`` gradient on
+all paths so that ``demand_params + endogenous_cost_component +
+demand_adjustment=True`` produces the same correction as the
+``demand_results`` path.
 """
 
 from __future__ import annotations
@@ -112,12 +109,9 @@ def compute_demand_adjustment(
 ) -> Tuple[_NDArray, _NDArray, _NDArray, _NDArray, _NDArray, Optional[List[_NDArray]]]:
     """Unified DMSS-eq.-(77) demand-adjustment gradient, generic over backend.
 
-    Replaces ``Problem._compute_analytical_demand_adjustment`` (used for
-    ``demand_params``) and ``Problem._compute_demand_adjustment_gradient``
-    (used for ``demand_results``). Returns the same 6-tuple either path
-    previously produced (the analytical path previously returned 5 values
-    with ``gradient_gamma_per_instrument=None`` — that silent gap is
-    closed here per the v0.4 capability-parity decision).
+    Returns a 6-tuple covering both the ``demand_params`` and
+    ``demand_results`` code paths, including the endogenous-cost
+    ``gamma`` gradient on every path.
 
     Parameters
     ----------
@@ -301,12 +295,6 @@ def compute_demand_adjustment(
     #
     #     d(markups_effective)/d(theta) = tax_factor[m] * d(markups_raw)/d(theta)
     #
-    # Pre-v0.4 the inline PyBLP path applied this factor (via
-    # ``apply_tax_adjustment`` to markups_u / markups_dn before finite-diff);
-    # the inline analytical path did not (a pre-existing bug, silent whenever
-    # the fixture had zero taxes). Step 4d initially matched the analytical
-    # behavior — which regressed PyBLP-path users with nontrivial taxes.
-    # Step 4i fixes it by applying the factor uniformly here.
     for m in range(M):
         # advalorem_tax_adj[m] and cost_scaling[m] are per-observation arrays
         # (shape (N, 1)) — tax rates / scale factors can vary across products
@@ -353,7 +341,7 @@ def _analytical_markup_derivative(
     Theta-independent intermediates (``D_inv``, ``D_CC_inv``, ``Schur``) are
     computed once per call instead of once per theta.
 
-    Matches the inline algebra in the pre-v0.4 ``Problem._compute_analytical_demand_adjustment``;
+    Matches the inline algebra in the older ``Problem._compute_analytical_demand_adjustment``;
     the alpha column uses the same formula as the sigma columns (rather than
     the ``-mu_t / alpha`` shortcut). The two forms are algebraically identical
     and numerically agree to a few ULP.

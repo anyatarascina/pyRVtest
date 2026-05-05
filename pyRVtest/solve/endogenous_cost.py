@@ -1,6 +1,6 @@
 """Endogenous cost component (scale economies) IV correction.
 
-v0.4 step 8c extraction. Hosts :func:`iv_correct`, the per-instrument-
+Hosts :func:`iv_correct`, the per-instrument-
 set stage that runs a 2SLS first stage for the coefficient ``gamma_m``
 on an endogenous cost component (e.g., log market shares, cost scaling
 column). The correction turns ``mc[m] = price - markup[m]`` into
@@ -37,7 +37,7 @@ def iv_correct(
 ) -> Tuple[List[Optional[_NDArray]], List[Optional[_NDArray]], _NDArray]:
     """Run per-model 2SLS for the endogenous-cost coefficient ``gamma_m``.
 
-    Moved from ``Problem._compute_iv_correction`` in v0.4 step 8c.
+    Moved from ``Problem._compute_iv_correction``.
     Math is unchanged.
 
     For each model ``m`` the dependent variable is the implied marginal

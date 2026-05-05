@@ -1,6 +1,6 @@
 """Product-side instrument constructors.
 
-v0.4 step 13. Mechanical, vectorized helpers researchers can call to build
+Mechanical, vectorized helpers researchers can call to build
 columns they pass to :class:`pyRVtest.Problem` via ``instrument_formulation``.
 
 Each helper accepts ``product_data`` (a ``pandas.DataFrame``, ``dict``, or
