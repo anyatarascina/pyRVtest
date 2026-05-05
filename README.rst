@@ -43,6 +43,71 @@ To update to a newer version of the package use:
     pip install --upgrade pyRVtest
 
 
+Quick start
+___________
+
+A complete pyRVtest run on a synthetic dataset shipped with the package
+(2 single-product firms × 3000 markets, simulated under perfect
+competition with logit demand). Tests four candidate conduct models
+(Bertrand, Cournot, Monopoly, Perfect Competition) using rival cost
+shifters as testing instruments per :ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026)`.
+
+.. code-block:: python
+
+    import pyRVtest
+
+    data = pyRVtest.data.load_example()
+    results = pyRVtest.Problem(
+        cost_formulation=pyRVtest.Formulation('1 + z1 + z2'),
+        instrument_formulation=pyRVtest.Formulation('0 + rival_z1 + rival_z2'),
+        models=[
+            pyRVtest.Bertrand(ownership='firm_ids'),
+            pyRVtest.Cournot(ownership='firm_ids'),
+            pyRVtest.Monopoly(),
+            pyRVtest.PerfectCompetition(),
+        ],
+        product_data=data,
+        demand_params={'estimate': 'logit',
+                       'formulation_X': pyRVtest.Formulation('1 + x1'),
+                       'formulation_Z': pyRVtest.Formulation('0 + z1')},
+    ).solve(demand_adjustment=False)
+    print(results)
+
+Output::
+
+    Testing Results - Instruments z0:
+    ===============================================================================================================
+      TRV:                                 |   F-stats:                                   |    MCS:
+    --------  ---  -----  -------  ------  |  ----------  ---  -------  -------  -------  |  --------  ------------
+     models    0     1       2       3     |    models     0      1        2        3     |   models   MCS p-values
+    --------  ---  -----  -------  ------  |  ----------  ---  -------  -------  -------  |  --------  ------------
+       0      nan  6.894  -9.103   6.771   |      0       nan   92.8     170.2    2.6     |     0          0.0
+                    ***     ***     ***    |                   ††† ^^^  ††† ^^^  ††† ^^^  |
+       1      nan   nan   -10.555  0.419   |      1       nan    nan     178.4    0.0     |     1         0.675
+                            ***            |                            ††† ^^^   †††     |
+       2      nan   nan     nan    10.593  |      2       nan    nan      nan      1.4    |     2          0.0
+                                    ***    |                                     ††† ^^^  |
+       3      nan   nan     nan     nan    |      3       nan    nan      nan      nan    |     3          1.0
+    ===============================================================================================================
+
+Models 0/1/2/3 correspond to Bertrand / Cournot / Monopoly / Perfect
+Competition. The truth in this dataset is Perfect Competition. Reading
+the output:
+
+* **Bertrand** (model 0) and **Monopoly** (model 2) are cleanly
+  rejected: their MCS p-values are both 0.0, and every pairwise TRV
+  involving them is significant at 1% (``***``).
+* **Perfect Competition** (model 3) has the highest MCS p-value (1.0).
+* **Cournot** (model 1) has MCS p-value 0.675 — surviving the
+  confidence set despite not being the truth. The TRV(Cournot, PC) cell
+  is the only insignificant comparison (0.419), and its F-stat is
+  effectively zero. This is the Dearing et al. (2026) degeneracy
+  result: under logit demand, both Cournot and PC have diagonal
+  pass-through matrices (zero off-diagonal pass-through of rival
+  costs), so rival cost shifters cannot distinguish them. To falsify
+  Cournot in favor of PC here, the researcher would need a different
+  instrument such as own or rival product characteristics.
+
 Reader's guide
 ______________
 
