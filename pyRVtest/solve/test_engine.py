@@ -541,7 +541,7 @@ def compute_instrument_results(
             #   * F is computed via the algebraically simplified form
             #     F = 2N · F_num / (K · D_rho), where
             #     D_rho = (sigma_0 + sigma_1)^2 - 4 sigma_2^2.
-            #     Algebra in MEMO_F_reliability_diagnostic_2026-04-28.md
+            #     Algebra in .claude/handovers/MEMO_F_reliability_diagnostic_2026-04-28.md
             #     shows this equals (1 - rho^2) · unscaled_F as written in
             #     paper eq. (17), but eliminates one of two redundant
             #     cancellations: the (1 - rho^2) prefactor and the
@@ -600,7 +600,7 @@ def compute_instrument_results(
             # gives an asymptotic SE for the population F. The 95% CI is
             # F ± 1.96 SE. The borderline verdict fires below if this CI
             # overlaps the relevant CV for the strongest size or power claim.
-            # See MEMO_F_reliability_diagnostic_2026-04-28.md for derivation.
+            # See .claude/handovers/MEMO_F_reliability_diagnostic_2026-04-28.md for derivation.
             if rho_squared < 1 and not np.isnan(rho_squared):
                 nc_implied = max(0.0, 2 * K_effective * (F[i, m] / (1 - rho_squared) - 1))
                 F_se[i, m] = (1 - rho_squared) / (2 * K_effective) * math.sqrt(

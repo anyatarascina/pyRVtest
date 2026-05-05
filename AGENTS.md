@@ -277,8 +277,8 @@ Recent handovers (read the most recent first):
 - `.claude/plans/v0.4-refactor.md` — full 25-step migration plan
   (authoritative source for architectural decisions).
 - `docs/migrating_to_v0.4.rst` — user-facing migration guide.
-- `MEMO_coauthor_updates.md` — coauthor-facing memo covering behavioral
-  changes through the latest step.
+- `.claude/handovers/MEMO_coauthor_updates.md` — coauthor-facing memo
+  covering behavioral changes through the latest step.
 
 ## Top-level public API (v0.4)
 

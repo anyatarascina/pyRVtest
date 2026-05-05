@@ -300,7 +300,7 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         # to 'product' for older pickles that predate the attribute.
         self._market_side: str = getattr(progress.problem, '_market_side', 'product')
         # F-stat reliability diagnostic (additive). See
-        # MEMO_F_reliability_diagnostic_2026-04-28.md.
+        # .claude/handovers/MEMO_F_reliability_diagnostic_2026-04-28.md.
         self.lambda_dmss = progress.lambda_dmss_list
         self.F_se = progress.F_se_list
         self.F_ci_low = progress.F_ci_low_list

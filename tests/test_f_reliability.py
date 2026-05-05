@@ -14,8 +14,7 @@ Covers (post 2026-05-01 worst-case-CV redesign):
   correctly to F's relationship with the plug-in CVs. (Worst-case
   CVs are exposed as data columns but no longer drive the verdict.)
 
-Design and calibration: MEMO_F_reliability_diagnostic_2026-04-28.md
-(original) and MEMO_F_reliability_redesign_2026-05-01.md (this branch).
+Design and calibration: .claude/handovers/MEMO_F_reliability_diagnostic_2026-04-28.md.
 """
 from __future__ import annotations
 

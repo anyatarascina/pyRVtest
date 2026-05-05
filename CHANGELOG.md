@@ -441,8 +441,8 @@ v0.4 modulo one-line deprecation warnings.
 
 ### Notes for coauthors
 
-- See `MEMO_coauthor_updates.md` for a running, behavior-focused ledger
-  of v0.4 changes that affect downstream code.
+- See `.claude/handovers/MEMO_coauthor_updates.md` for a running,
+  behavior-focused ledger of v0.4 changes that affect downstream code.
 - The v0.4 test suite is at 619 passed + 3 skipped as of v0.4.0rc1 and
   continues to grow.
 - Data-dependent regression tests for DMSS yogurt (`step 0d`) and the

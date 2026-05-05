@@ -171,7 +171,7 @@ class PyBLPBackend:
         """Respect pyRVtest.options.demand_adjustment_weight toggle.
 
         Default 'W' = DMSS-correct. 'updated_W' = pre-b3b08a3 reproduction
-        flag (see options.py for rationale and pRV.MEMO_coauthor_updates).
+        flag (see options.py for the rationale).
         """
         weight_choice = options.demand_adjustment_weight
         if weight_choice == 'W':
