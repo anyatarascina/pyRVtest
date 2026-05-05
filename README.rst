@@ -75,7 +75,7 @@ Duarte, M., L. Magnolfi, M. Sølvsten, C. Sullivan, and A. Tarascina (2023): “
 
 * For the endogenous-cost-component first-stage correction (non-linear cost):
 
-  Duarte, M., L. Magnolfi, D. Quint, M. Sølvsten, and C. Sullivan (2026): “Testing Firm Conduct with Non-Linear Cost,” Working paper.
+  Duarte, M., L. Magnolfi, D. Quint, M. Sølvsten, and C. Sullivan (2026): “Conduct and Scale Economies: Evaluating Tariffs in the US Automobile Market,” Working paper.
 
 BibTeX:
 
@@ -106,7 +106,7 @@ BibTeX:
 
     @article{dmqss2026,
         author={Marco Duarte and Lorenzo Magnolfi and Daniel Quint and Mikkel S{\o}lvsten and Christopher Sullivan},
-        title={Testing Firm Conduct with Non-Linear Cost},
+        title={Conduct and Scale Economies: Evaluating Tariffs in the US Automobile Market},
         year={2026}
     }
 

@@ -22,7 +22,7 @@ Dearing, Adam, Lorenzo Magnolfi, Daniel Quint, Christopher Sullivan, and Sarah W
 
 Duarte, Magnolfi, Quint, Sølvsten, and Sullivan (2026)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Duarte, Marco, Lorenzo Magnolfi, Daniel Quint, Mikkel Sølvsten, and Christopher Sullivan (2026): "Testing Firm Conduct with Non-Linear Cost," Working paper.
+Duarte, Marco, Lorenzo Magnolfi, Daniel Quint, Mikkel Sølvsten, and Christopher Sullivan (2026): "Conduct and Scale Economies: Evaluating Tariffs in the US Automobile Market," Working paper.
 
 Other References
 ________________

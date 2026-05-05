@@ -334,7 +334,7 @@ def compute_instrument_results(
         adjustment_value = np.zeros((M, K, H_prime_wd.shape[1]), dtype=options.dtype)
 
     # Precompute first-stage correction ingredients when endogenous cost component is present.
-    # Per Appendix B of Duarte-Magnolfi-Quint-Solvsten-Sullivan (2025), the influence function
+    # Per Appendix B of Duarte-Magnolfi-Quint-Solvsten-Sullivan (2026), the influence function
     # psi includes a correction for estimation of the linear predictor q_tilde.
     endog_correction_data = None
     if endog_hat is not None:
@@ -375,7 +375,7 @@ def compute_instrument_results(
         psi_i = (mc_col * Z_orthogonal) @ W_12 - 0.5 * W_34_Zg * (Z_orthogonal @ W_34.T)
         psi[m] = psi_i - np.transpose(psi_bar)
 
-        # First-stage correction: Appendix B of Duarte-Magnolfi-Quint-Solvsten-Sullivan (2025).
+        # First-stage correction: Appendix B of Duarte-Magnolfi-Quint-Solvsten-Sullivan (2026).
         # Per observation i, the correction to psi[m][i,:] is:
         #   (1/2) W^{3/4} (W^+ Z_prec u_i lambda'_q + lambda_q u'_i Z_prec W^+) W^{3/4} g_m
         # where u_i = z^r_i * q^e_i, M_corr = W^{3/4} W^+ Z_prec.
