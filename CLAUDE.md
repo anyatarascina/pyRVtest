@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Coding-agent guidance lives in [`AGENTS.md`](AGENTS.md).** It is the
+> deeper, longer contract for any agent that will modify code (layout,
+> conventions, deprecations, what NOT to change casually). Read it
+> before non-trivial edits. The architecture sketch below is a quick
+> orientation — `AGENTS.md` is the source of truth.
+
 ## What this project does
 
 `pyRVtest` is a Python package for testing firm conduct models in industrial organization. It implements the Rivers-Vuong (RV) test and related procedures (F-statistics, Model Confidence Sets) to statistically discriminate between models of firm behavior (Bertrand, Cournot, monopoly, perfect competition, etc.) using demand estimates from [PyBLP](https://github.com/jeffgortmaker/pyblp).

@@ -43,28 +43,72 @@ To update to a newer version of the package use:
     pip install --upgrade pyRVtest
 
 
-Using the package
-_________________
+Reader's guide
+______________
 
-For a detailed tutorial about how to set up and run the testing procedure, see `Tutorial <https://pyrvtest.readthedocs.io/en/stable/tutorial.html>`_. For AI assistants and new contributors, ``AGENTS.md`` at the repo root and ``docs/agent_guide.rst`` give an architecture tour; users can also read it in an interactive session via ``pyRVtest.show_agent_guide()``.
+Where to go next, by audience:
 
-Users migrating from v0.3 should read ``docs/migrating_to_v0.4.rst`` — the class-based ``ConductModel`` API, ``demand_params=dict(rho=...)``, and Problem-level ``unit_tax`` / ``advalorem_tax`` kwargs are all new in v0.4; the legacy per-model ``ModelFormulation``, ``sigma`` alias, and per-model tax kwargs continue to work for one or two releases with ``DeprecationWarning``.
+* **End users** running the test on their own data — `Tutorial <https://pyrvtest.readthedocs.io/en/stable/tutorial.html>`_ (worked notebooks).
+* **Migrating from v0.3** — ``docs/migrating_to_v0.4.rst``. The class-based ``ConductModel`` API, ``demand_params=dict(rho=...)``, and Problem-level ``unit_tax`` / ``advalorem_tax`` kwargs are all new in v0.4; the legacy per-model ``ModelFormulation``, ``sigma`` alias, and per-model tax kwargs continue to work for one or two releases with ``DeprecationWarning``.
+* **Custom demand backend** — ``docs/custom_demand.rst`` covers the ``DemandBackend`` protocol.
+* **AI coding assistants and contributors** — ``AGENTS.md`` at the repo root is the living contract for code state, layout, and conventions. ``docs/agent_guide.rst`` is the longer architecture walkthrough (also surfaced via ``pyRVtest.show_agent_guide()``).
 
 
 Citing the package
 __________________
 
-When using the package, please include the following citation:
+When using ``pyRVtest`` in research, please cite the package itself plus the methodology papers your usage exercises.
 
-Duarte, M., L. Magnolfi, M. Sølvsten, C. Sullivan, and A. Tarascina
-(2023): “pyRVtest: A Python package for testing firm conduct,” https://github.com/anyatarascina/pyRVtest.
+**Package:**
 
-@misc{
-pyrvtest,
-author={Marco Duarte and Lorenzo Magnolfi and Mikkel S{\o}lvsten and Christopher Sullivan and Anya Tarascina},
-title={\texttt{pyRVtest}: A Python package for testing firm conduct},
-howpublished={\url{https://github.com/anyatarascina/pyRVtest}},
-year={2023}
+Duarte, M., L. Magnolfi, M. Sølvsten, C. Sullivan, and A. Tarascina (2023): “pyRVtest: A Python package for testing firm conduct,” https://github.com/anyatarascina/pyRVtest.
+
+**Methodology papers:**
+
+* For the Rivers-Vuong test, F-statistic, MCS p-values, and demand-adjustment correction:
+
+  Duarte, M., L. Magnolfi, M. Sølvsten, and C. Sullivan (2023): `“Testing Firm Conduct,” <https://arxiv.org/abs/2301.06720>`_ Working paper.
+
+* For pass-through diagnostics, simple-markup models (``RuleOfThumb``, ``ConstantMarkup``), and the instrument-relevance / falsification framework:
+
+  Dearing, A., L. Magnolfi, D. Quint, C. Sullivan, and S. Waldfogel (2026): `“Learning Firm Conduct: Pass-Through as a Foundation for Instrument Relevance,” <https://www.nber.org/papers/w32863>`_ NBER Working Paper No. 32863.
+
+* For the endogenous-cost-component first-stage correction (non-linear cost):
+
+  Duarte, M., L. Magnolfi, D. Quint, M. Sølvsten, and C. Sullivan (2026): “Testing Firm Conduct with Non-Linear Cost,” Working paper.
+
+BibTeX:
+
+.. code-block:: bibtex
+
+    @misc{pyrvtest,
+        author={Marco Duarte and Lorenzo Magnolfi and Mikkel S{\o}lvsten and Christopher Sullivan and Anya Tarascina},
+        title={\texttt{pyRVtest}: A Python package for testing firm conduct},
+        howpublished={\url{https://github.com/anyatarascina/pyRVtest}},
+        year={2023}
+    }
+
+    @article{dmss2023,
+        author={Marco Duarte and Lorenzo Magnolfi and Mikkel S{\o}lvsten and Christopher Sullivan},
+        title={Testing Firm Conduct},
+        howpublished={\url{https://arxiv.org/abs/2301.06720}},
+        year={2023}
+    }
+
+    @techreport{dmqsw2026,
+        author={Adam Dearing and Lorenzo Magnolfi and Daniel Quint and Christopher Sullivan and Sarah Waldfogel},
+        title={Learning Firm Conduct: Pass-Through as a Foundation for Instrument Relevance},
+        institution={National Bureau of Economic Research},
+        type={NBER Working Paper},
+        number={32863},
+        year={2026}
+    }
+
+    @article{dmqss2026,
+        author={Marco Duarte and Lorenzo Magnolfi and Daniel Quint and Mikkel S{\o}lvsten and Christopher Sullivan},
+        title={Testing Firm Conduct with Non-Linear Cost},
+        year={2026}
+    }
 
 Bugs and Requests
 _________________
