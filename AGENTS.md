@@ -296,8 +296,8 @@ by purpose:
   `PartialCollusion`, `CustomConductModel`, `Vertical`.
 - **v0.4 Dearing simple-markup models (step 12):** `RuleOfThumb`,
   `ConstantMarkup` (Dearing, Magnolfi, Quint, Sullivan, and Waldfogel
-  2026, Examples 1 and 7). The `phi=2` shorthand `Keystone()` was
-  dropped post-rc1; write `RuleOfThumb(phi=2)` directly.
+  2026, Examples 1 and 7). Use `RuleOfThumb(phi=2)` for the special
+  case (the earlier `Keystone()` alias was dropped in commit `e7ea1e3`).
 - **v0.4 labor-side models (step 14a):** `Monopsony`, `BertrandWages`,
   `CournotEmployment`, `NashBargaining` (raises `NotImplementedError`
   in v0.4; full formula deferred to v0.5).
