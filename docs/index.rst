@@ -10,6 +10,7 @@ The documentation can be navigated with the sidebar, the links below, or the ind
    introduction
    tutorial
    in_package_demand
+   advanced_features
    migrating_to_v0.4
    custom_demand
    faq
