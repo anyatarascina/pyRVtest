@@ -513,8 +513,7 @@ with common constructions:
   the endogenous employment shares and is not a valid wage instrument
   (see :mod:`pyRVtest.instruments.labor` for the full rationale).
 
-These landed in (single commit). Use them as a starting
-point for your own Z matrix; glue them into a
+Use these as a starting point for your own Z matrix; glue them into a
 :class:`pyRVtest.Formulation` via ordinary numpy/pandas manipulation.
 
 Pass-through diagnostics

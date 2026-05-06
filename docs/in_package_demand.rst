@@ -72,9 +72,9 @@ firms, 3000 markets):
        formulation_Z=pyRVtest.Formulation('0 + z1'),
    )
    demand_params = estimator.solve()
+   print(demand_params)
 
-The returned dict carries everything :class:`~pyRVtest.Problem` needs to
-construct the demand backend internally::
+Output::
 
    {
        'alpha': -0.9986,                          # price coefficient

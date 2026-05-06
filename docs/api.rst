@@ -29,6 +29,20 @@ shifters, instrument sets, and demand-side regressors.
    :template: class_without_methods.rst
 
    Formulation
+
+.. note::
+
+   :class:`ModelFormulation` is the legacy v0.3 string-based conduct
+   specifier. It is **deprecated** in v0.4 and scheduled for removal in
+   v0.6; emits ``DeprecationWarning`` on construction. New code should
+   use the class-based :class:`ConductModel` API listed below
+   (:class:`Bertrand`, :class:`Cournot`, etc.). See
+   :doc:`migrating_to_v0.4` for one-to-one rewrites.
+
+.. autosummary::
+   :toctree: _api
+   :template: class_without_methods.rst
+
    ModelFormulation
 
 
@@ -153,11 +167,31 @@ Result inspection methods:
 
    ProblemResults.passthrough_matrix
    ProblemResults.passthrough_comparison
+   ProblemResults.F_reliability_summary
    ProblemResults.to_dataframe
    ProblemResults.summary_df
+   ProblemResults.taus_dataframe
    ProblemResults.to_latex
    ProblemResults.to_markdown
    ProblemResults.to_pickle
+
+In addition to the printed table, :class:`ProblemResults` exposes the
+F-stat reliability diagnostic as both per-cell columns and a
+human-readable summary:
+
+* Per-cell array attributes (one entry per instrument set, of shape
+  ``(M, M)`` over candidate-model pairs): ``lambda_dmss``, ``F_se``,
+  ``F_ci_low``, ``F_ci_high``, ``verdict``, ``F_high_precision``,
+  ``rho_squared_high_precision``, ``worst_case_cv_size``,
+  ``worst_case_cv_power``, ``strongest_claim_size``,
+  ``strongest_claim_power``.
+* :meth:`~ProblemResults.F_reliability_summary` returns a long-form
+  ``pandas.DataFrame`` with one row per model pair, surfacing the
+  reliability columns alongside the standard ``F`` and ``rho_squared``.
+  Use this when you want to inspect or filter on the diagnostic
+  programmatically. See :doc:`faq` for how to interpret the
+  ``recomputed with extra precision`` and ``indistinguishable``
+  footers in the printed output.
 
 
 Convenience functions

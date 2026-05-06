@@ -91,8 +91,14 @@ Output::
     ===============================================================================================================
 
 Models 0/1/2/3 correspond to Bertrand / Cournot / Monopoly / Perfect
-Competition. The truth in this dataset is Perfect Competition. Reading
-the output:
+Competition (in the order passed to ``models=``). Each block has rows
+and columns indexed by model number; cell ``[i, j]`` shows the pairwise
+statistic for model ``i`` vs. model ``j``. The diagonal is ``nan`` (a
+model is not compared to itself); off-diagonals carry significance
+markers (``*`` 10%, ``**`` 5%, ``***`` 1% for TRV; ``†``/``^`` for
+F-stat size/power thresholds). The MCS column is per-model.
+
+The truth in this dataset is Perfect Competition. Reading the output:
 
 * **Bertrand** (model 0) and **Monopoly** (model 2) are cleanly
   rejected: their MCS p-values are both 0.0, and every pairwise TRV
