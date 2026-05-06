@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sys
 from typing import Any, Optional, Tuple
 
 import astunparse
@@ -14,6 +15,13 @@ import sphinx.application
 
 # get the location of the source directory
 source_path = Path(__file__).resolve().parent
+
+# make the dev tree (the repo root) importable regardless of cwd or
+# whether pyRVtest is installed in editable mode. autosummary needs to
+# import pyRVtest to enumerate subpackages like .backends and
+# .instruments; without this, an older site-packages install (if any)
+# would be preferred and crash the build.
+sys.path.insert(0, str(source_path.parent))
 
 # project information
 language = 'en'

@@ -68,6 +68,41 @@ demand system the package does not natively estimate), use the
 :doc:`custom_demand` protocol.
 
 
+Demand backends
+---------------
+
+Internal machinery that adapts a demand specification (PyBLP results, a
+``demand_params`` dict, or a user-supplied protocol implementation) to
+the share-Jacobian / share-Hessian interface that
+:class:`~pyRVtest.Problem` consumes. Most users do not construct these
+directly; ``Problem`` builds the right backend from
+``demand_results=`` / ``demand_params=`` automatically. The classes are
+documented for users implementing :doc:`custom_demand` or extending the
+package.
+
+.. autosummary::
+   :toctree: _api
+
+   backends.DemandBackend
+   backends.SupportsDemandAdjustment
+   backends.PyBLPBackend
+   backends.LogitBackend
+   backends.NestedLogitBackend
+   backends.UserSuppliedBackend
+
+Labor-side (experimental in v0.4):
+
+.. autosummary::
+   :toctree: _api
+
+   backends.LaborSupplyBackend
+
+Calling math methods on :class:`~pyRVtest.backends.LaborSupplyBackend`
+raises ``NotImplementedError`` in v0.4; the full Jacobian / Hessian /
+demand-adjustment-participation math is deferred to v0.5. See
+:doc:`faq` for the experimental-status caveats.
+
+
 Conduct models
 --------------
 
@@ -115,13 +150,31 @@ in particular raises ``NotImplementedError`` and is deferred to v0.5.
 Instrument helpers
 ------------------
 
-Vectorized constructors for testing instruments. Re-exported from
-``pyRVtest.instruments``.
+Vectorized constructors for testing instruments. Live in
+``pyRVtest.instruments``; thin convenience helpers that do not encode
+methodology opinions about which bundles to use together.
+
+Product-side (``pyRVtest.instruments.product``):
 
 .. autosummary::
    :toctree: _api
 
-   instruments
+   instruments.rival_sums
+   instruments.differentiation_ivs
+   instruments.blp_instruments
+
+Labor-side (``pyRVtest.instruments.labor``):
+
+.. autosummary::
+   :toctree: _api
+
+   instruments.hausman
+   instruments.bartik
+
+A ``concentration_hhi`` helper is intentionally **not** provided on the
+labor side: labor-market HHI is a function of endogenous employment
+shares and is not a valid instrument for wages. See the
+:mod:`pyRVtest.instruments.labor` module docstring for the rationale.
 
 
 Problem
