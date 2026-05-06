@@ -232,9 +232,9 @@ The estimators issue informative warnings or errors when input does not
 match the expected shape:
 
 * If :math:`\hat\alpha > 0` (a positive estimated price coefficient,
-  almost always a sign of a misspecified IV), :class:`LogitEstimator`
+  almost always a sign of a misspecified IV), :class:`~pyRVtest.LogitEstimator`
   emits a ``UserWarning``.
-* If :math:`\hat\rho \notin [0, 1)`, :class:`NestedLogitEstimator`
+* If :math:`\hat\rho \notin [0, 1)`, :class:`~pyRVtest.NestedLogitEstimator`
   emits a ``UserWarning``. The estimator does **not** auto-clip;
   decide for yourself whether to investigate or override.
 * Missing columns, rank-deficient instrument matrices, and
@@ -252,7 +252,7 @@ resulting ``demand_results`` to :class:`~pyRVtest.Problem`:
 * **Random coefficients** (BLP-style demand): PyBLP only.
 * **Micro-moments**: PyBLP only.
 * **Multi-level nested logit**: PyBLP only; pyRVtest's
-  :class:`NestedLogitEstimator` handles the one-level case that covers
+  :class:`~pyRVtest.NestedLogitEstimator` handles the one-level case that covers
   most applications.
 
 The :doc:`tutorial` notebook walks through the PyBLP path end-to-end.

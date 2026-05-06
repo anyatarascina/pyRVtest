@@ -10,6 +10,19 @@ If you are a human first-time reader, you can also run
 this content on stdout, or open `docs/agent_guide.rst` for a longer narrative
 walkthrough.
 
+Other docs you may want:
+
+- `CONTRIBUTING.md` — dev environment setup, testing/linting/docs commands,
+  conventions for adding new conduct models or demand backends, branch/PR
+  conventions.
+- `docs/faq.rst` — user-facing FAQ and troubleshooting (installation
+  pitfalls, F-stat anomalies, deprecation behaviors, labor-side caveats).
+- `docs/in_package_demand.rst` — walkthrough of `LogitEstimator` and
+  `NestedLogitEstimator`.
+- `docs/math.rst` — condensed mathematical reference (RV statistic,
+  F-stat, MCS, Villas-Boas passthrough, the DMQSW eq (3) FOC).
+- `.claude/plans/v0.5-followups.md` — items deferred from v0.4 to v0.5.
+
 ## What pyRVtest is
 
 `pyRVtest` is a Python package for testing models of firm conduct in industrial
