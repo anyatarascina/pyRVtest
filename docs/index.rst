@@ -5,7 +5,7 @@ The documentation can be navigated with the sidebar, the links below, or the ind
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: User documentation:
 
    introduction
    tutorial
@@ -13,11 +13,16 @@ The documentation can be navigated with the sidebar, the links below, or the ind
    migrating_to_v0.4
    custom_demand
    faq
-   agent_guide
    api
    math
    references
    legal
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Developer documentation:
+
+   agent_guide
 
 
 Indices and tables
