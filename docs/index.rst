@@ -12,6 +12,7 @@ The documentation can be navigated with the sidebar, the links below, or the ind
    in_package_demand
    migrating_to_v0.4
    custom_demand
+   faq
    agent_guide
    api
    references

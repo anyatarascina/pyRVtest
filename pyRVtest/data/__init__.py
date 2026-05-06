@@ -27,10 +27,13 @@ True
 """
 
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 _DATA_PATH = Path(__file__).resolve().parent
