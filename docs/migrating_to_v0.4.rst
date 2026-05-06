@@ -2,11 +2,11 @@ Migrating to v0.4
 =================
 
 pyRVtest v0.4 introduces a class-based API for specifying conduct models. The
-legacy string-based ``ModelFormulation`` API still works and will continue to
-work through v0.5; it is deprecated and scheduled for removal in v0.6.
+legacy string-based ``ModelFormulation`` API still works through v0.5; it is
+deprecated and scheduled for removal in v0.6.
 
-This page documents the migration for every common usage pattern. If you have a
-case that isn't covered here, open an issue — we'll add an example.
+This page documents the migration for every common pattern. If your case is
+not covered, open an issue.
 
 Quick summary
 -------------
@@ -14,8 +14,6 @@ Quick summary
 **Before (v0.3):**
 
 .. code-block:: python
-
-    import pyRVtest
 
     problem = pyRVtest.Problem(
         cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
@@ -35,8 +33,6 @@ Quick summary
 
 .. code-block:: python
 
-    import pyRVtest
-
     problem = pyRVtest.Problem(
         cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
         instrument_formulation=pyRVtest.Formulation('0 + rival_x1'),
@@ -51,50 +47,41 @@ Quick summary
 The migration rules
 -------------------
 
-1. ``model_formulations=(X, Y, ...)`` (tuple/sequence) becomes ``models=[X, Y, ...]`` (list).
-2. ``ModelFormulation(model_downstream='bertrand', ...)`` becomes ``Bertrand(...)``; similarly for ``Cournot``, ``Monopoly``, ``PerfectCompetition``, ``MixCournotBertrand``.
-3. ``ownership_downstream='firm_ids'`` becomes ``ownership='firm_ids'``.
-4. For vertical models (``model_upstream`` set in the old API), use the ``Vertical(downstream=..., upstream=..., ...)`` wrapper; see :ref:`vertical-migration` below.
-5. ``kappa_specification_downstream=...`` becomes ``kappa_specification=...`` on the relevant class; use the dedicated ``PartialCollusion`` class for collusion-flavored ownership.
-6. ``custom_model_specification={name: callable}`` + ``model_downstream='other'`` becomes ``CustomConductModel(markup_fn=callable, name=name, ownership=...)``.
-7. ``cost_scaling`` and ``user_supplied_markups`` keep the same name on the new classes. Per-unit and ad-valorem taxes (``unit_tax``, ``advalorem_tax``, ``advalorem_payer``) move from the model to the :class:`Problem` (v0.4 OQ 14); see the "Taxes and cost scaling" subsection below. The legacy per-model spelling still works and emits a ``DeprecationWarning``.
+#. ``model_formulations=(X, Y, ...)`` becomes ``models=[X, Y, ...]``.
+#. ``ModelFormulation(model_downstream='bertrand', ...)`` becomes ``Bertrand(...)``;
+   similarly for ``Cournot``, ``Monopoly``, ``PerfectCompetition``,
+   ``MixCournotBertrand``.
+#. ``ownership_downstream='firm_ids'`` becomes ``ownership='firm_ids'``.
+#. Vertical (both ``model_downstream`` and ``model_upstream`` set) →
+   ``Vertical(downstream=..., upstream=..., ...)``; see :ref:`vertical-migration`.
+#. ``kappa_specification_downstream=...`` → ``kappa_specification=...`` on the
+   relevant class. Use :class:`~pyRVtest.PartialCollusion` for collusion-flavored
+   ownership.
+#. ``custom_model_specification={name: callable}`` + ``model_downstream='other'``
+   → ``CustomConductModel(markup_fn=callable, name=name, ownership=...)``.
+#. ``cost_scaling`` and ``user_supplied_markups`` keep their names. Per-unit and
+   ad-valorem taxes (``unit_tax``, ``advalorem_tax``, ``advalorem_payer``) move
+   from the model to :class:`~pyRVtest.Problem`; see :ref:`tax-migration`.
 
 Each case in detail
 -------------------
 
-Simple Bertrand
-^^^^^^^^^^^^^^^
+Standard oligopoly (Bertrand, Cournot, Monopoly, PerfectCompetition)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-**Before:**
-
-.. code-block:: python
-
-    pyRVtest.ModelFormulation(
-        model_downstream='bertrand',
-        ownership_downstream='firm_ids',
-    )
-
-**After:**
-
-.. code-block:: python
-
-    pyRVtest.Bertrand(ownership='firm_ids')
-
-Cournot, Monopoly, PerfectCompetition
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Same pattern as Bertrand: the class name replaces the string, and
-``ownership_downstream`` becomes ``ownership``. ``PerfectCompetition`` takes no
-ownership argument (markups are structurally zero).
+Class name replaces the string; ``ownership_downstream`` becomes ``ownership``.
+``PerfectCompetition`` takes no ownership argument.
 
 .. code-block:: python
 
     # Before
+    pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids')
     pyRVtest.ModelFormulation(model_downstream='cournot', ownership_downstream='firm_ids')
     pyRVtest.ModelFormulation(model_downstream='monopoly', ownership_downstream='firm_ids')
     pyRVtest.ModelFormulation(model_downstream='perfect_competition')
 
     # After
+    pyRVtest.Bertrand(ownership='firm_ids')
     pyRVtest.Cournot(ownership='firm_ids')
     pyRVtest.Monopoly(ownership='firm_ids')
     pyRVtest.PerfectCompetition()
@@ -102,86 +89,70 @@ ownership argument (markups are structurally zero).
 Partial collusion
 ^^^^^^^^^^^^^^^^^
 
-The old API expressed partial collusion via ``kappa_specification_downstream``
-on a Bertrand formulation. The new API has a dedicated ``PartialCollusion``
-class that requires ``kappa_specification`` and signals intent at the call site:
-
-**Before:**
+Dedicated class; ``kappa_specification_downstream`` → ``kappa_specification``.
 
 .. code-block:: python
 
+    # Before
     pyRVtest.ModelFormulation(
-        model_downstream='bertrand',
-        ownership_downstream='firm_ids',
+        model_downstream='bertrand', ownership_downstream='firm_ids',
         kappa_specification_downstream='collusion_row',
     )
 
-**After:**
-
-.. code-block:: python
-
-    pyRVtest.PartialCollusion(
-        ownership='firm_ids',
-        kappa_specification='collusion_row',
-    )
+    # After
+    pyRVtest.PartialCollusion(ownership='firm_ids', kappa_specification='collusion_row')
 
 Mix Cournot/Bertrand
 ^^^^^^^^^^^^^^^^^^^^
 
-The ``mix_flag`` column name moves from a ``ModelFormulation`` kwarg to the
-``MixCournotBertrand`` constructor.
-
-**Before:**
-
 .. code-block:: python
 
+    # Before
     pyRVtest.ModelFormulation(
-        model_downstream='mix_cournot_bertrand',
-        ownership_downstream='firm_ids',
+        model_downstream='mix_cournot_bertrand', ownership_downstream='firm_ids',
         mix_flag='bertrand_products',
     )
 
-**After:**
-
-.. code-block:: python
-
-    pyRVtest.MixCournotBertrand(
-        ownership='firm_ids',
-        mix_flag='bertrand_products',
-    )
+    # After
+    pyRVtest.MixCournotBertrand(ownership='firm_ids', mix_flag='bertrand_products')
 
 Custom conduct (user-supplied markup formula)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The old ``model_downstream='other'`` + ``custom_model_specification={name: fn}``
-pattern becomes a direct ``CustomConductModel`` construction:
-
-**Before:**
-
 .. code-block:: python
 
     def my_markup(ownership, response_matrix, shares):
         ...
         return markups
 
+    # Before
     pyRVtest.ModelFormulation(
-        model_downstream='other',
-        ownership_downstream='firm_ids',
+        model_downstream='other', ownership_downstream='firm_ids',
         custom_model_specification={'my_model': my_markup},
     )
 
-**After:**
+    # After
+    pyRVtest.CustomConductModel(markup_fn=my_markup, ownership='firm_ids', name='my_model')
+
+User-supplied markups
+^^^^^^^^^^^^^^^^^^^^^
+
+The ``user_supplied_markups`` kwarg keeps its name. Supply on the conduct
+class; :class:`~pyRVtest.PerfectCompetition` is a natural choice when you do
+not want the test to depend on the model's own FOC.
 
 .. code-block:: python
 
-    def my_markup(ownership, response_matrix, shares):
-        ...
-        return markups
+    # Before
+    pyRVtest.ModelFormulation(
+        model_downstream='bertrand', ownership_downstream='firm_ids',
+        user_supplied_markups='precomputed_markup_col',
+    )
 
-    pyRVtest.CustomConductModel(
-        markup_fn=my_markup,
+    # After
+    pyRVtest.Bertrand(
         ownership='firm_ids',
-        name='my_model',
+        user_supplied_markups='precomputed_markup_col',
     )
 
 .. _vertical-migration:
@@ -189,29 +160,20 @@ pattern becomes a direct ``CustomConductModel`` construction:
 Vertical (bilateral oligopoly)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-This is the migration that requires the most restructuring. In the old API the
-downstream and upstream conducts were both set on a single ``ModelFormulation``
-via two different kwargs (``model_downstream`` / ``model_upstream`` and
-``ownership_downstream`` / ``ownership_upstream``). The new API uses a
-``Vertical(downstream=..., upstream=..., ...)`` wrapper with shared config (tax,
-vertical_integration) on the wrapper itself:
-
-**Before:**
+The biggest restructuring. Old API set both downstream and upstream conduct on
+a single ``ModelFormulation``. New API uses :class:`~pyRVtest.Vertical` as a
+wrapper with each side specified as its own class instance.
 
 .. code-block:: python
 
+    # Before
     pyRVtest.ModelFormulation(
-        model_downstream='bertrand',
-        ownership_downstream='firm_ids',
-        model_upstream='monopoly',
-        ownership_upstream='manufacturer_ids',
+        model_downstream='bertrand', ownership_downstream='firm_ids',
+        model_upstream='monopoly', ownership_upstream='manufacturer_ids',
         vertical_integration='vi_col',
     )
 
-**After:**
-
-.. code-block:: python
-
+    # After
     pyRVtest.Vertical(
         downstream=pyRVtest.Bertrand(ownership='firm_ids'),
         upstream=pyRVtest.Monopoly(ownership='manufacturer_ids'),
@@ -219,127 +181,36 @@ vertical_integration) on the wrapper itself:
     )
 
 Each inner conduct carries its own ``ownership`` (and, where applicable,
-``kappa_specification``). Tax, vertical-integration, and cost-scaling kwargs go
-on the ``Vertical`` wrapper — not on the inner conducts — because they apply to
-the combined vertical model.
+``kappa_specification``). Tax, vertical-integration, and cost-scaling kwargs
+go on the wrapper, not the inner conducts.
+
+.. _tax-migration:
 
 Taxes and cost scaling
 ^^^^^^^^^^^^^^^^^^^^^^
 
-v0.4 OQ 14 elevates tax kwargs (``unit_tax``, ``advalorem_tax``,
-``advalorem_payer``) to :class:`~pyRVtest.Problem`. Per-unit and
-ad-valorem taxes describe the data-generating process, not a firm's
-behavioral choice, so the DGP is the right home for them. Individual
-conduct models can opt out of Problem-level taxes for salience tests
-via the new ``unit_tax_salient`` and ``advalorem_tax_salient`` flags
-(both default to ``True``).
+Tax kwargs (``unit_tax``, ``advalorem_tax``, ``advalorem_payer``) move from
+the per-model level to :class:`~pyRVtest.Problem`. Per-unit and ad-valorem
+taxes describe the data-generating process, not a behavioral choice, so the
+DGP is the right home. Individual models can opt out via
+``unit_tax_salient=False`` and ``advalorem_tax_salient=False`` flags
+(both default to ``True``) for salience tests.
 
-The legacy per-model ``unit_tax`` / ``advalorem_tax`` /
-``advalorem_payer`` kwargs continue to work and win by precedence
-when both are set (each emits a ``DeprecationWarning`` pointing here).
-These per-model tax kwargs continue to work through v0.6 (two minor
-releases of migration runway given how widely they are used) and are
-scheduled for removal in v0.7. ``cost_scaling`` stays on the
-conduct model (or on :class:`~pyRVtest.Vertical` for bilateral
-oligopoly) because it is a behavioral primitive.
-
-.. _tax-precedence-tiebreaker:
-
-Tiebreaker: Problem-level vs per-model taxes
-""""""""""""""""""""""""""""""""""""""""""""
-
-If a tax is specified on **both** :class:`~pyRVtest.Problem` and a conduct
-model (e.g., ``Problem(unit_tax='tax_col_A')`` plus
-``Bertrand(unit_tax='tax_col_B')``), the resolution is deterministic:
-
-* **Per-model wins.** The model-level column is what enters that
-  model's effective price; the Problem-level value is ignored for that
-  specific model.
-* **Two** ``DeprecationWarning`` **messages fire.** The first is the
-  standard per-model-tax deprecation ("Specifying unit_tax on an
-  individual ConductModel ... is deprecated"). The second is a
-  conflict-specific warning naming both columns explicitly so the
-  user cannot miss the silent override: ``"Conflicting unit_tax
-  specification: model-level unit_tax='tax_col_B' wins ... Problem-level
-  unit_tax='tax_col_A' was also set and will be ignored"``.
-* **Other models are unaffected.** Models that do not set their own
-  ``unit_tax`` still receive the Problem-level value (subject to the
-  :attr:`unit_tax_salient` opt-out).
-
-The same rules apply to ``advalorem_tax`` / ``advalorem_payer``.
-
-**Recommended migration when both are set.** Drop the per-model
-``unit_tax='...'`` argument, then decide per model whether to keep the
-Problem-level tax (do nothing) or opt out for a salience test
-(``unit_tax_salient=False``):
+The legacy per-model spelling continues to work through v0.6 with a
+``DeprecationWarning``. ``cost_scaling`` stays on the conduct model
+(or on :class:`~pyRVtest.Vertical`); it is a behavioral primitive.
 
 .. code-block:: python
 
-    # Before (both set; per-model wins silently; two DeprecationWarnings fire)
-    pyRVtest.Problem(
-        ...,
-        unit_tax='tax_col',
-        models=[
-            pyRVtest.Bertrand(ownership='firm_ids', unit_tax='tax_col'),  # redundant
-            pyRVtest.Cournot(ownership='firm_ids'),                       # inherits Problem tax
-        ],
-    )
-
-    # After (Problem-level only; no warnings; same result because per-model
-    # value matched Problem-level anyway)
-    pyRVtest.Problem(
-        ...,
-        unit_tax='tax_col',
-        models=[
-            pyRVtest.Bertrand(ownership='firm_ids'),
-            pyRVtest.Cournot(ownership='firm_ids'),
-        ],
-    )
-
-    # After (salience test: Bertrand opts out; Cournot inherits)
-    pyRVtest.Problem(
-        ...,
-        unit_tax='tax_col',
-        models=[
-            pyRVtest.Bertrand(ownership='firm_ids', unit_tax_salient=False),
-            pyRVtest.Cournot(ownership='firm_ids'),
-        ],
-    )
-
-v0.4 extends ``cost_scaling`` to accept either a column name in
-``product_data`` (the v0.3 behavior, unchanged) **or** a numeric scalar
-(new in v0.4 step 12) broadcast uniformly to every product. The scalar
-form is the foundation of the ergonomic
-:class:`~pyRVtest.RuleOfThumb` wrapper described below.
-
-**Before (v0.3 — tax on every model):**
-
-.. code-block:: python
-
+    # Before (v0.3 — tax repeated on every model)
     pyRVtest.ModelFormulation(
-        model_downstream='bertrand',
-        ownership_downstream='firm_ids',
-        advalorem_tax='tax_rate_col',
-        advalorem_payer='firm',
+        model_downstream='bertrand', ownership_downstream='firm_ids',
+        advalorem_tax='tax_rate_col', advalorem_payer='firm',
         cost_scaling='scale_col',
     )
 
-**Intermediate (v0.4 with legacy per-model taxes; deprecated, still works):**
-
-.. code-block:: python
-
-    pyRVtest.Bertrand(
-        ownership='firm_ids',
-        advalorem_tax='tax_rate_col',  # deprecation warning
-        advalorem_payer='firm',
-        cost_scaling='scale_col',
-    )
-
-**After (v0.4 preferred — tax on Problem, salience flag on model):**
-
-.. code-block:: python
-
-    problem = pyRVtest.Problem(
+    # After (v0.4 preferred — tax on Problem, salience flag for opt-outs)
+    pyRVtest.Problem(
         cost_formulation=...,
         instrument_formulation=...,
         product_data=product_data,
@@ -348,8 +219,7 @@ form is the foundation of the ergonomic
         models=[
             pyRVtest.Bertrand(ownership='firm_ids', cost_scaling='scale_col'),
             pyRVtest.Cournot(ownership='firm_ids', cost_scaling='scale_col'),
-            # Salience test: same Bertrand model, but this instance
-            # ignores the ad-valorem tax:
+            # Salience test: same Bertrand, but tax-blind:
             pyRVtest.Bertrand(
                 ownership='firm_ids', cost_scaling='scale_col',
                 advalorem_tax_salient=False,
@@ -357,29 +227,29 @@ form is the foundation of the ergonomic
         ],
     )
 
-The Problem-level tax is applied to every model with the salience
-flag set to its default ``True``; the third model opts out, so its
-implied marginal cost differs even though its raw Bertrand markup is
-identical.
+.. _tax-precedence-tiebreaker:
+
+If a tax is set on **both** :class:`~pyRVtest.Problem` and a conduct model,
+the model-level value wins for that specific model and two
+``DeprecationWarning`` messages fire (the standard per-model deprecation, plus
+a conflict warning naming both columns). Recommended migration: drop the
+per-model ``unit_tax='...'`` and decide per model whether to keep the
+Problem-level tax (do nothing) or opt out (``unit_tax_salient=False``).
 
 Known-coefficient cost shifters
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-v0.4 OQ 14 also adds a ``known_coefficients`` kwarg on
-:class:`~pyRVtest.Formulation`. Cost shifters with researcher-supplied
-(non-estimated) coefficients enter the effective-price line directly:
+v0.4 adds a ``known_coefficients`` kwarg on :class:`~pyRVtest.Formulation` for
+cost shifters with researcher-supplied (non-estimated) coefficients:
 
 .. math::
 
-    \texttt{prices\_effective} = \frac{\tau_{\text{av}} \cdot p}
-    {1 + \lambda} - \tau_{\text{unit}}
-    - \sum_k \gamma_k \cdot x_k
+    \texttt{prices\_effective} = \frac{\tau_{\text{av}} \cdot p}{1 + \lambda}
+    - \tau_{\text{unit}} - \sum_k \gamma_k \cdot x_k
 
-where :math:`(x_k, \gamma_k)` are the known-coefficient column and
-coefficient. Per-unit taxes are the leading special case
-(``known_coefficients={'tax_col': 1.0}`` is equivalent to
-``Problem(unit_tax='tax_col')``). Dearing et al. (2026) work with a
-broader class of such shifters.
+where :math:`(x_k, \gamma_k)` are the known-coefficient column and value.
+Per-unit taxes are the leading special case; Dearing et al. (2026) work with
+broader classes.
 
 .. code-block:: python
 
@@ -388,280 +258,104 @@ broader class of such shifters.
         known_coefficients={'input_price': 0.75, 'union_wage': 1.0},
     )
 
-Known-coefficient shifters apply uniformly to every model (they are a
-DGP primitive, not a behavioral choice, so they carry no salience
-flag). Each column must be in ``product_data`` and must NOT appear in
-the formula string — doing so would double-count.
-
-.. note::
-
-   Unlike per-model ``unit_tax`` / ``advalorem_tax``, known-coefficient
-   shifters have no per-model salience opt-out. This is deliberate: the
-   ``Problem(unit_tax=..., unit_tax_salient=False)`` pattern exists
-   because taxes are a behavioral input that firms may or may not
-   internalize, so salience is a substantive hypothesis about conduct.
-   Known-coefficient shifters are DGP primitives (per Dearing et al.
-   2026) — a union wage or a known input price is part of the cost
-   structure all firms face, not a choice variable whose salience
-   differs across conduct models. If you find yourself wanting to
-   test salience on a column, it belongs in ``Problem(unit_tax=...)``
-   with ``unit_tax_salient=False`` on the opt-out models, not in
-   ``known_coefficients``.
+Each column must be in ``product_data`` and must NOT appear in the formula
+string. Known-coefficient shifters apply uniformly to every model and have no
+salience opt-out (they are a DGP primitive, not a behavioral input).
 
 Dearing simple-markup models (RuleOfThumb, ConstantMarkup)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-v0.4 step 12 adds two simple-markup models from Dearing, Magnolfi, Quint,
-Sullivan, and Waldfogel (2026):
+v0.4 adds two simple-markup models from Dearing, Magnolfi, Quint, Sullivan,
+and Waldfogel (2026):
 
-* :class:`~pyRVtest.RuleOfThumb` — Example 1: price is a fixed multiple
-  :math:`\varphi \geq 1` of marginal cost, :math:`p = \varphi \cdot mc`.
-  Implemented as an ergonomic wrapper over the existing ``cost_scaling``
-  machinery (now extended to accept a scalar).
-
-* :class:`~pyRVtest.ConstantMarkup` — Example 7: fixed per-product
-  dollar markup :math:`\Delta_{jt} = \zeta_j`. Supply as a scalar
-  (identical across products) or as a column name.
-
-The v0.3 pattern of ``PerfectCompetition(cost_scaling='lmbda_col')`` for
-per-product rule-of-thumb markups continues to work unchanged.
-``RuleOfThumb(phi=...)`` is the v0.4 shorthand for the common case
-where :math:`\varphi` is the same across all products:
-
-**v0.3:**
+* :class:`~pyRVtest.RuleOfThumb` — :math:`p = \varphi \cdot mc` for a fixed
+  multiple :math:`\varphi \geq 1`. Ergonomic wrapper over ``cost_scaling``,
+  which now also accepts a numeric scalar.
+* :class:`~pyRVtest.ConstantMarkup` — fixed per-product dollar markup
+  :math:`\Delta_{jt} = \zeta_j`. Scalar (uniform) or column name.
 
 .. code-block:: python
 
-    # per-product lambda via a column of ones would give you phi=2 uniformly
+    # v0.3 idiom: per-product lambda column of ones for phi=2 uniformly
     product_data['lmbda_col'] = 1.0
-    pyRVtest.ModelFormulation(
-        model_downstream='perfect_competition',
-        cost_scaling='lmbda_col',
-    )
+    pyRVtest.ModelFormulation(model_downstream='perfect_competition', cost_scaling='lmbda_col')
 
-**v0.4:**
-
-.. code-block:: python
-
+    # v0.4 shorthand:
     pyRVtest.RuleOfThumb(phi=2.0)
-    pyRVtest.ConstantMarkup(markup=0.5)  # fixed $0.50 markup for every product
+    pyRVtest.ConstantMarkup(markup=0.5)
 
-User-supplied markups
-^^^^^^^^^^^^^^^^^^^^^
-
-The ``user_supplied_markups`` kwarg keeps its name. Supply it on the conduct
-class (``PerfectCompetition`` is a natural choice if you're not testing the
-conduct itself — the math is bypassed when user-supplied markups are set):
-
-**Before:**
-
-.. code-block:: python
-
-    pyRVtest.ModelFormulation(
-        model_downstream='bertrand',
-        ownership_downstream='firm_ids',
-        user_supplied_markups='precomputed_markup_col',
-    )
-
-**After:**
-
-.. code-block:: python
-
-    pyRVtest.Bertrand(
-        ownership='firm_ids',
-        user_supplied_markups='precomputed_markup_col',
-    )
+The v0.3 ``PerfectCompetition(cost_scaling='col')`` form still works.
 
 ``demand_params['rho']`` vs ``demand_params['sigma']``
 ------------------------------------------------------
 
 The nested-logit correlation parameter inside ``demand_params`` is now
 canonically named ``rho`` (matching ``pyblp``'s nomenclature).
-``demand_params['sigma']`` continues to work as a deprecated alias with a
-once-per-session ``DeprecationWarning``. Supplying both keys raises a
-``TypeError``.
-
-**Before:**
+``demand_params['sigma']`` is a deprecated alias with a once-per-session
+``DeprecationWarning``. Supplying both raises ``TypeError``.
 
 .. code-block:: python
 
-    problem = pyRVtest.Problem(
-        ...,
-        demand_params={
-            'alpha': alpha_hat,
-            'sigma': [0.3],
-            'beta': beta,
-            'x_columns': ['intercept', 'x1'],
-            'demand_instrument_columns': [...],
-        },
-    )
+    # Before
+    demand_params = {'alpha': alpha_hat, 'sigma': [0.3], 'beta': beta}
+    # After
+    demand_params = {'alpha': alpha_hat, 'rho': [0.3], 'beta': beta}
 
-**After:**
+The :class:`~pyRVtest.backends.NestedLogitBackend` constructor (if you build
+one directly) still uses ``sigma=[...]`` — its internal math follows the
+AFSSZ L-level convention. Only the user-facing ``demand_params`` dict
+changed.
 
-.. code-block:: python
+Labor-side conduct testing (new in v0.4)
+----------------------------------------
 
-    problem = pyRVtest.Problem(
-        ...,
-        demand_params={
-            'alpha': alpha_hat,
-            'rho': [0.3],
-            'beta': beta,
-            'x_columns': ['intercept', 'x1'],
-            'demand_instrument_columns': [...],
-        },
-    )
-
-The ``NestedLogitBackend`` class (if you construct one directly) still uses
-``sigma=[...]`` as its constructor kwarg, because its internal math follows
-the AFSSZ L-level convention where ``sigma_l`` is a per-level parameter.
-Only the user-facing ``demand_params`` dict changed names.
-
-Labor-side (v0.4 step 14, new)
-------------------------------
-
-v0.4 adds ``Problem(market_side='labor')`` for labor-supply conduct
-testing. This is entirely additive — the default ``market_side='product'``
-is byte-identical to pre-v0.4 behavior. The labor path is opt-in.
-
-Labor conduct classes live in ``pyRVtest.models.labor`` and are
-re-exported at the top level:
-
-* :class:`pyRVtest.Monopsony` — single-firm wage-setter.
-* :class:`pyRVtest.BertrandWages` — wage-setting Bertrand.
-* :class:`pyRVtest.CournotEmployment` — employment-setting Cournot.
-* :class:`pyRVtest.NashBargaining` — raises ``NotImplementedError`` in
-  v0.4; formula deferred to v0.5 when labor data is available.
-
-Minimal labor problem:
+v0.4 adds ``Problem(market_side='labor')`` for labor-supply conduct testing.
+Default ``market_side='product'`` is unchanged. Labor classes:
+:class:`~pyRVtest.Monopsony`, :class:`~pyRVtest.BertrandWages`,
+:class:`~pyRVtest.CournotEmployment`, :class:`~pyRVtest.NashBargaining`
+(``NotImplementedError`` placeholder). Default column names are ``'wages'``
+and ``'employment_share'``; override via ``column_names=`` if needed.
 
 .. code-block:: python
 
-    problem = pyRVtest.Problem(
+    pyRVtest.Problem(
         cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
         instrument_formulation=pyRVtest.Formulation('0 + iv0'),
-        product_data=labor_df,          # columns: wages, employment_share, ...
+        product_data=labor_df,
         models=[
             pyRVtest.Monopsony(user_supplied_markups='markdown_m1'),
             pyRVtest.PerfectCompetition(user_supplied_markups='markdown_m2'),
         ],
         market_side='labor',
     )
-    results = problem.solve()
 
-Column-name defaults for labor mode are ``'wages'`` and
-``'employment_share'``; pyRVtest treats the ``shares`` column as a share
-(values in ``[0, 1]``, summing to at most 1 per market), so the default
-name advertises the units rather than naming a raw quantity. Users with
-raw employment counts must normalize to market-level employment shares
-first. Override either default via ``column_names``:
-
-.. code-block:: python
-
-    pyRVtest.Problem(
-        ...,
-        market_side='labor',
-        column_names={'price': 'my_wage_col', 'shares': 'my_emp_share_col'},
-    )
-
-Sign validation at ``Problem.__init__`` requires ``wages > 0`` and
-``employment_share > 0`` on every row. Violations raise
-:class:`pyRVtest.ValidationError` with the expected / received / fix
-format. A zero-wage row is the most common product-side-sign-convention
-leak into labor-side data and is caught immediately.
-
-Product-side models (:class:`~pyRVtest.Bertrand`,
-:class:`~pyRVtest.Cournot`, :class:`~pyRVtest.Monopoly`,
-:class:`~pyRVtest.MixCournotBertrand`,
-:class:`~pyRVtest.PartialCollusion`) are rejected at init under
-``market_side='labor'``. :class:`~pyRVtest.PerfectCompetition` and
-:class:`~pyRVtest.CustomConductModel` are accepted on both sides.
-
-The :class:`pyRVtest.backends.LaborSupplyBackend` ships as a v0.4
-skeleton: constructor and protocol members exist, but
+The :class:`~pyRVtest.backends.LaborSupplyBackend` ships as a v0.4 skeleton —
 ``compute_jacobian`` / ``compute_hessian`` raise
-:class:`NotImplementedError`. Users who need a working labor-supply
-backend in v0.4 should wrap their own with
-:class:`~pyRVtest.backends.UserSuppliedBackend`.
-
-Because :class:`~pyRVtest.backends.labor.LaborSupplyBackend` is
-skeleton-only, passing ``demand_params={...}`` alongside
-``market_side='labor'`` raises :class:`NotImplementedError` with a
-pointer to v0.5 rather than silently building a product-side backend
-over labor data. Use ``user_supplied_markups`` on each labor conduct
-model (or wrap a manually computed Jacobian in
-:class:`~pyRVtest.backends.UserSuppliedBackend`) until the labor-side
-analytical path lands in v0.5.
-
-See :doc:`agent_guide` for the longer narrative and the full protocol
-surface.
-
-``models=`` vs ``model_formulations=``
---------------------------------------
-
-``Problem`` accepts either keyword, but not both. If you mix them, you get a
-``TypeError``. During the deprecation window (v0.4 and v0.5), both keywords
-produce byte-identical results for equivalent inputs; they share the same
-internal pipeline after a translation step.
-
-Deprecation timeline
---------------------
-
-Different deprecations have different runways because they differ in
-how widely they appear in user code. The schedule below is cumulative:
-each release removes what was deprecated at least one release earlier.
-
-* **v0.4 (current):** new class-based API lands. ``ModelFormulation`` emits
-  ``DeprecationWarning`` once per Python session on first construction.
-  ``model_formulations=`` still accepted. ``demand_params=dict(sigma=...)``,
-  ``pyRVtest.output.output()``, and per-model ``unit_tax`` /
-  ``advalorem_tax`` / ``advalorem_payer`` also emit deprecation
-  warnings.
-* **v0.5:** same as v0.4; continued migration window for everything.
-* **v0.6:** ``ModelFormulation``, ``model_formulations=`` keyword,
-  ``demand_params=dict(sigma=...)``, and ``pyRVtest.output.output()``
-  removed. The per-model tax kwargs keep working for one more release
-  because the API shift is more disruptive than the others.
-* **v0.7:** per-model ``unit_tax`` / ``advalorem_tax`` /
-  ``advalorem_payer`` removed. Only the ``Problem``-level tax kwargs
-  with per-model ``unit_tax_salient`` / ``advalorem_tax_salient``
-  opt-outs remain.
+:class:`NotImplementedError`, and ``demand_params=`` paired with
+``market_side='labor'`` similarly raises. Use ``user_supplied_markups`` per
+model (or wrap your own Jacobian via
+:class:`~pyRVtest.backends.UserSuppliedBackend`) until the analytical labor
+backend lands in v0.5. See :doc:`faq` for additional caveats.
 
 In-package demand estimation (new in v0.4)
 ------------------------------------------
 
-v0.4 adds two in-package demand estimators
-(:class:`pyRVtest.LogitEstimator` and
-:class:`pyRVtest.NestedLogitEstimator`) so users with plain-logit or
-one-level nested-logit demand do not need to run ``pyblp`` separately.
-This is purely additive — every prior workflow that hands a
-``pyblp.ProblemResults`` to ``Problem`` continues to work unchanged.
-
-If you were running PyBLP as a preprocessing step purely for one of
-these two cases, you can collapse the pipeline:
+If you ran PyBLP only as a preprocessing step for plain-logit or one-level
+nested-logit demand, you can collapse the pipeline:
 
 .. code-block:: python
 
     # v0.3 / v0.4 PyBLP path (still supported)
-    pyblp_problem = pyblp.Problem(
+    pyblp_results = pyblp.Problem(
         product_formulations=(pyblp.Formulation('1 + prices + x1'),),
         product_data=data,
-    )
-    pyblp_results = pyblp_problem.solve(method='1s')
+    ).solve(method='1s')
 
-    rv_problem = pyRVtest.Problem(
-        ...,
-        product_data=data,
-        demand_results=pyblp_results,
-    )
-
-becomes:
-
-.. code-block:: python
+    rv_problem = pyRVtest.Problem(..., demand_results=pyblp_results)
 
     # v0.4 in-package equivalent
     rv_problem = pyRVtest.Problem(
         ...,
-        product_data=data,
         demand_params={
             'estimate': 'logit',
             'formulation_X': pyRVtest.Formulation('1 + x1'),
@@ -669,35 +363,51 @@ becomes:
         },
     )
 
-The estimator runs internally and ``Problem`` consumes the produced
-``alpha`` / ``beta`` directly. See :doc:`in_package_demand` for the
-standalone path (``pyRVtest.LogitEstimator(...).solve()`` returning a
-``demand_params`` dict you can hand to ``Problem``), the nested-logit
-variant (with ``nesting_ids_column`` and the
-``auto_construct_within_share_iv`` flag), and the trade-offs between
-the two forms.
+See :doc:`in_package_demand` for the standalone path
+(``pyRVtest.LogitEstimator(...).solve()`` returning a ``demand_params`` dict),
+the nested-logit variant, and trade-offs between forms. Continue using
+PyBLP + ``demand_results=`` for random coefficients, micro-moments, and
+multi-level nesting.
 
-Use PyBLP (and ``demand_results=``) when you need random coefficients,
-micro-moments, multi-level nesting, or any other PyBLP feature outside
-the linear-2SLS scope.
+``models=`` vs ``model_formulations=``
+--------------------------------------
+
+:class:`~pyRVtest.Problem` accepts either keyword, not both (mixing raises
+``TypeError``). During the v0.4-v0.5 deprecation window, both produce
+byte-identical results for equivalent inputs.
+
+Deprecation timeline
+--------------------
+
+Different deprecations have different runways. The schedule is cumulative:
+
+* **v0.4 (current):** class-based API lands. ``ModelFormulation`` emits
+  ``DeprecationWarning`` once per session on first construction.
+  ``model_formulations=``, ``demand_params=dict(sigma=...)``,
+  ``pyRVtest.output.output()``, and per-model ``unit_tax`` / ``advalorem_tax`` /
+  ``advalorem_payer`` also emit deprecation warnings.
+* **v0.5:** continued migration window for everything.
+* **v0.6:** ``ModelFormulation``, ``model_formulations=``,
+  ``demand_params=dict(sigma=...)``, and ``pyRVtest.output.output()`` removed.
+  Per-model tax kwargs keep working one more release.
+* **v0.7:** per-model ``unit_tax`` / ``advalorem_tax`` / ``advalorem_payer``
+  removed. Only ``Problem``-level tax kwargs with per-model salience opt-outs
+  remain.
 
 Suppressing the warning
 -----------------------
 
-If you aren't ready to migrate and want to suppress the warning during your
-session, use Python's standard filter:
+If you are not ready to migrate yet:
 
 .. code-block:: python
 
     import warnings
     warnings.filterwarnings('ignore', category=DeprecationWarning, module='pyRVtest')
 
-We recommend keeping the warning visible; it reminds you that the code you're
-relying on will eventually break.
+We recommend keeping the warning visible.
 
 Reporting issues
 ----------------
 
-If you have a ``ModelFormulation`` configuration that doesn't translate cleanly
-to the new API, please open an issue. We can either add an example here or
-extend the class-based API to cover it.
+If you have a configuration that does not translate cleanly, open an issue.
+We can either add an example here or extend the API.
