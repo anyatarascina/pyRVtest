@@ -116,7 +116,7 @@ Where to go next, by audience:
 * **End users** running the test on their own data — `Tutorial <https://pyrvtest.readthedocs.io/en/stable/tutorial.html>`_ (worked notebooks).
 * **Migrating from v0.3** — ``docs/migrating_to_v0.4.rst``. The class-based ``ConductModel`` API, ``demand_params=dict(rho=...)``, and Problem-level ``unit_tax`` / ``advalorem_tax`` kwargs are all new in v0.4; the legacy per-model ``ModelFormulation``, ``sigma`` alias, and per-model tax kwargs continue to work for one or two releases with ``DeprecationWarning``.
 * **Custom demand backend** — ``docs/custom_demand.rst`` covers the ``DemandBackend`` protocol.
-* **AI coding assistants and contributors** — ``AGENTS.md`` at the repo root is the living contract for code state, layout, and conventions. ``docs/agent_guide.rst`` is the longer architecture walkthrough (also surfaced via ``pyRVtest.show_agent_guide()``).
+* **AI coding assistants and contributors** — ``AGENTS.md`` at the repo root is the living contract for code state, layout, and conventions. ``docs/agent_guide.rst`` is the longer architecture walkthrough (also surfaced via ``pyRVtest.show_agent_guide()``). ``CONTRIBUTING.md`` covers dev environment setup, running tests / lint / docs locally, and the conventions for adding new conduct models or demand backends.
 
 
 Citing the package

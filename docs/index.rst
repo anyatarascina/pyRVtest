@@ -15,6 +15,7 @@ The documentation can be navigated with the sidebar, the links below, or the ind
    faq
    agent_guide
    api
+   math
    references
    legal
 
