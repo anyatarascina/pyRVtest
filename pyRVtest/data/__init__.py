@@ -10,7 +10,7 @@ F_CRITICAL_VALUES_SIZE_RHO : `str`
     instruments.
 EXAMPLE_SYNTHETIC : `str`
     Location of a small synthetic dataset (T=3000 markets, J=2 single-product firms) generated under
-    a Bertrand-equilibrium logit DGP. Used by the README quick-start.
+    perfect-competition pricing with logit demand. Used by the README quick-start.
 
 Examples
 --------
