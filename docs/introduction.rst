@@ -91,42 +91,7 @@ To run a test, the user supplies:
 Workflow
 ________
 
-A typical ``pyRVtest`` session has four stages. The minimal end-to-end
-shape on the synthetic example dataset shipped with the package:
-
-.. code-block:: python
-
-   import pyRVtest
-
-   data = pyRVtest.data.load_example()
-
-   # Stage 1: estimate demand (in-package logit; PyBLP is also supported)
-   demand_params = pyRVtest.LogitEstimator(
-       product_data=data,
-       formulation_X=pyRVtest.Formulation('1 + x1'),
-       formulation_Z=pyRVtest.Formulation('0 + z1'),
-   ).solve()
-
-   # Stage 2: build the Problem
-   problem = pyRVtest.Problem(
-       cost_formulation=pyRVtest.Formulation('1 + z1 + z2'),
-       instrument_formulation=pyRVtest.Formulation('0 + rival_z1 + rival_z2'),
-       models=[
-           pyRVtest.Bertrand(ownership='firm_ids'),
-           pyRVtest.Cournot(ownership='firm_ids'),
-           pyRVtest.PerfectCompetition(),
-       ],
-       product_data=data,
-       demand_params=demand_params,
-   )
-
-   # Stage 3: solve
-   results = problem.solve(demand_adjustment=False)
-
-   # Stage 4: inspect
-   print(results)
-
-The four stages annotated:
+A typical ``pyRVtest`` session has four stages:
 
 1. **Estimate demand.** Externally with ``pyblp``, or in-package with
    :class:`~pyRVtest.LogitEstimator` or
@@ -146,7 +111,9 @@ The four stages annotated:
    :meth:`~pyRVtest.ProblemResults.to_dataframe`, and other
    diagnostics.
 
-See :doc:`tutorial` for a step-by-step walkthrough of each stage.
+See :doc:`tutorial` for a step-by-step walkthrough of each stage on the
+synthetic example dataset shipped with the package, with the actual
+code and verbatim output for every step.
 
 
 Where to go next
