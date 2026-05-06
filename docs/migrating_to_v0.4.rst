@@ -626,6 +626,61 @@ each release removes what was deprecated at least one release earlier.
   with per-model ``unit_tax_salient`` / ``advalorem_tax_salient``
   opt-outs remain.
 
+In-package demand estimation (new in v0.4)
+------------------------------------------
+
+v0.4 adds two in-package demand estimators
+(:class:`pyRVtest.LogitEstimator` and
+:class:`pyRVtest.NestedLogitEstimator`) so users with plain-logit or
+one-level nested-logit demand do not need to run ``pyblp`` separately.
+This is purely additive — every prior workflow that hands a
+``pyblp.ProblemResults`` to ``Problem`` continues to work unchanged.
+
+If you were running PyBLP as a preprocessing step purely for one of
+these two cases, you can collapse the pipeline:
+
+.. code-block:: python
+
+    # v0.3 / v0.4 PyBLP path (still supported)
+    pyblp_problem = pyblp.Problem(
+        product_formulations=(pyblp.Formulation('1 + prices + x1'),),
+        product_data=data,
+    )
+    pyblp_results = pyblp_problem.solve(method='1s')
+
+    rv_problem = pyRVtest.Problem(
+        ...,
+        product_data=data,
+        demand_results=pyblp_results,
+    )
+
+becomes:
+
+.. code-block:: python
+
+    # v0.4 in-package equivalent
+    rv_problem = pyRVtest.Problem(
+        ...,
+        product_data=data,
+        demand_params={
+            'estimate': 'logit',
+            'formulation_X': pyRVtest.Formulation('1 + x1'),
+            'formulation_Z': pyRVtest.Formulation('0 + z1'),
+        },
+    )
+
+The estimator runs internally and ``Problem`` consumes the produced
+``alpha`` / ``beta`` directly. See :doc:`in_package_demand` for the
+standalone path (``pyRVtest.LogitEstimator(...).solve()`` returning a
+``demand_params`` dict you can hand to ``Problem``), the nested-logit
+variant (with ``nesting_ids_column`` and the
+``auto_construct_within_share_iv`` flag), and the trade-offs between
+the two forms.
+
+Use PyBLP (and ``demand_results=``) when you need random coefficients,
+micro-moments, multi-level nesting, or any other PyBLP feature outside
+the linear-2SLS scope.
+
 Suppressing the warning
 -----------------------
 
