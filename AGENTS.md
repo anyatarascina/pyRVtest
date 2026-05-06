@@ -34,23 +34,30 @@ documentation-and-architecture refactor rather than a feature release.
 ```
 pyRVtest/
 ├── __init__.py             # Re-exports the stable public API (see __all__ below)
-├── _agent_guide.py         # show_agent_guide() helper (step 23)
+├── _agent_guide.py         # show_agent_guide() helper
 ├── problem.py              # Problem, Models recarray, Products routing
-├── products.py             # Products class (extracted from problem.py in step 2)
+├── products.py             # Products class
 ├── formulation.py          # Formulation (pyblp re-export), ModelFormulation (deprecated)
 ├── markups.py              # build_markups (public), _compute_markups (internal),
 │                           #   construct_passthrough_matrix, build_ownership,
 │                           #   evaluate_first_order_conditions (legacy string dispatch)
-├── output.py               # format_table and output helpers
+├── output.py               # format_table and logging shim
 ├── options.py              # global dtype / verbose flags
-├── data/                   # CSV critical value tables for F-stat size/power
+├── exceptions.py           # PyRVTestError hierarchy
+├── version.py              # __version__
+├── data/                   # CSV critical value tables + synthetic example dataset
 ├── backends/
 │   ├── base.py             # DemandBackend + SupportsDemandAdjustment protocols
 │   ├── pyblp.py            # PyBLPBackend (wraps pyblp.ProblemResults)
 │   ├── logit.py            # LogitBackend + analytical jacobian/hessian helpers
 │   ├── nested_logit.py     # NestedLogitBackend (analytical nested-logit math)
 │   ├── user.py             # UserSuppliedBackend (bring-your-own-Jacobian)
-│   └── labor/              # Labor-side backends (LaborSupplyBackend skeleton, step 14b)
+│   └── labor/              # Labor-side backends (LaborSupplyBackend skeleton)
+├── estimators/
+│   ├── _base.py             # Shared 2SLS base class
+│   ├── logit.py             # LogitEstimator (in-package plain-logit 2SLS)
+│   ├── nested_logit.py      # NestedLogitEstimator (one-level nested-logit 2SLS)
+│   └── _within_share.py     # count_in_nest_iv helper for nested-logit auto-IV
 ├── models/
 │   ├── base.py             # ConductModel abstract base
 │   ├── standard.py         # Bertrand, Cournot, Monopoly, PerfectCompetition
@@ -58,13 +65,14 @@ pyRVtest/
 │   ├── collusion.py        # PartialCollusion
 │   ├── custom.py           # CustomConductModel
 │   ├── vertical.py         # Vertical composer (bilateral oligopoly)
-│   ├── constant.py         # RuleOfThumb, ConstantMarkup (Dearing 2026, step 12)
-│   ├── labor.py            # Monopsony, BertrandWages, CournotEmployment, NashBargaining (step 14a)
-│   └── _adapter.py         # Legacy ModelFormulation → ConductModel translation (step 5c)
+│   ├── constant.py         # RuleOfThumb, ConstantMarkup
+│   ├── user_supplied.py    # UserSuppliedMarkups (pre-computed markup column wrapper)
+│   ├── labor.py            # Monopsony, BertrandWages, CournotEmployment, NashBargaining
+│   └── _adapter.py         # Legacy ModelFormulation → ConductModel translation
 ├── solve/
-│   ├── demand_adjustment.py # Unified DMSS 2024 eq. 77 first-stage correction (step 4d)
-│   ├── passthrough.py       # build_passthrough public helper (step 11)
-│   ├── markups.py           # Per-model markup stage (scaffolded, populated step 8)
+│   ├── demand_adjustment.py # Unified DMSS 2024 eq. 77 first-stage correction
+│   ├── passthrough.py       # build_passthrough public helper
+│   ├── markups.py           # Per-model markup stage
 │   ├── orthogonalize.py     # Orthogonalization stage
 │   ├── endogenous_cost.py   # Endogenous-cost gamma correction
 │   └── test_engine.py       # Final RV/F/MCS computation
@@ -72,7 +80,9 @@ pyRVtest/
 │   ├── product.py           # BLP / differentiation / rival-sum instrument helpers
 │   └── labor.py             # Bartik / Hausman instrument helpers (HHI deliberately omitted; see file-level docstring)
 └── results/
-    └── __init__.py          # ProblemResults + Progress dataclass
+    ├── results.py           # ProblemResults + Progress dataclass
+    ├── panel.py             # PanelResults
+    └── _format.py           # Display helpers
 ```
 
 The canonical data flow:
@@ -115,8 +125,7 @@ Four backward-compatibility surfaces exist on the v0.4 branch:
    kwarg name because its math follows the AFSSZ L-level convention.
 
 4. **Per-model `unit_tax` / `advalorem_tax` / `advalorem_payer`** on
-   `ConductModel` / `Vertical` / `ModelFormulation`. Deprecated in v0.4
-   (OQ 14); **removed in v0.7** (one release later than the other v0.4
+   `ConductModel` / `Vertical` / `ModelFormulation`. Deprecated in v0.4; **removed in v0.7** (one release later than the other v0.4
    deprecations — the per-model tax pattern is common enough in
    existing user code to warrant an extra release of runway). Move the
    tax column to `Problem(..., unit_tax='col', advalorem_tax='col',
@@ -289,26 +298,38 @@ by purpose:
   `build_markups`, `construct_passthrough_matrix`,
   `evaluate_first_order_conditions`, `read_pickle`, `Formulation`,
   `ModelFormulation`, `Problem`, `Models`, `Products`, `ProblemResults`,
-  `__version__`.
-- **v0.4 subpackages:** `backends`, `instruments`, `models`, `solve`.
+  `PanelResults`, `__version__`.
+- **v0.4 subpackages:** `backends`, `estimators`, `instruments`,
+  `models`, `solve`.
 - **v0.4 class-based ConductModel API:** `ConductModel`, `Bertrand`,
   `Cournot`, `Monopoly`, `PerfectCompetition`, `MixCournotBertrand`,
   `PartialCollusion`, `CustomConductModel`, `Vertical`.
-- **v0.4 Dearing simple-markup models (step 12):** `RuleOfThumb`,
+- **v0.4 in-package demand estimators:** `LogitEstimator`,
+  `NestedLogitEstimator`. See `docs/in_package_demand.rst` for the
+  walkthrough.
+- **v0.4 user-supplied markup wrapper:** `UserSuppliedMarkups` (for
+  pre-computed markup columns; alternative to `CustomConductModel` for
+  the closed-form-callable case).
+- **v0.4 Dearing simple-markup models:** `RuleOfThumb`,
   `ConstantMarkup` (Dearing, Magnolfi, Quint, Sullivan, and Waldfogel
   2026, Examples 1 and 7). Use `RuleOfThumb(phi=2)` for the special
   case (the earlier `Keystone()` alias was dropped in commit `e7ea1e3`).
-- **v0.4 labor-side models (step 14a):** `Monopsony`, `BertrandWages`,
+- **v0.4 labor-side models:** `Monopsony`, `BertrandWages`,
   `CournotEmployment`, `NashBargaining` (raises `NotImplementedError`
   in v0.4; full formula deferred to v0.5).
 - **v0.4 diagnostic helper:** `build_passthrough`; also exposed on
   `ProblemResults` as `passthrough_matrix` and (pairwise, Dearing
   Remark 4) `passthrough_comparison`.
 - **v0.4 agent guide exporter:** `show_agent_guide`.
+- **v0.4 exception hierarchy:** `PyRVTestError`, `ValidationError`,
+  `InstrumentDataError`, `BackendError`, `DemandBackendError`,
+  `HessianUnavailableError`. Each subclasses a Python built-in
+  (`ValueError` or `RuntimeError`) so existing `except ValueError:`
+  callers keep working.
 
 Anything else is internal and may change without notice.
 
-## Labor-side usage (v0.4 step 14)
+## Labor-side usage
 
 **Status: experimental in v0.4.** The labor API ships in v0.4 but is
 explicitly marked experimental — the sign convention, column-name

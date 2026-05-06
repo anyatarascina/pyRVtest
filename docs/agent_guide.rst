@@ -45,9 +45,9 @@ The directory layout is::
 
     pyRVtest/
     ├── __init__.py          # Public API re-exports, __all__
-    ├── _agent_guide.py      # show_agent_guide() helper (step 23)
+    ├── _agent_guide.py      # show_agent_guide() helper
     ├── problem.py           # Problem, Models recarray
-    ├── products.py          # Products data class (step 2)
+    ├── products.py          # Products data class
     ├── formulation.py       # Formulation (pyblp re-export),
     │                        #   ModelFormulation (deprecated)
     ├── markups.py           # build_markups, build_ownership, etc.
@@ -60,7 +60,7 @@ The directory layout is::
     │   ├── logit.py         # LogitBackend + analytical helpers
     │   ├── nested_logit.py  # NestedLogitBackend
     │   ├── user.py          # UserSuppliedBackend
-    │   └── labor/           # Labor-side backends (LaborSupplyBackend skeleton, step 14b)
+    │   └── labor/           # Labor-side backends (LaborSupplyBackend skeleton)
     ├── models/              # ConductModel class hierarchy
     │   ├── base.py          # ConductModel abstract base
     │   ├── standard.py      # Bertrand, Cournot, Monopoly, PerfectCompetition
@@ -68,12 +68,12 @@ The directory layout is::
     │   ├── collusion.py     # PartialCollusion
     │   ├── custom.py        # CustomConductModel
     │   ├── vertical.py      # Vertical composer
-    │   ├── constant.py      # RuleOfThumb, ConstantMarkup (step 12)
-    │   ├── labor.py         # Monopsony, BertrandWages, CournotEmployment, NashBargaining (step 14a)
+    │   ├── constant.py      # RuleOfThumb, ConstantMarkup
+    │   ├── labor.py         # Monopsony, BertrandWages, CournotEmployment, NashBargaining
     │   └── _adapter.py      # Legacy ModelFormulation bridge
     ├── solve/               # Per-phase pipeline stages
-    │   ├── demand_adjustment.py  # DMSS 2024 eq. 77 (step 4d)
-    │   ├── passthrough.py        # build_passthrough (step 11)
+    │   ├── demand_adjustment.py  # DMSS 2024 eq. 77
+    │   ├── passthrough.py        # build_passthrough
     │   ├── markups.py            # Markup stage (scaffolded, step 8)
     │   ├── orthogonalize.py
     │   ├── endogenous_cost.py
@@ -205,7 +205,7 @@ across all products.
 Problem-level taxes and salience testing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-v0.4 OQ 14 moved per-unit and ad-valorem taxes from the conduct model
+v0.4 moved per-unit and ad-valorem taxes from the conduct model
 to :class:`pyRVtest.Problem`. Taxes describe the DGP, not a firm's
 behavioral choice, so they belong on the Problem::
 
@@ -311,8 +311,7 @@ sign-off and backend activation.
 ``Problem(market_side='labor')`` switches pyRVtest to labor-supply
 testing: upward-sloping supply (``ds/dw > 0``), markdowns rather than
 markups, and the four labor conduct classes. The flip is localized to
-``Problem.__init__`` — the rest of the pipeline is unchanged. Landed in
-v0.4 step 14.
+``Problem.__init__`` — the rest of the pipeline is unchanged.
 
 Labor conduct classes (``pyRVtest.models.labor``):
 
@@ -338,7 +337,7 @@ before passing data in. Override the defaults via
 Unknown keys in ``column_names`` raise
 :class:`~pyRVtest.exceptions.ValidationError`.
 
-Sign-convention validation (v0.4 step 14c): every row must have
+Sign-convention validation: every row must have
 ``wages > 0`` and ``employment_share > 0``. Violations raise
 :class:`~pyRVtest.exceptions.ValidationError` at init time with the
 expected / received / fix format, naming the user's original column.
@@ -385,7 +384,7 @@ check applies to ``market_side='product'``: passing
 raises. Valid values are ``'product'``, ``'labor'``, and ``None``
 (``None`` defaults to product-side).
 
-Skeleton :class:`~pyRVtest.backends.LaborSupplyBackend` (v0.4 step 14b):
+Skeleton :class:`~pyRVtest.backends.LaborSupplyBackend`:
 class shape, ``n_parameters`` / ``theta_names``, and constructor are
 wired; ``compute_jacobian`` / ``compute_hessian`` / ``perturbed`` raise
 :class:`NotImplementedError` with a v0.5 pointer. The skeleton
@@ -470,9 +469,8 @@ an explicit input/output contract and lives in its own module under
 ``pyRVtest/solve/``:
 
 * ``solve/demand_adjustment.py`` — the DMSS 2024 Appendix C eq. 77
-  first-stage correction. v0.4 step 4d unified the two previously
-  parallel paths (the ``demand_results`` / PyBLP path and the
-  ``demand_params`` / analytical path) into a single implementation
+  first-stage correction. Unifies the ``demand_results`` (PyBLP) and
+  ``demand_params`` (analytical) paths into a single implementation
   generic over any ``SupportsDemandAdjustment`` backend. Exports
   :func:`~pyRVtest.solve.demand_adjustment.compute_demand_adjustment`
   and the shared 2SLS profile-out helper ``_residualize_on_xd``.
@@ -515,7 +513,7 @@ with common constructions:
   the endogenous employment shares and is not a valid wage instrument
   (see :mod:`pyRVtest.instruments.labor` for the full rationale).
 
-These landed in v0.4 step 13 (single commit). Use them as a starting
+These landed in (single commit). Use them as a starting
 point for your own Z matrix; glue them into a
 :class:`pyRVtest.Formulation` via ordinary numpy/pandas manipulation.
 
@@ -672,9 +670,9 @@ without explicit coordination:
 Logging layout
 --------------
 
-v0.4 step 18 switched pyRVtest from the legacy pyblp ``output()`` helper
-to the standard :mod:`logging` module. Every module that emits
-progress/diagnostic messages defines its own logger at the top:
+pyRVtest uses the standard :mod:`logging` module for status messages
+(replacing the legacy pyblp ``output()`` helper). Every module that
+emits progress/diagnostic messages defines its own logger at the top:
 ``logger = logging.getLogger(__name__)``. This gives users per-subsystem
 control over verbosity without any pyRVtest-specific configuration.
 
