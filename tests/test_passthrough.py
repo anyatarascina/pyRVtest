@@ -146,11 +146,17 @@ class TestBuildPassthrough:
                 err_msg=f"build_passthrough differs from local replication in market {t!r}",
             )
 
-    def test_non_vertical_model_raises(self, vertical_problem):
-        """Passing a non-vertical model (no upstream) raises ValueError."""
-        # Model index 1 is PerfectCompetition — not a Vertical.
-        with pytest.raises(ValueError, match="non-vertical"):
-            pyRVtest.build_passthrough(vertical_problem, 1)
+    def test_non_vertical_model_returns_identity_for_pc(self, vertical_problem):
+        """Phase 1 of the DMQSW diagnostic generalises ``build_passthrough``
+        to every conduct class. ``PerfectCompetition`` is the trivial-closed-
+        form case: ``Delta = 0`` for every product so ``P = I`` exactly."""
+        # Model index 1 is PerfectCompetition.
+        result = pyRVtest.build_passthrough(vertical_problem, 1)
+        assert isinstance(result, dict)
+        for t, M in result.items():
+            j_t = int(np.sum(vertical_problem.products.market_ids.flatten() == t))
+            assert M.shape == (j_t, j_t)
+            np.testing.assert_allclose(M, np.eye(j_t), atol=1e-14)
 
     def test_invalid_market_id_raises(self, vertical_problem):
         """Non-existent market_id raises ValueError."""

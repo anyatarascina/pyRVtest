@@ -166,6 +166,74 @@ version exposed on :class:`~pyRVtest.ProblemResults`
 :math:`\mathcal{P}_t` per (model, market) for inspection.
 
 
+Pass-through by conduct class
+-----------------------------
+
+For diagnostic purposes (DMQSW pass-through framework, instrument
+relevance, channel decomposition), pyRVtest computes the per-candidate
+pass-through matrix
+:math:`P_m = (I - \partial \Delta_m / \partial p)^{-1}`
+*numerically* via central-difference perturbation of prices through
+the candidate's first-order condition; see
+:py:func:`pyRVtest.solve.passthrough.compute_passthrough_numerical`.
+
+Per-conduct analytical references
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The numerics converge to the closed-form expressions below. We list
+them for reference; the package does not evaluate them analytically
+(numerics handle every conduct uniformly), but they are what the
+numerical core approximates. Notation: :math:`D = \partial s / \partial p`,
+:math:`H = \partial^2 s / \partial p \partial p`, :math:`\Omega` the
+ownership matrix, :math:`\odot` the Hadamard product.
+
+* **Perfect competition** :math:`(p = mc)`:
+  :math:`\Delta_{PC} \equiv 0`, so :math:`P_{PC} = I`.
+
+* **Constant markup** :math:`(\Delta = \zeta)`:
+  :math:`\Delta_{CM}` is independent of :math:`p`, so
+  :math:`P_{CM} = I`.
+
+* **User-supplied markups** (precomputed column):
+  treated as exogenous, so :math:`P_{USM} = I`.
+
+* **Rule-of-thumb** :math:`(p = \varphi \cdot mc, \; \varphi \geq 1)`:
+  :math:`\Delta_\varphi = (\varphi - 1)/\varphi \cdot p`, so
+  :math:`P_\varphi = \varphi I`.
+
+* **Bertrand-Nash**:
+  :math:`\Delta_B = -(\Omega \odot D)^{-1} s`. Differentiating
+  implicitly,
+  :math:`P_B = \big(I + (\Omega \odot D)^{-1} (\Omega \odot H \cdot s)\big)^{-1}`,
+  evaluated row-by-row via :math:`H[:, :, k] s` for each price index.
+
+* **Cournot quantity setting**:
+  :math:`\Delta_C = -(\Omega \odot D^{-1}) s`. Pass-through is the
+  analogue using the inverse demand Jacobian.
+
+* **Monopoly / joint profit maximization**: special case of Bertrand
+  with :math:`\Omega = J` (all-ones ownership for joint maximization)
+  or the relevant ownership structure for monopoly over the candidate
+  product set.
+
+* **Partial collusion**: Bertrand-style with
+  :math:`\Omega \to \Omega \odot \kappa` for a profit-weight matrix
+  :math:`\kappa`.
+
+* **Mix Cournot/Bertrand**: per-product flag selects Cournot vs.
+  Bertrand FOC; pass-through assembles row-by-row from the two
+  closed forms.
+
+* **Vertical (downstream-Bertrand, upstream-anything)**: Villas-Boas
+  (2007) — see the dedicated section above.
+  :py:func:`pyRVtest.solve.passthrough.build_passthrough` keeps the
+  existing analytical fast path for this case rather than routing
+  through the numerical core.
+
+* **CustomConductModel**: no closed form by construction. The
+  numerical core perturbs the user-supplied markup callable directly.
+
+
 Where the formulas live in code
 -------------------------------
 
@@ -177,7 +245,11 @@ Where the formulas live in code
   :py:func:`pyRVtest.markups.evaluate_first_order_conditions`.
 * Demand-adjustment correction (DMSS Appendix C / DMQSS Appendix B):
   :py:func:`pyRVtest.solve.demand_adjustment.compute_demand_adjustment`.
-* Villas-Boas passthrough matrix:
+* Villas-Boas passthrough matrix (Vertical analytical fast path):
   :py:func:`pyRVtest.construct_passthrough_matrix`.
+* Numerical pass-through for all conducts (DMQSW Phase 1):
+  :py:func:`pyRVtest.solve.passthrough.compute_passthrough_numerical`.
+* Pass-through dispatch entry point:
+  :py:func:`pyRVtest.solve.passthrough.build_passthrough`.
 * mpmath high-precision recompute trigger:
   :py:func:`pyRVtest.solve.test_engine._recompute_F_high_precision`.
