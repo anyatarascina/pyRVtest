@@ -1,15 +1,24 @@
-# Plan — DMQSW pass-through diagnostic suite (v0.5)
+# Plan — DMQSW pass-through diagnostic suite (v0.4)
+
+> **Note on scope**: an earlier draft of this plan staged the diagnostic
+> for v0.5. The decision to pull it into v0.4 (between rc1 and final tag)
+> simplifies the backward-compat layer substantially: rc1 was internal /
+> coauthor-only, so renames and removals can land directly without
+> deprecation aliases. The earlier v0.5-framed version is in git history
+> at commit `d4b6e31` if needed for reference.
 
 ## Goal
 
-Build a three-method pre/post-solve diagnostic suite that operationalizes
-the Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026) framework
+Ship the full Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026)
 ("Learning Firm Conduct: Pass-Through as a Foundation for Instrument
-Relevance"). Diagnostics support **theoretical, ex-ante reasoning** about
-which pass-through features distinguish candidate conduct models, plus
-**post-solve channel decomposition** of causal effects given the user's
-fitted instruments. Inference-honest empirical reliability remains in
-``reliability_summary`` (renamed from ``F_reliability_summary``).
+Relevance") diagnostic suite **as part of v0.4 final**, alongside the
+DMSS (Duarte et al. 2024) reliability machinery and the DMQSS
+(non-constant cost) extension already in rc1.
+
+The release tells one coherent paper-package story: the test (DMSS),
+the framework that motivates instrument selection (DMQSW), and the
+non-constant-cost extension (DMQSS) all ship together with first-class
+diagnostics for each.
 
 ## Design principles
 
@@ -21,13 +30,13 @@ fitted instruments. Inference-honest empirical reliability remains in
 
 2. **No verdict labels.** Direct CV reporting in ``reliability_summary``;
    the user reads off the reliability claim that matches their (α, β)
-   application. No package-imposed reliable/weak/degenerate
+   application. No package-imposed reliable / weak / degenerate
    classification.
 
 3. **Numerical-first implementation.** One numerical perturbation routine
    handles every conduct class plus composites (where applicable),
    replacing per-conduct closed-form derivations. Analytical formulas
-   stay in math.rst as reference; v0.6+ can add closed-form fast paths
+   stay in math.rst as reference; v0.5+ can add closed-form fast paths
    if performance becomes a bottleneck.
 
 4. **Composite-aware honesty.** Composite IVs (BLP-style sums,
@@ -42,18 +51,19 @@ fitted instruments. Inference-honest empirical reliability remains in
    structural and pointing at the docstring + DMQSW for methodology.
    No verbose "How to read" + "Methodology" footers.
 
-## Out of scope for v0.5
+## Out of scope for v0.4 final
 
-- Closed-form analytical pass-through per conduct (numerical-first; v0.6+).
+- Closed-form analytical pass-through per conduct (numerical-first;
+  v0.5+ can add closed-form fast paths).
 - ``moment_relevance`` (empirical pre-screening; suppressed to avoid
   post-selection inference issues).
 - ``counterfactual_relevance`` (Section 3.4 / Remark 6 of DMQSW; deferred
-  to v0.6 unless user demand emerges).
+  to v0.5 unless user demand emerges).
 - ``F_se`` / ``F_ci_low`` / ``F_ci_high`` (removed entirely; DMSS verdict
-  + CVs is the inference channel).
+  + CVs is the inference channel — see Phase 4).
 - Instrument-type metadata for package-generated composites
   (``pyRVtest.instruments.blp_instruments`` etc. could thread through
-  primitive-column metadata for full direct-channel decomposition; v0.6+).
+  primitive-column metadata for full direct-channel decomposition; v0.5+).
 - Demand-curvature flexibility checks (DMQSW Section 4.2; doc-only
   addition can ship independently).
 
@@ -229,8 +239,8 @@ across all conduct classes via a single numerical perturbation routine.
 
 1.2 Generalize `build_passthrough(problem, model_index, market_id)` to
     dispatch through `compute_passthrough_numerical` rather than the
-    Vertical-only Villas-Boas closed form. Drop the
-    `is_vertical` validation gate.
+    Vertical-only Villas-Boas closed form. Drop the `is_vertical`
+    validation gate.
 
 1.3 Update `math.rst` to document the closed-form analytical formulas
     per conduct as reference (Bertrand, Cournot, Monopoly, JP,
@@ -244,14 +254,14 @@ across all conduct classes via a single numerical perturbation routine.
       UserSuppliedMarkups all match `I` exactly. RuleOfThumb(φ) matches
       `φ·I` exactly.
     - Numerical vs. existing Vertical analytical implementation:
-      bit-identical on a 100-market vertical fixture.
+      bit-identical or within 1e-12 on a 100-market vertical fixture.
     - Numerical vs. paper Example 2 hand-computed 2×2 logit matrices
       for Bertrand, Cournot, JP, Keystone — match within 1e-9.
     - Smoke tests: every conduct class returns a finite, well-conditioned
       `P_m` on the synthetic example data.
 
-**Deliverables:** generalized `build_passthrough`; numerical core; tests;
-math.rst updates.
+**Deliverables:** generalized `build_passthrough`; numerical core;
+tests; math.rst updates.
 
 ### Phase 2 — `passthrough_summary` (1–2 sessions)
 
@@ -314,7 +324,8 @@ channels.
 
 3.3 Combined per-pair table: `indirect`, `direct`, `total`. Indirect
     computed as `P_m · (P_m^{-1} − P_m'^{-1}) · dp_0/dz` evaluated per
-    market and aggregated. Direct = `β_m − β_m'`. Total = indirect + direct.
+    market and aggregated. Direct = `β_m − β_m'`. Total = indirect +
+    direct.
 
 3.4 Per-instrument-type footnotes hardcoded for primitive types; for
     composite or unlabeled types, footnote acknowledges the composite
@@ -334,27 +345,25 @@ channels.
 **Deliverables:** `causal_effects` method; conditional regression for
 direct channel; per-pair table assembly; tests.
 
-### Phase 4 — Backward compat + cleanup (≤0.5 session)
+### Phase 4 — rc1 → final cleanup (≤0.25 session)
 
-4.1 Rename `F_reliability_summary` → `reliability_summary` on
-    `ProblemResults`. Keep `F_reliability_summary` as an alias raising
-    `DeprecationWarning` for one release; remove in v0.6.
+Direct renames and removals — no deprecation layer, since rc1 was internal.
 
-4.2 **Drop `F_se`, `F_ci_low`, `F_ci_high` from the codebase entirely.**
+4.1 **Rename** `F_reliability_summary` → `reliability_summary` on
+    `ProblemResults`. No alias.
+
+4.2 **Remove `F_se`, `F_ci_low`, `F_ci_high` from the codebase entirely.**
     - Remove computation in `pyRVtest/solve/test_engine.py` (or
       wherever the SE is computed).
     - Remove the per-cell array attributes from `ProblemResults`.
     - Update api.rst's "Per-cell array attributes" list.
     - Remove from any returned DataFrames (reliability_summary,
       summary_df, etc.).
-    - Existing user code accessing `results.F_se` etc. raises
-      `AttributeError` with a brief pointer to `reliability_summary`
-      and the DMSS CV columns.
 
-4.3 **Drop `verdict` column** from `reliability_summary` output. The
-    underlying classification logic may stay if it's used by
-    `print(results)` for the symbol annotations (††/^^^), but the
-    diagnostic DataFrame doesn't carry the categorical label.
+4.3 **Remove `verdict` column** from `reliability_summary` returned
+    DataFrame. Underlying classification logic stays if needed by
+    `print(results)` symbol annotations (††/^^^), but not exposed in
+    the diagnostic DataFrame.
 
 4.4 **Rename CV columns** in `reliability_summary` to the explicit
     (axis, level) grid:
@@ -365,23 +374,18 @@ direct channel; per-pair table assembly; tests.
     - `strongest_claim_size` / `strongest_claim_power` → covered by
       `size_cv_075` / `power_cv_095`
     - Add empirical-ρ CV columns: `size_cv_*_emp`, `power_cv_*_emp`
-    - Provide property forwards on `ProblemResults` mapping the v0.4
-      names to the new columns; `DeprecationWarning` on access; remove
-      in v0.6.
 
-4.5 Existing `passthrough_comparison(metric='frobenius'|'offdiag_frobenius'|'max_abs')`
-    is superseded by `passthrough_summary` (which exposes a richer
-    feature grid). Keep `passthrough_comparison` working as an alias
-    that maps to a single column of `passthrough_summary` output;
-    `DeprecationWarning`; remove in v0.6.
+4.5 `passthrough_comparison` (existing v0.4 rc1 method) is superseded by
+    `passthrough_summary`. Removed outright; users redirected via the
+    rc1 → final notes in CHANGELOG and migrating_to_v0.4.rst.
 
 4.6 The "offdiag_frobenius is Remark 4" docstring claim in the existing
-    code is wrong (or paper-renumbered). Rename to `offdiag_distance`
-    (no remark claim) and add `offdiag_ratio` as a new metric for the
-    actual Remark 1 quantity.
+    rc1 code is wrong (or paper-renumbered). The metric is removed
+    along with `passthrough_comparison`; the corresponding feature
+    `offdiag_ratio` (Remark 1) lives in `passthrough_summary`.
 
-**Deliverables:** clean v0.5 API; deprecation aliases; updated docstrings;
-no F_se/F_ci anywhere in the codebase.
+**Deliverables:** clean v0.4-final API; updated docstrings; no F_se /
+F_ci anywhere in the codebase; no v0.4 rc1 cruft.
 
 ### Phase 5 — Documentation (1–2 sessions)
 
@@ -416,35 +420,39 @@ no F_se/F_ci anywhere in the codebase.
       finite-sample power)
     - "How do I tell if a weak F-stat means structural degeneracy or
       limited identifying variation in the data?" (cross-read
-      `reliability_summary` against `passthrough_summary` — see worked
-      example with three cells of the cross-tab)
-    - "What happened to `F_reliability_summary` / `passthrough_comparison`
-      / `F_se` / `verdict`?" (renames and removals; pointer to v0.5
-      release notes)
+      `reliability_summary` against `passthrough_summary`)
     - "Why isn't there a `moment_relevance` or empirical pre-screening
-      method?" (post-selection inference issues; the framework view in
-      `passthrough_summary` is the recommended ex-ante reasoning)
+      method?" (post-selection inference issues)
 
-5.5 Migration recipe in `docs/migrating_to_v0.5.rst` (new file or
-    addendum to `migrating_to_v0.4.rst`):
+5.5 Update `docs/migrating_to_v0.4.rst` with the rc1 → final changes:
     - `F_reliability_summary` → `reliability_summary`
     - `F_se` / `F_ci_*` removed
-    - `verdict` removed; read CV columns directly
-    - `passthrough_comparison` → `passthrough_summary`
-    - New `causal_effects` method on `ProblemResults`
+    - `verdict` column removed
+    - `passthrough_comparison` removed; use `passthrough_summary`
+    - CV column renames
+    - New `passthrough_summary` and `causal_effects` methods on
+      `Problem` / `ProblemResults`
+    - `Problem(instrument_types=...)` kwarg
 
-5.6 Docstring methodology text for each new/renamed method
+5.6 README update: the v0.4 headline-features bullet list expands to
+    include the DMQSW pass-through diagnostic suite.
+
+5.7 Docstring methodology text for each new/renamed method
     (`reliability_summary`, `passthrough_summary`, `causal_effects`).
     Single source of truth for the methodology; printed-output footers
     point to the docstring.
 
-**Deliverables:** rewritten advanced_features section; expanded math.rst;
-new tutorial section; FAQ entries; migration guide; docstrings.
+5.8 CHANGELOG entry under `[0.4.0]` (final tag, not rc1) describing the
+    diagnostic suite as a v0.4 feature.
+
+**Deliverables:** rewritten advanced_features section; expanded
+math.rst; tutorial section; FAQ entries; updated migration guide;
+README and introduction.rst updates; docstrings; CHANGELOG.
 
 ### Phase 6 (optional) — Washington marijuana replication (1 session)
 
 Replication script demonstrating the three-method workflow on the paper's
-headline application. High teaching value; zero feature dependency.
+headline application.
 
 **Deliverables:** `docs/notebooks/replication_DMQSW_marijuana.py` that
 reproduces the Bertrand-vs-Keystone test using ad valorem tax instruments,
@@ -456,90 +464,92 @@ with ex-ante `passthrough_summary` framing and post-solve `causal_effects`
 These can be resolved during implementation; flagging now so they don't
 block later.
 
-1. **DEGENERATE asterisk threshold in `passthrough_summary`.** Per the
-   latest design, no asterisks; users read the numbers. **Resolved.**
+1. **DEGENERATE asterisk threshold in `passthrough_summary`.** No
+   asterisks; users read the numbers. **Resolved.**
 
 2. **Aggregation default for `passthrough_summary`.** Median across
    markets (`detail='median'`). `detail='full'` for per-market.
    **Resolved.**
 
-3. **Per-feature footnote text length.** One line per feature. Longer
-   text in docstring. **Resolved.**
+3. **Per-feature footnote text length.** One line per feature in printed
+   view; longer text in docstring. **Resolved.**
 
-4. **Composite IV handling: structural-side computability.**
+4. **Composite IV: structural-side computability.**
    `‖P_m^{-1} − P_m'^{-1}‖` is candidate-specific, not z-specific →
    computable for any z. ✓
 
 5. **Composite IV: direct channel via conditional regression.** Works
-   uniformly for primitive and composite z. ✓ No special-casing needed
-   in v0.5.
+   uniformly for primitive and composite z. No special-casing needed
+   in v0.4. ✓
 
-6. **Naming `causal_effects` vs `instrument_response` vs `dpdz_breakdown`.**
-   `causal_effects`. **Resolved.**
+6. **Naming `causal_effects`.** **Resolved.**
 
-7. **Naming `reliability_summary` vs `inference_summary` vs `dmss_reliability`.**
-   `reliability_summary`. **Resolved.**
+7. **Naming `reliability_summary`.** **Resolved.**
 
-8. **Worst-case-ρ CV layout: header block per IV set vs per-pair columns.**
-   Header block — CVs are pair-invariant within an IV set. **Resolved.**
+8. **Worst-case-ρ CV layout: header block per IV set.** **Resolved.**
 
 9. **Empirical-ρ CV columns in printed view.** Header block uses worst-ρ;
-   empirical-ρ CVs appear only in the returned DataFrame. **Resolved.**
+   empirical-ρ CVs only in the returned DataFrame. **Resolved.**
 
-10. **`Problem(instrument_types=...)` declaration: required vs optional.**
-    Optional. Methods gracefully degrade if undeclared. Users get a
-    composite/unlabeled fallback that reports empirical magnitudes
-    without per-feature framework annotation. **Resolved.**
+10. **`Problem(instrument_types=...)` declaration: optional.** Methods
+    gracefully degrade if undeclared. **Resolved.**
 
-11. **Composite IV labels: `composite_rival_product_char` etc. vs just
-    `composite`.** v0.5 ships with a single `composite` fallback;
-    parent-class labels (`composite_rival_product_char`) deferred to
-    v0.6 for users who want the full_pass annotation under linear-index
-    demand. **Resolved (deferred).**
+11. **Composite IV labels: single `composite` fallback.** Parent-class
+    labels (`composite_rival_product_char`) deferred to v0.5+.
+    **Resolved (deferred).**
 
-12. **`Problem.declare_composite_iv(...)` API for underlying-column
-    metadata.** Deferred to v0.6+. v0.5 composites get conditional
-    regression for direct channel without needing primitive
-    decomposition.
+12. **`Problem.declare_composite_iv(...)` API.** Deferred to v0.5+.
 
 ## Risks
 
-1. **Numerical pass-through performance.** A 3000-market × 4-candidate
+1. **rc1 → final scope creep.** Adding 3.75–7.5 sessions of new feature
+   work to a release at rc1 risks pushing v0.4 final further out and
+   introduces additional rc cycles (likely rc2 and rc3). Mitigation:
+   ship in three coherent rc tags (see Incremental shipping below);
+   keep coauthors informed of expected timeline; trim Phase 6
+   (replication) if scope tightens.
+
+2. **rc1 user breakage.** Anyone running v0.4.0rc1 in production sees
+   `AttributeError` on `F_se`, `F_reliability_summary`, etc. Confirmed
+   acceptable since rc1 is internal / coauthor-only. CHANGELOG entry
+   documents the rc1 → final changes prominently.
+
+3. **Numerical pass-through performance.** A 3000-market × 4-candidate
    diagnostic computes 12,000 numerical pass-through matrices, each
    requiring `J + 1` markup recomputations. For `J = 2` products this
    is ~36,000 markup evaluations; for larger `J` it scales linearly.
    Mitigation: cache the demand Hessian once per market and reuse
-   across candidates (Hessian depends on demand only); benchmark on a
-   `J = 20` BLP fixture during Phase 1; if too slow, add a closed-form
-   Bertrand fast path in v0.6.
+   across candidates; benchmark on a `J = 20` BLP fixture during
+   Phase 1; if too slow, add a closed-form Bertrand fast path before
+   final or defer to v0.5.
 
-2. **Existing Vertical implementation regression.** Generalizing
-   `build_passthrough` to dispatch through the numerical core could
-   subtly change the Vertical numerics (e.g., different δ choice,
-   different precision). Mitigation: cross-validate against the
-   existing Villas-Boas closed form on the existing test fixtures;
-   require bit-identical or within-1e-12 agreement.
+4. **Existing Vertical implementation regression.** Generalizing
+   `build_passthrough` could subtly change Vertical numerics.
+   Mitigation: cross-validate against the existing Villas-Boas closed
+   form on the existing test fixtures; require bit-identical or
+   within-1e-12 agreement before merging Phase 1.
 
-3. **Conditional regression noise for direct channel.** OLS slope of
+5. **Conditional regression noise for direct channel.** OLS slope of
    `Δ_m` on `z` conditional on `p` has finite-sample noise. For
    primitive cost shifters where `∂Δ_m/∂z = 0` analytically, β_m might
-   come out as small-but-nonzero (e.g., 0.001) due to sample
-   correlation. Acceptable for diagnostic purposes; document as
-   "near-zero β_m for cost shifters reflects sample correlation, not
-   structural direct effect."
+   come out small-but-nonzero. Acceptable for diagnostic purposes;
+   document as "near-zero β_m for cost shifters reflects sample
+   correlation, not structural direct effect."
 
-4. **F_se / F_ci removal as backward-incompat.** Existing user code
-   accessing these raises AttributeError in v0.5. Mitigation: clear
-   release-note entry; the pyRVtest user base is small and these were
-   recent additions, so blast radius is limited.
+6. **Step 16 (AFSSZ dogfood) interaction.** Step 16 is already
+   outstanding before v0.4 final per CHANGELOG. The new diagnostic
+   work is independent of Step 16's data path, so they can proceed in
+   parallel — but each could surface issues affecting the other.
+   Mitigation: run the synthetic-example tests after each phase merge;
+   keep Step 16 and the diagnostic suite in separate commits / merge
+   units.
 
-5. **Paper renumbering of Remarks.** The existing `passthrough_comparison`
-   docstring claims `offdiag_frobenius` "implements Remark 4." In the
-   current DMQSW draft (paper retitled from "Falsifying Models and Tax
-   Instruments"), the off-diagonal-to-diagonal ratio is **Remark 1**,
-   not Remark 4. Mitigation: drop inline Remark numbers from output;
-   keep them only in math.rst where they're co-located with derivations.
-   Future paper updates only require math.rst edits, not output strings.
+7. **Paper renumbering of Remarks.** The existing rc1
+   `passthrough_comparison` docstring claims `offdiag_frobenius`
+   "implements Remark 4." In the current DMQSW draft, the off-diagonal-
+   to-diagonal ratio is **Remark 1**. Mitigation: drop inline Remark
+   numbers from output; keep them only in math.rst where they're
+   co-located with derivations.
 
 ## Test strategy
 
@@ -554,20 +564,25 @@ block later.
   per-model block with expected diagonal/off-diagonal patterns.
 
 - **`causal_effects` (Phase 3):** synthetic example shows zero direct
-  channel for cost shifters (β_m ≈ 0 across candidates). Indirect
-  channel reproduces the `(Cournot, PC)` degeneracy. Synthetic
-  product-char fixture shows `(Cournot, RT(2))` as direct-only:
-  indirect ≈ 0, direct ≠ 0.
+  channel for cost shifters. Indirect channel reproduces the
+  `(Cournot, PC)` degeneracy. Synthetic product-char fixture shows
+  `(Cournot, RT(2))` as direct-only.
 
 - **`reliability_summary` (Phase 4):** existing F-stat values unchanged;
   CV columns rename correctly; `F_se` / `F_ci_low` / `F_ci_high` raise
-  AttributeError; deprecation aliases emit warnings.
+  `AttributeError`; `F_reliability_summary` raises `AttributeError`
+  (no alias in v0.4 final since rc1 was internal).
 
 - **End-to-end:** the README quick-start narrative now runs
   `passthrough_summary()` between Problem construction and `solve()`;
   the diagnostic output flags `(Cournot, PC)` ex-ante; post-solve
   `reliability_summary` confirms with F-stat = 0; `causal_effects`
   shows the zero indirect.
+
+- **Snapshot regression suite:** existing snapshots (analytical_base,
+  analytical_base_fe, first_stage_*_path, nested_logit_vertical, etc.)
+  remain bit-identical or within tolerance. Any drift gets investigated
+  before merge.
 
 ## Estimated effort
 
@@ -576,46 +591,69 @@ block later.
 | 1 — Numerical pass-through | 1–2 |
 | 2 — `passthrough_summary` | 1–2 |
 | 3 — `causal_effects` | 1–2 |
-| 4 — Backward compat (rename, drop F_se/CI/verdict, CV column rename) | 0.25–0.5 |
+| 4 — rc1 → final cleanup (renames, drops; no aliases needed) | ≤0.25 |
 | 5 — Documentation | 1–2 |
 | 6 (optional) — Replication script | 1 |
 
-**Total: 4.25–8.5 sessions.** Phase 6 optional adds 1 session if pursued.
+**Total: 4.25–8.25 sessions, plus optional Phase 6.** Saves ~0.25
+session vs. v0.5 framing because no deprecation aliases; otherwise
+same scope.
 
-## Incremental shipping plan
+## Incremental shipping plan — three rc tags to v0.4 final
 
-The plan can land in three coherent merges, each useful on its own:
+Each merge can ship as an rc tag, letting coauthors test along the way:
 
-**Merge 1: Phases 1 + 4** — pass-through generalization + cleanup. Drops
-F_se / F_ci / verdict; renames `F_reliability_summary` → `reliability_summary`;
-generalizes `build_passthrough` beyond Vertical. Already a meaningful
-release: removes the Vertical-only caveat and tightens the inference API.
+**rc2: Phases 1 + 4** — pass-through generalization + rc1 cleanup. Drops
+F_se / F_ci / verdict; renames `F_reliability_summary` → `reliability_summary`
+and CV columns; generalizes `build_passthrough` beyond Vertical. Already
+a meaningful release: removes the Vertical-only caveat and tightens the
+inference API without yet introducing new methods.
 
-**Merge 2: + Phase 2** — `passthrough_summary` lands. Researchers get
-the structural pre-solve view with multi-feature per-pair distances.
+**rc3: + Phase 2** — `passthrough_summary` lands. Researchers get the
+structural pre-solve view with multi-feature per-pair distances.
 
-**Merge 3: + Phase 3 + Phase 5** — `causal_effects` + tutorial / FAQ /
-docs. The headline DMQSW diagnostic is complete and documented.
+**v0.4.0 final: + Phase 3 + Phase 5** — `causal_effects` + tutorial /
+FAQ / docs. The headline DMQSW diagnostic is complete and documented.
 
-Phase 6 (replication) ships independently whenever convenient.
+Phase 6 (replication) ships as a follow-on commit on `main` or in v0.4.1.
 
-## Acceptance criteria for v0.5 release
+This sequencing also means rc2 and rc3 catch any regression issues in
+the pass-through machinery before the new methods are layered on top.
+
+## Acceptance criteria for v0.4 final tag
 
 - All conduct classes have working numerical pass-through (no
   Vertical-only restrictions).
 - `passthrough_summary` returns the four pass-through-feature distances
   per pair on the synthetic example with the expected pattern
-  (`(Cournot, PC)` degenerate on `offdiag_ratio`).
+  (`(Cournot, PC)` shows `offdiag_ratio = 0.000`).
 - `causal_effects(column='rival_z2')` returns the structural-side,
-  data-side, direct-channel blocks plus the per-pair indirect/direct/total
-  table. Direct channel is ~0 for cost shifters across all candidates.
-- `reliability_summary` is the new name; `F_reliability_summary` works
-  with deprecation warning. F_se / F_ci / verdict columns are gone.
-- All v0.4 `passthrough_comparison` user code still works with
-  deprecation warning.
+  data-side, direct-channel blocks plus the per-pair indirect/direct/
+  total table. Direct channel is ~0 for cost shifters across all
+  candidates.
+- `reliability_summary` is the canonical name (no `F_reliability_summary`
+  alias in final). `F_se` / `F_ci` / `verdict` columns are gone.
+- `passthrough_comparison` removed; users redirected via migration
+  guide.
 - Documentation: advanced_features.rst Pass-through section rewritten;
   math.rst expanded; tutorial section + FAQ entries written;
-  migration guide updated.
+  migrating_to_v0.4.rst updated; CHANGELOG entry under `[0.4.0]`.
+- README highlights the DMQSW diagnostic suite as a v0.4 feature.
 - All numerical results on the existing test suite are bit-identical
   or within numerical tolerance (1e-12 for closed-form-equivalent
   numerics; paper-derived analytical comparisons within 1e-9).
+- Step 16 (AFSSZ dogfood) — independent of this plan; gated on AFSSZ
+  panel data availability per the rc1 CHANGELOG note.
+
+## Coauthor-coordination notes
+
+- Coauthors who tested v0.4.0rc1 will see API renames in v0.4 final.
+  Worth a heads-up email between rc1 and rc2 so they don't pin rc1.
+- The DMQSW paper is authored with Lorenzo / Daniel / Adam / Sarah; if
+  they're using pyRVtest in the Washington marijuana replication, the
+  v0.4 final API is what they should be pinning. Phase 6 (replication
+  script) gives them a working in-package example.
+- Lorenzo's audits historically catch labor-side and exception-hierarchy
+  issues. The new methods (`passthrough_summary`, `causal_effects`)
+  should get a dedicated audit pass before final tag, similar to the
+  rc1 break-it pass on 2026-04-18.
