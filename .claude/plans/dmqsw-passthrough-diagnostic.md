@@ -287,15 +287,30 @@ per-feature footnotes.
 2.5 Per-feature footnotes (one short line each) hardcoded in the printed
     view; longer per-feature text in the docstring.
 
-2.6 `ProblemResults.passthrough_summary` is a thin wrapper delegating
+2.6 **Methodology line** in the printed output indicating how the
+    underlying pass-through matrices were computed, conditional on the
+    candidate-set composition:
+    - All non-Vertical candidates: "Pass-through computed numerically
+      via central-difference perturbation through the markup function
+      (delta=1e-7). See docs/math.rst."
+    - All Vertical candidates: "Pass-through computed analytically via
+      Villas-Boas (2007) closed form. See docs/math.rst."
+    - Mixed: "Pass-through: Villas-Boas analytical for Vertical
+      candidates; central-difference numerical (delta=1e-7) for
+      others. See docs/math.rst."
+    Trivial-closed-form short-circuit conducts (PC, ConstantMarkup,
+    UserSuppliedMarkups, RuleOfThumb) are noted as "exact" rather than
+    numerical when present.
+
+2.7 `ProblemResults.passthrough_summary` is a thin wrapper delegating
     to the underlying Problem (results.problem.passthrough_summary(...)).
 
-2.7 Tests on the synthetic example confirming `(Cournot, PC)` shows
+2.8 Tests on the synthetic example confirming `(Cournot, PC)` shows
     `offdiag_ratio = 0.000` and other features nonzero; cross-validate
     median aggregation against a hand-computed sample.
 
 **Deliverables:** `passthrough_summary` on Problem and ProblemResults;
-per-model block; metric registry; tests.
+per-model block; metric registry; methodology line; tests.
 
 ### Phase 3 — `causal_effects` with channel decomposition (1–2 sessions)
 
@@ -332,7 +347,16 @@ channels.
     treatment (direct channel via conditional regression works for any
     z; structural and data sides too).
 
-3.5 Tests:
+3.5 **Methodology line** in the printed output (same scheme as Phase 2's
+    step 2.6): document how the underlying pass-through matrices were
+    computed, conditional on the candidate-set composition (numerical
+    central-difference / analytical Villas-Boas / mixed). Note also
+    that `dp_0/dz` comes from a sample regression (not analytical) and
+    `β_m` from a conditional regression of `Δ_m` on `z` given `p`. The
+    user reads the methodology line and knows which numbers in the
+    table are empirical vs structural without consulting the docstring.
+
+3.6 Tests:
     - On synthetic example with rival cost shifter: direct channel = 0
       across all candidates and pairs (cost shifters don't enter markup).
       Indirect for `(Cournot, PC)` is exactly zero.
