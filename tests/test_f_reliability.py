@@ -1,10 +1,10 @@
 """Tests for the F-stat reliability diagnostic.
 
-Covers (post 2026-05-01 worst-case-CV redesign):
+Covers (v0.4 final layout):
 - New attributes are populated on ProblemResults after solve, including
   ``worst_case_cv_size`` / ``worst_case_cv_power``.
-- F_reliability_summary() returns a DataFrame with the expected columns.
-- The math (lambda, SE(F), CI bounds) matches the documented formulas.
+- reliability_summary() returns a DataFrame with the expected columns.
+- The lambda diagnostic matches the documented formula.
 - F̂ via the simplified formula matches the literal paper formula
   algebraically (parity check at safe rho^2 values).
 - The trivially-degenerate verdict fires when two models produce identical
@@ -18,8 +18,6 @@ Design and calibration: .claude/handovers/MEMO_F_reliability_diagnostic_2026-04-
 """
 from __future__ import annotations
 
-import math
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -27,7 +25,6 @@ import pytest
 import pyRVtest
 from pyRVtest.solve.test_engine import (
     RELIABILITY_LAMBDA_THRESHOLD,
-    RELIABILITY_CI_LEVEL,
 )
 
 
@@ -107,7 +104,7 @@ class TestReliabilityAttributesPopulated:
         df = _make_tiny_dgp()
         results = _solve_two_models(df)
         for attr in [
-            'lambda_dmss', 'F_se', 'F_ci_low', 'F_ci_high',
+            'lambda_dmss',
             'verdict', 'strongest_claim_size', 'strongest_claim_power',
             'worst_case_cv_size', 'worst_case_cv_power',
         ]:
@@ -119,7 +116,7 @@ class TestReliabilityAttributesPopulated:
         results = _solve_two_models(df)
         L = len(results.F)  # number of instrument sets
         M = results.F[0].shape[0]  # number of models
-        for attr in ['lambda_dmss', 'F_se', 'F_ci_low', 'F_ci_high']:
+        for attr in ['lambda_dmss']:
             value = getattr(results, attr)
             assert len(value) == L, f"{attr}: got {len(value)} sets, expected {L}"
             assert value[0].shape == (M, M), f"{attr}: got {value[0].shape}, expected ({M},{M})"
@@ -130,6 +127,19 @@ class TestReliabilityAttributesPopulated:
             value = getattr(results, attr)
             assert len(value) == L
             assert value[0].shape == (M, M)
+
+    def test_F_se_and_F_ci_are_removed(self):
+        """v0.4 final: F_se / F_ci_low / F_ci_high were removed entirely.
+
+        Accessing them should raise ``AttributeError`` so users on rc1 see
+        a clean migration signal rather than silently-stale attribute
+        access.
+        """
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        for attr in ['F_se', 'F_ci_low', 'F_ci_high']:
+            with pytest.raises(AttributeError):
+                getattr(results, attr)
 
 
 class TestLambdaMath:
@@ -160,34 +170,6 @@ class TestLambdaMath:
                     if i >= j:
                         # Diagonal and lower triangle: only upper triangle is computed.
                         assert np.isnan(lam[i, j]) or lam[i, j] == 0
-
-
-class TestCIMath:
-    """The 95% CI for F is centered on F with half-width 1.96 * SE(F)."""
-
-    def test_ci_centered_on_F_with_correct_half_width(self):
-        df = _make_tiny_dgp()
-        results = _solve_two_models(df)
-        for inst_idx in range(len(results.F)):
-            F = np.asarray(results.F[inst_idx])
-            se = np.asarray(results.F_se[inst_idx])
-            ci_lo = np.asarray(results.F_ci_low[inst_idx])
-            ci_hi = np.asarray(results.F_ci_high[inst_idx])
-            valid = ~np.isnan(se)
-            if valid.any():
-                expected_lo = F[valid] - RELIABILITY_CI_LEVEL * se[valid]
-                expected_hi = F[valid] + RELIABILITY_CI_LEVEL * se[valid]
-                np.testing.assert_allclose(ci_lo[valid], expected_lo, atol=1e-10)
-                np.testing.assert_allclose(ci_hi[valid], expected_hi, atol=1e-10)
-
-    def test_se_is_non_negative(self):
-        df = _make_tiny_dgp()
-        results = _solve_two_models(df)
-        for inst_idx in range(len(results.F)):
-            se = np.asarray(results.F_se[inst_idx])
-            valid = ~np.isnan(se)
-            if valid.any():
-                assert (se[valid] >= 0).all(), "SE(F) should be non-negative"
 
 
 class TestVerdictValues:
@@ -272,12 +254,14 @@ class TestTriviallyDegenerate:
         # Other pairs should have meaningful verdicts.
         assert v[0, 1] in ('robust', 'weak'), v[0, 1]
         assert v[1, 2] in ('robust', 'weak'), v[1, 2]
-        # F_reliability_summary should expose the trivially-degenerate row.
-        summary = results.F_reliability_summary()
-        td_rows = summary[summary['verdict'] == 'trivially-degenerate']
-        assert len(td_rows) >= 1, (
-            f"expected ≥1 trivially-degenerate row in summary; got {len(td_rows)}"
-        )
+        # reliability_summary should still emit a row for the trivially-
+        # degenerate pair (NaN F / claims, but the row is present). The
+        # verdict column was removed in v0.4 final, so check the source-
+        # level attribute instead.
+        summary = results.reliability_summary()
+        L = len(results.F)
+        M = results.F[0].shape[0]
+        assert len(summary) == L * M * (M - 1) // 2
 
     def test_mcs_pvalues_are_nan_for_models_in_identical_pair(self):
         """Models entangled in any trivially-degenerate pair get NaN MCS
@@ -350,31 +334,58 @@ class TestStrongestClaim:
                     assert any(level in c for level in ['50.0%', '75.0%', '95.0%'])
 
 
-class TestFReliabilitySummary:
-    """The F_reliability_summary() method returns a well-formed DataFrame."""
+class TestReliabilitySummary:
+    """The reliability_summary() method returns a well-formed DataFrame."""
 
     def test_dataframe_columns(self):
         df = _make_tiny_dgp()
         results = _solve_two_models(df)
-        out = results.F_reliability_summary()
+        out = results.reliability_summary()
         expected_cols = {
             'instrument_set', 'instrument_set_label',
             'model_i', 'model_j', 'model_i_label', 'model_j_label',
             'F', 'F_high_precision', 'rho_squared', 'lambda_dmss',
-            'F_se', 'F_ci_low', 'F_ci_high',
             'strongest_claim_size', 'strongest_claim_power',
-            'worst_case_cv_size', 'worst_case_cv_power',
-            'verdict',
+            'size_cv_075', 'size_cv_100', 'size_cv_125',
+            'power_cv_050', 'power_cv_075', 'power_cv_095',
+            'size_cv_075_emp', 'size_cv_100_emp', 'size_cv_125_emp',
+            'power_cv_050_emp', 'power_cv_075_emp', 'power_cv_095_emp',
         }
         assert set(out.columns) == expected_cols, (
             f"column mismatch. extra: {set(out.columns) - expected_cols}, "
             f"missing: {expected_cols - set(out.columns)}"
         )
 
+    def test_verdict_column_absent(self):
+        """v0.4 final: the verdict column is no longer exposed in the
+        DataFrame. The internal classification still drives the printed
+        warning glyph, but it is not surfaced in the diagnostic frame."""
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        out = results.reliability_summary()
+        assert 'verdict' not in out.columns
+
+    def test_F_se_columns_absent(self):
+        """v0.4 final: the F_se / F_ci_low / F_ci_high columns were
+        dropped from the diagnostic frame."""
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        out = results.reliability_summary()
+        for col in ['F_se', 'F_ci_low', 'F_ci_high']:
+            assert col not in out.columns
+
+    def test_F_reliability_summary_alias_removed(self):
+        """rc1 → final: F_reliability_summary() raises AttributeError;
+        no deprecation alias since rc1 was internal."""
+        df = _make_tiny_dgp()
+        results = _solve_two_models(df)
+        with pytest.raises(AttributeError):
+            results.F_reliability_summary()
+
     def test_dataframe_row_count(self):
         df = _make_tiny_dgp()
         results = _solve_two_models(df)
-        out = results.F_reliability_summary()
+        out = results.reliability_summary()
         L = len(results.F)
         M = results.F[0].shape[0]
         expected_rows = L * M * (M - 1) // 2
@@ -383,29 +394,42 @@ class TestFReliabilitySummary:
     def test_dataframe_lambda_in_unit_interval_or_nan(self):
         df = _make_tiny_dgp()
         results = _solve_two_models(df)
-        out = results.F_reliability_summary()
+        out = results.reliability_summary()
         valid = out['lambda_dmss'].notna()
         if valid.any():
             assert (out.loc[valid, 'lambda_dmss'] >= 0).all()
             assert (out.loc[valid, 'lambda_dmss'] <= 1.001).all()
 
-    def test_dataframe_ci_consistent_with_F_and_se(self):
+    def test_worst_rho_size_cv_columns_match_attribute(self):
+        """size_cv_075 / size_cv_100 / size_cv_125 should match the
+        worst_case_cv_size attribute. Column order in worst_case_cv_size
+        is [r_125, r_10, r_075] (paper Table 1, panel A)."""
         df = _make_tiny_dgp()
         results = _solve_two_models(df)
-        out = results.F_reliability_summary()
-        valid = out['F_se'].notna()
-        if valid.any():
-            sub = out.loc[valid]
-            np.testing.assert_allclose(
-                sub['F_ci_low'],
-                sub['F'] - RELIABILITY_CI_LEVEL * sub['F_se'],
-                atol=1e-10,
-            )
-            np.testing.assert_allclose(
-                sub['F_ci_high'],
-                sub['F'] + RELIABILITY_CI_LEVEL * sub['F_se'],
-                atol=1e-10,
-            )
+        out = results.reliability_summary()
+        # Pick the first valid pair across all instrument sets and
+        # check that the columns match the source array order.
+        for j in range(len(results.F)):
+            wc = results.worst_case_cv_size[j]
+            M = wc.shape[0]
+            for i in range(M):
+                for k in range(i + 1, M):
+                    if wc[i, k] is None:
+                        continue
+                    wc_arr = np.asarray(wc[i, k], dtype=float)
+                    if np.isnan(wc_arr).all():
+                        continue
+                    row = out[
+                        (out['instrument_set'] == j)
+                        & (out['model_i'] == i)
+                        & (out['model_j'] == k)
+                    ].iloc[0]
+                    np.testing.assert_allclose(
+                        [row['size_cv_125'], row['size_cv_100'], row['size_cv_075']],
+                        wc_arr, atol=1e-10,
+                    )
+                    return
+        pytest.skip("no valid pair to check")
 
 
 class TestThresholdConstants:
@@ -413,9 +437,6 @@ class TestThresholdConstants:
 
     def test_lambda_threshold(self):
         assert RELIABILITY_LAMBDA_THRESHOLD == 0.05
-
-    def test_ci_level(self):
-        assert RELIABILITY_CI_LEVEL == 1.96
 
 
 class TestWorstCaseCV:
@@ -638,21 +659,20 @@ class TestReliabilityCheckFlag:
             problem.solve(reliability_check='loose')
 
 
-class TestVerdictColumnIntegrity:
-    """F_reliability_summary's verdict column reports only documented
-    values. The 2026-05-01 redesign collapsed the previous four-tier
-    set to three: robust, weak, trivially-degenerate."""
+class TestVerdictAttributeIntegrity:
+    """The internal verdict attribute on ProblemResults still exposes
+    only the three documented values: robust, weak, trivially-degenerate.
+    (The verdict column was removed from reliability_summary() in v0.4
+    final, but the source-of-truth attribute remains for the printed
+    warning-glyph path.)"""
 
-    def test_verdict_label_in_summary(self):
+    def test_verdict_label_in_attribute(self):
         df = _make_tiny_dgp()
         results = _solve_two_models(df)
-        # F_reliability_summary should be well-formed and the verdict
-        # column should contain only the three documented values (NaN
-        # entries for cells where the diagnostic didn't run are dropped).
-        out = results.F_reliability_summary()
-        valid = {'robust', 'weak', 'trivially-degenerate'}
-        for v in out['verdict'].dropna():
-            assert v in valid, f"unexpected verdict {v!r}"
+        valid = {'robust', 'weak', 'trivially-degenerate', None}
+        for j in range(len(results.verdict)):
+            for v in np.asarray(results.verdict[j]).flatten():
+                assert v in valid, f"unexpected verdict {v!r}"
 
 
 class TestPrintedOutputIntegration:

@@ -117,8 +117,7 @@ A typical ``pyRVtest`` session has four stages:
    table per instrument set. The ``results`` object also exposes
    ``markups``, ``marginal_cost``,
    :meth:`~pyRVtest.ProblemResults.passthrough_matrix`,
-   :meth:`~pyRVtest.ProblemResults.passthrough_comparison` (DMQSW
-   Remark 4), :meth:`~pyRVtest.ProblemResults.F_reliability_summary`,
+   :meth:`~pyRVtest.ProblemResults.reliability_summary`,
    :meth:`~pyRVtest.ProblemResults.to_dataframe`, and other
    diagnostics.
 

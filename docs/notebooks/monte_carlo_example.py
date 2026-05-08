@@ -300,8 +300,10 @@ analytical_results = analytical_problem.solve(
 print("\nAnalytical demand_params path (Bertrand vs. PerfectCompetition):")
 print(analytical_results)
 
-# %% Passthrough diagnostics — Dearing et al. (2026) Remark 4
-# Only Vertical models support passthrough_matrix / passthrough_comparison in v0.4.
+# %% Passthrough diagnostic — per-model Villas-Boas matrix
+# Only Vertical models support passthrough_matrix in v0.4. The pairwise
+# pass-through diagnostic suite (passthrough_summary, causal_effects)
+# lands later in the v0.4 release process.
 vertical_indices = [
     i for i, m in enumerate(model_library)
     if isinstance(m, pyRVtest.Vertical)
@@ -320,11 +322,12 @@ vertical_results = vertical_problem.solve(
     clustering_adjustment=True,
 )
 
-# Pairwise off-diagonal Frobenius distance between pass-through matrices.
-# Near-zero ⟹ hard to separate the pair with pass-through instruments.
-pt_comparison = vertical_results.passthrough_comparison(metric='offdiag_frobenius')
-print("\nPassthrough comparison (Dearing Remark 4, off-diagonal Frobenius):")
-print(pt_comparison.groupby(['model_i_label', 'model_j_label'])['distance'].mean().to_string())
+# Inspect the per-(model, market) Villas-Boas passthrough matrix
+# directly — the basis for the Dearing et al. (2026) distinguishability
+# diagnostics.
+P0 = vertical_results.passthrough_matrix(model_index=0)
+print("\nPer-market passthrough matrices for vertical model 0 "
+      f"(found {len(P0)} markets).")
 
 # %% Labor-side example (experimental, v0.4 step 14)
 # Synthetic wage panel: 2 firms, 50 markets.

@@ -153,7 +153,7 @@ printed table:
    results.markups        # implied markups per candidate model
    results.marginal_cost  # implied marginal costs per candidate model
    results.passthrough_matrix(model=0, market_id=0)
-   results.F_reliability_summary()  # per-cell F-stat reliability columns
+   results.reliability_summary()    # per-cell F-stat reliability columns
    results.to_dataframe()           # long-form DataFrame for export
 
 See :doc:`api` for the full attribute / method reference and

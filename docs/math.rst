@@ -161,11 +161,9 @@ conduct,
 where :math:`\Omega_t` is the ownership matrix and :math:`H_t` is the
 matrix of demand derivatives. The implementation is in
 :py:func:`pyRVtest.construct_passthrough_matrix`. The diagnostic
-versions exposed on :class:`~pyRVtest.ProblemResults`
-(:meth:`~pyRVtest.ProblemResults.passthrough_matrix` and
-:meth:`~pyRVtest.ProblemResults.passthrough_comparison`) implement
-the DMQSW Remark 4 distinguishability conditions for the testing
-context.
+version exposed on :class:`~pyRVtest.ProblemResults`
+(:meth:`~pyRVtest.ProblemResults.passthrough_matrix`) returns
+:math:`\mathcal{P}_t` per (model, market) for inspection.
 
 
 Where the formulas live in code
