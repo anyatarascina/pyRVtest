@@ -8,6 +8,7 @@ The documentation can be navigated with the sidebar, the links below, or the ind
    :caption: User documentation:
 
    introduction
+   installation
    tutorial
    in_package_demand
    advanced_features
