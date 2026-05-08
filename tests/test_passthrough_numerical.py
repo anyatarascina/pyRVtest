@@ -351,9 +351,13 @@ class TestApproachAvsApproachB:
         At delta=1e-5, both methods are well into their convergence regimes.
         Approach A's truncation comes from linear-only treatment of
         (D(p), s(p)); approach B's truncation is standard central-diff on
-        the equilibrium solution. Both should agree on Bertrand pass-through
-        to within ~1e-4 absolute tolerance, well below the magnitudes
-        users would interpret structurally.
+        the equilibrium solution. Empirically the two agree to ~1e-9
+        absolute (essentially the floating-point noise floor for this chain
+        of matrix solves and finite differences).
+
+        We test at atol=1e-7, rtol=1e-6 — two orders of magnitude looser
+        than the empirical noise floor but tight enough to catch a real
+        regression if approach A's truncation behavior degrades.
         """
         from scipy.optimize import root  # type: ignore[import-untyped]
 
@@ -394,11 +398,12 @@ class TestApproachAvsApproachB:
             P_B[:, k] = (p_plus - p_minus) / (2.0 * delta)
 
         np.testing.assert_allclose(
-            P_A, P_B, atol=1e-4, rtol=1e-3,
+            P_A, P_B, atol=1e-7, rtol=1e-6,
             err_msg=(
                 "Approach A (numerical perturbation through markup) and "
                 "approach B (mc shock + equilibrium re-solve) disagree "
                 f"beyond expected truncation tolerance.\nA={P_A}\nB={P_B}\n"
-                f"diff={P_A - P_B}"
+                f"diff={P_A - P_B}\n"
+                f"max abs diff={np.max(np.abs(P_A - P_B)):.3e}"
             ),
         )
