@@ -77,7 +77,7 @@ Programmatic access mirrors the indexing: ``results.TRV[0]`` is the
 TRV matrix for instrument set 0 (``rival_z1 + rival_z2``);
 ``results.TRV[1]`` is for set 1 (``rival_z1`` alone). The same indexing
 applies to ``results.F``, ``results.MCS_pvalues``, and the
-:meth:`~pyRVtest.ProblemResults.F_reliability_summary` columns.
+:meth:`~pyRVtest.ProblemResults.reliability_summary` columns.
 
 When to use multiple instrument sets:
 
@@ -155,29 +155,22 @@ F-stat reliability inspection
 -----------------------------
 
 The ``F`` matrix in the printed output is one number per (model pair,
-instrument set). The DMSS scaled F-statistic has an asymptotic
-distribution at the implied non-centrality parameter, which the
-package uses to compute a 95% confidence interval and a per-cell
-*verdict* about whether the F-stat is robust to sampling noise
-(``robust``) or borderline (``borderline``).
-:meth:`~pyRVtest.ProblemResults.F_reliability_summary` returns a
+instrument set). DMSS-style robustness reduces to a comparison of
+``F`` against the published critical values at the cell's plug-in
+:math:`\hat\rho^2`, with a worst-rho variant for users who want a
+robustness margin on the :math:`\hat\rho^2` estimate.
+:meth:`~pyRVtest.ProblemResults.reliability_summary` returns a
 long-form ``pandas.DataFrame`` with one row per pair of candidate
 models for each instrument set:
 
 .. code-block:: python
 
    results = ...  # from any Problem.solve() call
-   df = results.F_reliability_summary()
+   df = results.reliability_summary()
    keep = ['model_i_label', 'model_j_label',
-           'F', 'rho_squared', 'F_ci_low', 'F_ci_high', 'verdict']
+           'F', 'rho_squared', 'size_cv_075', 'power_cv_095',
+           'strongest_claim_size']
    print(df[keep].to_string(index=False))
-
-Output on the shipped-example three-model run::
-
-   model_i_label       model_j_label         F  rho_squared  F_ci_low  F_ci_high verdict
-        bertrand             cournot 92.848681     0.327266 77.386264 108.311098  robust
-        bertrand perfect_competition  2.551670     0.947320  1.836781   3.266559  robust
-         cournot perfect_competition  0.006054     0.975397 -0.028044   0.040151  robust
 
 What the columns mean:
 
@@ -185,8 +178,6 @@ What the columns mean:
 * ``rho_squared`` — :math:`\hat\rho^2`, the moment-pair correlation
   whose proximity to 1 (the Cauchy-Schwarz boundary) drives numerical
   fragility.
-* ``F_ci_low`` / ``F_ci_high`` — 95% asymptotic CI for the population F
-  at the implied non-centrality.
 * ``F_high_precision`` — populated when the package detects
   :math:`\hat\rho^2` close to 1 and recomputes :math:`F` with mpmath
   at extra precision (NaN otherwise; a footnote in the printed table
@@ -194,16 +185,21 @@ What the columns mean:
 * ``strongest_claim_size`` / ``strongest_claim_power`` — the strongest
   worst-case size (or best-case power) claim the F passes, e.g.
   ``"worst-case size <= 7.5%"``.
-* ``worst_case_cv_size`` / ``worst_case_cv_power`` — the critical
-  values used for the size and power decisions, indexed by
-  :math:`K_{\text{eff}}` and :math:`\hat\rho^2`.
-* ``verdict`` — ``robust`` if the CI on the F-stat lies entirely on
-  one side of the relevant CV; ``borderline`` if the CI straddles a
-  decision boundary.
+* ``size_cv_075`` / ``size_cv_100`` / ``size_cv_125`` — worst-rho
+  size CVs at the 7.5% / 10% / 12.5% levels (max CV across
+  :math:`\rho^2 \in [0, 0.99]` at this :math:`K`). Clearing
+  ``size_cv_075`` is the strongest worst-rho size claim.
+* ``power_cv_050`` / ``power_cv_075`` / ``power_cv_095`` — worst-rho
+  power CVs at the 50% / 75% / 95% levels. Clearing ``power_cv_095``
+  is the strongest worst-rho power claim.
+* ``size_cv_075_emp`` / ``size_cv_100_emp`` / ``size_cv_125_emp`` and
+  ``power_cv_050_emp`` / ``power_cv_075_emp`` / ``power_cv_095_emp``
+   — the empirical-rho counterparts (CVs at the cell's plug-in
+  :math:`\hat\rho^2`). The internal verdict uses these; they take
+  :math:`\hat\rho^2` noise as given (no robustness margin) and are
+  typically less conservative than the worst-rho set.
 
-Read the F-stat alongside its CI: a point F that just clears a CV may
-be borderline once sampling noise is accounted for. The
-:meth:`~pyRVtest.ProblemResults.F_reliability_summary` DataFrame is
+The :meth:`~pyRVtest.ProblemResults.reliability_summary` DataFrame is
 ordered the same way as the printed table — model pairs in the upper
 triangle :math:`(i, j)` with :math:`i < j`, broken out by instrument
 set in the ``instrument_set`` column.
@@ -278,26 +274,22 @@ pass-through matrix
 :math:`\mathcal{P}_{mt} = \partial p_t / \partial mc_t`: rival cost
 shifters target the off-diagonal-to-diagonal ratio,
 product characteristics target the full matrix, and tax instruments
-target row sums. Two ProblemResults methods expose pass-through:
-
-* :meth:`~pyRVtest.ProblemResults.passthrough_matrix` — the
-  Villas-Boas (2007) :math:`\mathcal{P}_{mt}` for a single model and
-  market.
-* :meth:`~pyRVtest.ProblemResults.passthrough_comparison` — the DMQSW
-  Remark 4 pairwise distance between two candidate models'
-  pass-through matrices (Frobenius, max-element, or row-sum).
+target row sums.
+:meth:`~pyRVtest.ProblemResults.passthrough_matrix` returns the
+Villas-Boas (2007) :math:`\mathcal{P}_{mt}` for a single model and
+market.
 
 .. note::
 
-   In v0.4, both methods require **all candidate models in the
-   :class:`~pyRVtest.Problem` to be :class:`~pyRVtest.Vertical`
-   instances** — the closed-form Villas-Boas matrix the package
-   computes is for the downstream-upstream Bertrand-Bertrand case.
-   Calling either method on a non-Vertical model raises a clear
-   ``ValueError`` / ``NotImplementedError``. Numerical pass-through
-   for Bertrand / Cournot / RuleOfThumb / ConstantMarkup is on the
-   v0.5 roadmap; in the meantime the closed-form expressions for these
-   models are documented in :doc:`math` and in DMQSW.
+   :meth:`~pyRVtest.ProblemResults.passthrough_matrix` requires the
+   selected candidate model to be a :class:`~pyRVtest.Vertical`
+   instance — the closed-form Villas-Boas matrix the package computes
+   is for the downstream-upstream Bertrand-Bertrand case. Calling it
+   on a non-Vertical model raises a clear ``ValueError`` /
+   ``NotImplementedError``. Numerical pass-through for Bertrand /
+   Cournot / RuleOfThumb / ConstantMarkup is on the v0.5 roadmap; in
+   the meantime the closed-form expressions for these models are
+   documented in :doc:`math` and in DMQSW.
 
 The shipped-example data has only ``Bertrand`` / ``Cournot`` /
 ``PerfectCompetition`` candidates, so the methods are not directly

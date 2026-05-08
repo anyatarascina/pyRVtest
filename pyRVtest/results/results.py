@@ -38,8 +38,6 @@ from scipy.stats import norm
 from pyblp.utilities.basics import Array, StringRepresentation
 
 from .. import options
-from ..exceptions import ValidationError
-from ..models.vertical import Vertical
 from ..output import format_table
 from ..solve.passthrough import build_passthrough
 from ._format import _dataframe_to_github_markdown
@@ -82,7 +80,7 @@ def _format_pair_clause(cells: List[Dict[str, Any]], key_pair_label: str) -> str
 
     For a single cell, ``"1 pair (i, j)"`` (the only pair is the key).
     For multiple cells, ``"N pairs (key_pair_label: (i, j))"`` so the
-    user can locate the most-relevant case in F_reliability_summary().
+    user can locate the most-relevant case in reliability_summary().
     The caller passes ``key_pair_label`` (e.g. ``"least separated"``)
     and chooses which cell is the "key" by sorting ``cells`` upstream.
     """
@@ -134,7 +132,7 @@ def _indistinguishable_lines(cells: List[Dict[str, Any]]) -> List[List[str]]:
 # NOTE: The ``weakly separated by these instruments`` footnote was
 # removed on 2026-05-01 after Lorenzo's audit observed it firing on
 # 15/15 CarRV cells — at that frequency it adds no signal. Lambda is
-# still computed and exposed on F_reliability_summary() for users who
+# still computed and exposed on reliability_summary() for users who
 # want to inspect instrument-projected moment similarity per pair.
 
 
@@ -177,9 +175,6 @@ class Progress:
     # treats missing diagnostic fields as None and falls back to the legacy
     # display path.
     lambda_dmss_list: Optional[List[Any]] = None
-    F_se_list: Optional[List[Any]] = None
-    F_ci_low_list: Optional[List[Any]] = None
-    F_ci_high_list: Optional[List[Any]] = None
     verdict_list: Optional[List[Any]] = None
     strongest_claim_size_list: Optional[List[Any]] = None
     strongest_claim_power_list: Optional[List[Any]] = None
@@ -302,9 +297,6 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         # F-stat reliability diagnostic (additive). See
         # .claude/handovers/MEMO_F_reliability_diagnostic_2026-04-28.md.
         self.lambda_dmss = progress.lambda_dmss_list
-        self.F_se = progress.F_se_list
-        self.F_ci_low = progress.F_ci_low_list
-        self.F_ci_high = progress.F_ci_high_list
         self.verdict = progress.verdict_list
         self.strongest_claim_size = progress.strongest_claim_size_list
         self.strongest_claim_power = progress.strongest_claim_power_list
@@ -582,7 +574,7 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
             rows.extend(_extra_precision_lines(extra_precision_pairs))
         if trivially_pairs:
             rows.extend(_indistinguishable_lines(trivially_pairs))
-        rows.append(["  Detail: results.F_reliability_summary()."])
+        rows.append(["  Detail: results.reliability_summary()."])
         return rows
 
     def to_pickle(self, path: Union[str, Path]) -> None:
@@ -869,34 +861,36 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         frame.attrs['alpha'] = alpha
         return frame
 
-    def F_reliability_summary(self) -> 'pd.DataFrame':
+    def reliability_summary(self) -> 'pd.DataFrame':
         """Return per-cell F-stat reliability diagnostics.
 
         One row per (instrument set, model_i, model_j) with model_i < model_j.
-        Columns (under the 2026-05-01 worst-case-CV redesign):
+        Columns (under the v0.4 final layout):
 
         - ``F``, ``rho_squared``: existing test statistic and DMSS rho².
           When mpmath fires (lambda < 1e-10), these store the
-          higher-precision values; F_high_precision and
-          rho_squared_high_precision expose the swap explicitly.
+          higher-precision values; ``F_high_precision`` exposes the swap
+          explicitly.
         - ``lambda_dmss``: numerical-cancellation depth,
           ``((σ_0+σ_1)² − 4σ_2²) / (σ_0+σ_1)²``. Informational; surfaces
           the cancellation regime where mpmath replaced float64.
-        - ``F_se``, ``F_ci_low``, ``F_ci_high``: asymptotic SE and 95% CI
-          for F under the paper's noncentral chi-squared parametrization.
-          Retained for inspection; not used by the verdict.
         - ``strongest_claim_size``, ``strongest_claim_power``: strongest
           size/power claim F supports at the plug-in ρ̂² (e.g.,
           ``"worst-case size <= 10%"``).
-        - ``worst_case_cv_size``, ``worst_case_cv_power``: ndarray of the
-          three CV columns at the worst-case ρ² ∈ [0, 0.99] (size CVs at
-          ρ² = 0.99 since they are increasing in ρ; power CVs at the
-          maximum across the table since power CVs decrease in ρ).
-          Informational only; the verdict uses the plug-in CVs.
-        - ``verdict``: one of ``"robust"`` (F clears at least one
-          plug-in CV), ``"weak"`` (F clears no plug-in CV), or
-          ``"trivially-degenerate"`` (ρ̂² is NaN, i.e. identical-markup
-          boundary).
+        - Worst-rho CV columns (max CV across rho² ∈ [0, 0.99] at this K):
+          ``size_cv_075`` / ``size_cv_100`` / ``size_cv_125`` for the
+          7.5%, 10%, 12.5% size levels, and ``power_cv_050`` /
+          ``power_cv_075`` / ``power_cv_095`` for the 50%, 75%, 95%
+          power levels. F clearing ``size_cv_075`` is the strongest
+          worst-rho size claim; F clearing ``power_cv_095`` is the
+          strongest worst-rho power claim.
+        - Empirical-rho CV columns (CVs at the cell's plug-in ρ̂²):
+          ``size_cv_075_emp`` / ``size_cv_100_emp`` / ``size_cv_125_emp``
+          and ``power_cv_050_emp`` / ``power_cv_075_emp`` /
+          ``power_cv_095_emp``. These are the plug-in CVs the verdict
+          uses internally; they take ρ̂² noise as given (no robustness
+          margin) and are typically less conservative than the worst-rho
+          set.
 
         Returns
         -------
@@ -910,15 +904,27 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         iv_labels = self._instrument_set_labels()
         model_labels = self._model_labels()
 
+        def _scalar_or_nan(arr: Any, idx: int) -> float:
+            """Pull a scalar CV out of a length-3 object array (or NaN)."""
+            if arr is None:
+                return float('nan')
+            try:
+                v = arr[idx]
+            except (IndexError, TypeError):
+                return float('nan')
+            if v is None:
+                return float('nan')
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                return float('nan')
+            return fv
+
         records: List[dict[str, Any]] = []
         for j in range(L):
             f_mat = np.asarray(self.F[j])
             rho_mat = np.asarray(self.rho[j])
             lam_mat = np.asarray(self.lambda_dmss[j]) if self.lambda_dmss is not None else None
-            se_mat = np.asarray(self.F_se[j]) if self.F_se is not None else None
-            ci_lo_mat = np.asarray(self.F_ci_low[j]) if self.F_ci_low is not None else None
-            ci_hi_mat = np.asarray(self.F_ci_high[j]) if self.F_ci_high is not None else None
-            verdict_mat = self.verdict[j] if self.verdict is not None else None
             claim_size_mat = self.strongest_claim_size[j] if self.strongest_claim_size is not None else None
             claim_power_mat = self.strongest_claim_power[j] if self.strongest_claim_power is not None else None
             wc_size_mat = (
@@ -931,6 +937,12 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                 if getattr(self, 'worst_case_cv_power', None) is not None
                 else None
             )
+            # Empirical-rho CVs are stored on F_cv_size_list / F_cv_power_list
+            # in column order [r_125, r_10, r_075] (size) and [r_50, r_75, r_95]
+            # (power). They were computed at the cell's plug-in ρ̂² in
+            # test_engine.py (see the `rho_lookup` index scan).
+            cv_size_emp_mat = self.F_cv_size_list[j] if self.F_cv_size_list is not None else None
+            cv_power_emp_mat = self.F_cv_power_list[j] if self.F_cv_power_list is not None else None
             F_hp_mat = (
                 np.asarray(self.F_high_precision[j])  # type: ignore[index]
                 if getattr(self, 'F_high_precision', None) is not None
@@ -940,6 +952,14 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                 for k in range(i + 1, M):
                     rho_ik = float(rho_mat[i, k])
                     rho2_ik = rho_ik ** 2 if np.isfinite(rho_ik) else float('nan')
+                    wc_size_cell = wc_size_mat[i, k] if wc_size_mat is not None else None
+                    wc_power_cell = wc_power_mat[i, k] if wc_power_mat is not None else None
+                    cv_size_emp_cell = (
+                        cv_size_emp_mat[i, k] if cv_size_emp_mat is not None else None
+                    )
+                    cv_power_emp_cell = (
+                        cv_power_emp_mat[i, k] if cv_power_emp_mat is not None else None
+                    )
                     records.append({
                         'instrument_set': j,
                         'instrument_set_label': iv_labels[j],
@@ -952,42 +972,41 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
                         'lambda_dmss': (
                             float(lam_mat[i, k]) if lam_mat is not None else float('nan')
                         ),
-                        'F_se': (
-                            float(se_mat[i, k]) if se_mat is not None else float('nan')
-                        ),
-                        'F_ci_low': (
-                            float(ci_lo_mat[i, k]) if ci_lo_mat is not None else float('nan')
-                        ),
-                        'F_ci_high': (
-                            float(ci_hi_mat[i, k]) if ci_hi_mat is not None else float('nan')
-                        ),
                         'strongest_claim_size': (
                             claim_size_mat[i, k] if claim_size_mat is not None else None
                         ),
                         'strongest_claim_power': (
                             claim_power_mat[i, k] if claim_power_mat is not None else None
                         ),
-                        'worst_case_cv_size': (
-                            wc_size_mat[i, k] if wc_size_mat is not None else None
-                        ),
-                        'worst_case_cv_power': (
-                            wc_power_mat[i, k] if wc_power_mat is not None else None
-                        ),
+                        # Worst-rho CVs: size column order is [r_125, r_10, r_075]
+                        # (paper Table 1, panel A); power column order is
+                        # [r_50, r_75, r_95] (panel B).
+                        'size_cv_125': _scalar_or_nan(wc_size_cell, 0),
+                        'size_cv_100': _scalar_or_nan(wc_size_cell, 1),
+                        'size_cv_075': _scalar_or_nan(wc_size_cell, 2),
+                        'power_cv_050': _scalar_or_nan(wc_power_cell, 0),
+                        'power_cv_075': _scalar_or_nan(wc_power_cell, 1),
+                        'power_cv_095': _scalar_or_nan(wc_power_cell, 2),
+                        # Empirical-rho CVs: same column order as worst-rho.
+                        'size_cv_125_emp': _scalar_or_nan(cv_size_emp_cell, 0),
+                        'size_cv_100_emp': _scalar_or_nan(cv_size_emp_cell, 1),
+                        'size_cv_075_emp': _scalar_or_nan(cv_size_emp_cell, 2),
+                        'power_cv_050_emp': _scalar_or_nan(cv_power_emp_cell, 0),
+                        'power_cv_075_emp': _scalar_or_nan(cv_power_emp_cell, 1),
+                        'power_cv_095_emp': _scalar_or_nan(cv_power_emp_cell, 2),
                         'F_high_precision': (
                             float(F_hp_mat[i, k]) if F_hp_mat is not None else float('nan')
-                        ),
-                        'verdict': (
-                            verdict_mat[i, k] if verdict_mat is not None else None
                         ),
                     })
         columns = [
             'instrument_set', 'instrument_set_label',
             'model_i', 'model_j', 'model_i_label', 'model_j_label',
             'F', 'F_high_precision', 'rho_squared', 'lambda_dmss',
-            'F_se', 'F_ci_low', 'F_ci_high',
             'strongest_claim_size', 'strongest_claim_power',
-            'worst_case_cv_size', 'worst_case_cv_power',
-            'verdict',
+            'size_cv_075', 'size_cv_100', 'size_cv_125',
+            'power_cv_050', 'power_cv_075', 'power_cv_095',
+            'size_cv_075_emp', 'size_cv_100_emp', 'size_cv_125_emp',
+            'power_cv_050_emp', 'power_cv_075_emp', 'power_cv_095_emp',
         ]
         return pd.DataFrame.from_records(records, columns=columns)
 
@@ -1078,36 +1097,6 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
     # Dearing pass-through diagnostics
     # ------------------------------------------------------------------
 
-    # Supported metrics for :meth:`passthrough_comparison`. Centralised
-    # so the error-message and dispatch branches cannot drift.
-    _PASSTHROUGH_METRICS: "tuple[str, ...]" = (
-        'frobenius', 'offdiag_frobenius', 'max_abs',
-    )
-
-    def _passthrough_distance(
-        self,
-        difference: NDArray[Any],
-        metric: str,
-    ) -> float:
-        """Reduce a pairwise pass-through difference matrix to a scalar.
-
-        Centralises the metric dispatch so :meth:`passthrough_comparison`
-        has a single place to look when a new metric is added. The three
-        metrics are Dearing-style distinguishability diagnostics; see the
-        public method docstring for the mapping to the paper's Remark 4.
-        """
-        if metric == 'frobenius':
-            return float(np.linalg.norm(difference, ord='fro'))
-        if metric == 'offdiag_frobenius':
-            off = difference - np.diag(np.diag(difference))
-            return float(np.linalg.norm(off, ord='fro'))
-        if metric == 'max_abs':
-            return float(np.max(np.abs(difference)))
-        # Not reachable: validated in the public entry point.
-        raise ValidationError(  # pragma: no cover - defensive
-            f"Internal: unknown metric {metric!r}."
-        )
-
     def passthrough_matrix(
         self,
         model_index: int,
@@ -1141,186 +1130,11 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         See Also
         --------
         pyRVtest.build_passthrough : standalone helper the method wraps.
-        ProblemResults.passthrough_comparison : pairwise diagnostic.
         """
         result = build_passthrough(
             self.problem, model_index=model_index, market_id=market_id,
         )
         return result
-
-    def passthrough_comparison(
-        self,
-        metric: str = 'frobenius',
-        market_id: Optional[Hashable] = None,
-    ) -> 'pd.DataFrame':
-        r"""Pairwise pass-through distances per Dearing et al. (2026) Remark 4.
-
-        For every unordered pair of candidate models :math:`(m, m')` with
-        :math:`m < m'`, computes a scalar distance between the Villas-Boas
-        pass-through matrices :math:`P_m` and :math:`P_{m'}` market by
-        market. Dearing et al. (2026) show that distinguishability with
-        pass-through-based instruments hinges on whether two models have
-        different pass-through matrices (Remark 3) or, more sharply,
-        different off-diagonal structure (Remark 4). Near-zero distances
-        flag a pair that is hard to separate with pass-through
-        instruments; large distances flag a pair that should be
-        identifiable.
-
-        Parameters
-        ----------
-        metric : str, optional
-            Which scalar reduction of :math:`P_m - P_{m'}` to report.
-
-            - ``'frobenius'`` (default): Frobenius norm of the full
-              difference, :math:`\lVert P_m - P_{m'} \rVert_F`.
-            - ``'offdiag_frobenius'``: Frobenius norm restricted to the
-              off-diagonal entries. Implements Remark 4's
-              distinguishability condition, which is invariant to
-              diagonal-only differences.
-            - ``'max_abs'``: element-wise maximum absolute difference.
-        market_id : hashable, optional
-            If ``None`` (default), returns one row per ``(market,
-            model_i, model_j)``. Otherwise filters to that single market;
-            the returned frame has exactly ``M * (M - 1) / 2`` rows
-            (one per unordered model pair).
-
-        Returns
-        -------
-        pd.DataFrame
-            Columns: ``market_id``, ``model_i``, ``model_j``,
-            ``model_i_label``, ``model_j_label``, ``distance``,
-            ``metric``. The chosen ``metric`` is also recorded on
-            ``frame.attrs['metric']`` for parity with the
-            ``summary_df`` ``attrs['alpha']`` convention.
-
-        Raises
-        ------
-        ValidationError
-            If ``metric`` is not one of the three supported strings.
-            (``ValidationError`` subclasses ``ValueError`` — existing
-            ``pytest.raises(ValueError, ...)`` assertions continue to
-            work.)
-        NotImplementedError
-            If ANY candidate model in the problem is not a
-            :class:`pyRVtest.Vertical`. Computing pass-through for
-            Bertrand / Cournot / RuleOfThumb / ConstantMarkup /
-            PerfectCompetition requires per-model derivative formulas
-            that land in v0.5. Workaround: restrict the
-            :class:`pyRVtest.Problem` to Vertical candidates only, or
-            skip this diagnostic.
-
-        Notes
-        -----
-        No aggregation across markets is performed: users can
-        ``df.groupby(['model_i', 'model_j']).mean()`` for a summary
-        across markets, or filter to a specific market via the
-        ``market_id`` argument.
-
-        See Also
-        --------
-        pyRVtest.build_passthrough : the standalone pass-through helper
-            this method composes over.
-        ProblemResults.passthrough_matrix : the per-model counterpart.
-
-        References
-        ----------
-        Dearing, A., L. Magnolfi, D. Quint, C. Sullivan, and J.
-        Waldfogel (2026). "Falsifying Models of Firm Conduct with
-        Tax Instruments." Remark 4.
-        """
-        import pandas as pd
-
-        # --- 1. Validate metric. ---
-        if metric not in self._PASSTHROUGH_METRICS:
-            raise ValidationError(
-                f"Expected metric to be one of "
-                f"{list(self._PASSTHROUGH_METRICS)!r}. "
-                f"Received metric={metric!r}. "
-                f"Fix: pass 'frobenius' for the full-matrix norm, "
-                f"'offdiag_frobenius' for Dearing Remark 4's "
-                f"off-diagonal condition, or 'max_abs' for the "
-                f"element-wise maximum absolute difference."
-            )
-
-        # --- 2. Check every candidate model is Vertical. ---
-        candidate_models: Sequence[Any] = self.problem._models
-        for i, model in enumerate(candidate_models):
-            if not isinstance(model, Vertical):
-                raise NotImplementedError(
-                    "Pass-through comparison currently requires all "
-                    "candidate models to be Vertical. "
-                    f"Received model index {i} of type "
-                    f"{type(model).__name__}, which has no closed-form "
-                    "pass-through in pyRVtest v0.4. Computing "
-                    "pass-through for Bertrand / Cournot / RuleOfThumb / "
-                    "ConstantMarkup is deferred to v0.5. Workaround: "
-                    "restrict the Problem to only Vertical candidate "
-                    "models, or skip this diagnostic."
-                )
-
-        # --- 3. Validate market_id (if provided) up front. ---
-        #   build_passthrough also validates per call; pre-validate here
-        #   so an invalid id surfaces once, not M times. Use an
-        #   element-wise equality check so market ids stored as numpy
-        #   scalars compare correctly against Python scalars.
-        unique_market_ids = np.asarray(self.problem.unique_market_ids)
-        if market_id is not None:
-            if not np.any(unique_market_ids == market_id):
-                raise ValidationError(
-                    f"Expected market_id to appear in "
-                    f"problem.unique_market_ids. Received "
-                    f"market_id={market_id!r}, which is not in "
-                    f"problem.unique_market_ids="
-                    f"{list(unique_market_ids)}. Fix: pass a market id "
-                    f"from problem.unique_market_ids, or omit "
-                    f"market_id to compute pass-through for all markets."
-                )
-            markets_to_iterate: List[Hashable] = [market_id]
-        else:
-            markets_to_iterate = list(unique_market_ids.tolist())
-
-        # --- 4. Compute pass-through per model, caching across pairs. ---
-        model_labels = self._model_labels()
-        n_models = self._number_of_models()
-        # ``build_passthrough`` with ``market_id=None`` returns a dict
-        # {market_id: matrix}; with a scalar it returns an ndarray. We
-        # always use the dict form here and index by market id below so
-        # the pair loop has a single code path.
-        cached: Dict[int, Dict[Hashable, NDArray[Any]]] = {}
-        for m in range(n_models):
-            per_market = build_passthrough(self.problem, m, market_id=None)
-            # ``build_passthrough(..., market_id=None)`` always returns
-            # a dict; narrow the type for mypy.
-            assert isinstance(per_market, dict)
-            cached[m] = per_market
-
-        # --- 5. Build the long-form records. ---
-        records: List[dict[str, Any]] = []
-        for t in markets_to_iterate:
-            for i in range(n_models):
-                for k in range(i + 1, n_models):
-                    P_i = cached[i][t]
-                    P_k = cached[k][t]
-                    difference = np.asarray(P_i) - np.asarray(P_k)
-                    distance = self._passthrough_distance(difference, metric)
-                    records.append({
-                        'market_id': t,
-                        'model_i': i,
-                        'model_j': k,
-                        'model_i_label': model_labels[i],
-                        'model_j_label': model_labels[k],
-                        'distance': distance,
-                        'metric': metric,
-                    })
-
-        columns = [
-            'market_id', 'model_i', 'model_j',
-            'model_i_label', 'model_j_label',
-            'distance', 'metric',
-        ]
-        frame = pd.DataFrame.from_records(records, columns=columns)
-        frame.attrs['metric'] = metric
-        return frame
 
 
 __all__ = ['Progress', 'ProblemResults']

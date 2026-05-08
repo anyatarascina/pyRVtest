@@ -219,8 +219,7 @@ Result inspection methods:
    :toctree: _api
 
    ProblemResults.passthrough_matrix
-   ProblemResults.passthrough_comparison
-   ProblemResults.F_reliability_summary
+   ProblemResults.reliability_summary
    ProblemResults.to_dataframe
    ProblemResults.summary_df
    ProblemResults.taus_dataframe
@@ -233,16 +232,18 @@ F-stat reliability diagnostic as both per-cell columns and a
 human-readable summary:
 
 * Per-cell array attributes (one entry per instrument set, of shape
-  ``(M, M)`` over candidate-model pairs): ``lambda_dmss``, ``F_se``,
-  ``F_ci_low``, ``F_ci_high``, ``verdict``, ``F_high_precision``,
-  ``rho_squared_high_precision``, ``worst_case_cv_size``,
-  ``worst_case_cv_power``, ``strongest_claim_size``,
-  ``strongest_claim_power``.
-* :meth:`~ProblemResults.F_reliability_summary` returns a long-form
+  ``(M, M)`` over candidate-model pairs): ``lambda_dmss``, ``verdict``,
+  ``F_high_precision``, ``rho_squared_high_precision``,
+  ``worst_case_cv_size``, ``worst_case_cv_power``,
+  ``strongest_claim_size``, ``strongest_claim_power``.
+* :meth:`~ProblemResults.reliability_summary` returns a long-form
   ``pandas.DataFrame`` with one row per model pair, surfacing the
   reliability columns alongside the standard ``F`` and ``rho_squared``.
-  Use this when you want to inspect or filter on the diagnostic
-  programmatically. See :doc:`faq` for how to interpret the
+  Worst-rho CVs (``size_cv_075`` / ``size_cv_100`` / ``size_cv_125`` and
+  ``power_cv_050`` / ``power_cv_075`` / ``power_cv_095``) and
+  empirical-rho CVs (``size_cv_*_emp``, ``power_cv_*_emp``) are exposed
+  as scalar columns. Use this when you want to inspect or filter on the
+  diagnostic programmatically. See :doc:`faq` for how to interpret the
   ``recomputed with extra precision`` and ``indistinguishable``
   footers in the printed output.
 

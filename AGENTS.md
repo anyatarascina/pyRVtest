@@ -331,8 +331,7 @@ by purpose:
   `CournotEmployment`, `NashBargaining` (raises `NotImplementedError`
   in v0.4; full formula deferred to v0.5).
 - **v0.4 diagnostic helper:** `build_passthrough`; also exposed on
-  `ProblemResults` as `passthrough_matrix` and (pairwise, Dearing
-  Remark 4) `passthrough_comparison`.
+  `ProblemResults` as `passthrough_matrix`.
 - **v0.4 agent guide exporter:** `show_agent_guide`.
 - **v0.4 exception hierarchy:** `PyRVTestError`, `ValidationError`,
   `InstrumentDataError`, `BackendError`, `DemandBackendError`,

@@ -61,7 +61,6 @@ logger = logging.getLogger(__name__)
 # precision in this regime.
 LAMBDA_DESCRIPTIVE_THRESHOLD = 0.05    # informational footnote (low-separation geometry)
 LAMBDA_PRECISION_THRESHOLD = 1e-10     # mpmath trigger (numerical fragility)
-RELIABILITY_CI_LEVEL = 1.96            # 95% CI half-width; retained for the SE column
 
 # Backward-compat alias for tests / external callers that referenced the
 # original constant. The value semantics now match LAMBDA_DESCRIPTIVE_THRESHOLD
@@ -509,17 +508,17 @@ def compute_instrument_results(
     # verdict then runs on the high-precision values without a separate
     # alert tier.
     lambda_dmss = np.full((M, M), np.nan)
-    F_se = np.full((M, M), np.nan)
-    F_ci_low = np.full((M, M), np.nan)
-    F_ci_high = np.full((M, M), np.nan)
     verdict = np.empty((M, M), dtype=object)
     strongest_claim_size = np.empty((M, M), dtype=object)
     strongest_claim_power = np.empty((M, M), dtype=object)
+    # Worst-case CVs (max across rho^2 ∈ [0, 0.99] at this K). Stored as
+    # the three-column [r_125, r_10, r_075] / [r_50, r_75, r_95] arrays
+    # for the worst-rho diagnostic surfaced in reliability_summary.
     worst_case_cv_size = np.empty((M, M), dtype=object)
     worst_case_cv_power = np.empty((M, M), dtype=object)
     # High-precision F̂ / ρ̂² (populated only when the precision check
     # fires under reliability_check='conditional' or 'always'). Stored
-    # for inspection in F_reliability_summary; NaN means the precision
+    # for inspection in reliability_summary; NaN means the precision
     # check did not run for this cell.
     F_high_precision = np.full((M, M), np.nan)
     rho_squared_high_precision = np.full((M, M), np.nan)
@@ -595,20 +594,6 @@ def compute_instrument_results(
             else:
                 lambda_dmss[i, m] = np.nan
 
-            # F-stat reliability diagnostic — statistical-fragility part.
-            # The asymptotic distribution of F at the implied noncentrality
-            # gives an asymptotic SE for the population F. The 95% CI is
-            # F ± 1.96 SE. The borderline verdict fires below if this CI
-            # overlaps the relevant CV for the strongest size or power claim.
-            # See .claude/handovers/MEMO_F_reliability_diagnostic_2026-04-28.md for derivation.
-            if rho_squared < 1 and not np.isnan(rho_squared):
-                nc_implied = max(0.0, 2 * K_effective * (F[i, m] / (1 - rho_squared) - 1))
-                F_se[i, m] = (1 - rho_squared) / (2 * K_effective) * math.sqrt(
-                    2 * (2 * K_effective + 2 * nc_implied)
-                )
-                F_ci_low[i, m] = F[i, m] - RELIABILITY_CI_LEVEL * F_se[i, m]
-                F_ci_high[i, m] = F[i, m] + RELIABILITY_CI_LEVEL * F_se[i, m]
-
             # guard the critical-values lookup against
             # a NaN rho. Two model pairs with identical markups (e.g. a
             # salience test with opt-out producing the same raw markups)
@@ -635,7 +620,7 @@ def compute_instrument_results(
             # claim identification, verdict) runs on the swapped values
             # without comparison or alert. F_high_precision and
             # rho_squared_high_precision arrays record the values for
-            # inspection in F_reliability_summary.
+            # inspection in reliability_summary.
             should_swap = False
             if reliability_check == 'always':
                 should_swap = True
@@ -847,9 +832,6 @@ def compute_instrument_results(
         'symbols_power': symbols_power,
         'symbols_rv': symbols_rv,
         'lambda_dmss': lambda_dmss,
-        'F_se': F_se,
-        'F_ci_low': F_ci_low,
-        'F_ci_high': F_ci_high,
         'verdict': verdict,
         'strongest_claim_size': strongest_claim_size,
         'strongest_claim_power': strongest_claim_power,

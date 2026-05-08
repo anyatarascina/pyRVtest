@@ -406,6 +406,54 @@ If you are not ready to migrate yet:
 
 We recommend keeping the warning visible.
 
+rc1 → final changes
+-------------------
+
+The 0.4.0rc1 tag was an internal / coauthor-only release. Several
+F-stat reliability and pass-through diagnostic names changed between rc1
+and v0.4 final, and there is no deprecation alias; rc1 callers must
+update their code.
+
+* :meth:`ProblemResults.F_reliability_summary` is renamed to
+  :meth:`~ProblemResults.reliability_summary`. No alias; rc1 calls
+  raise :class:`AttributeError`.
+* The ``F_se`` / ``F_ci_low`` / ``F_ci_high`` per-cell array attributes
+  on :class:`ProblemResults` are removed entirely, along with their
+  columns in :meth:`~ProblemResults.reliability_summary`. The plug-in
+  CV check the verdict already runs is the principled robustness signal;
+  the asymptotic SE was redundant inspection-only metadata.
+* The ``verdict`` column was removed from
+  :meth:`~ProblemResults.reliability_summary`'s returned DataFrame. The
+  internal classification still drives the ``⚠`` warning glyph in the
+  printed output and remains accessible as
+  ``ProblemResults.verdict[instrument_set]`` (an ``(M, M)`` object
+  array per instrument set), but the diagnostic frame no longer exposes
+  it as a column.
+* The ``worst_case_cv_size`` / ``worst_case_cv_power`` columns of
+  :meth:`~ProblemResults.reliability_summary` (which were object-array
+  cells holding length-3 vectors) were replaced by six scalar columns
+  reporting the worst-rho CVs at the published-table levels:
+
+  * Size: ``size_cv_075`` / ``size_cv_100`` / ``size_cv_125`` for the
+    7.5% / 10% / 12.5% size levels.
+  * Power: ``power_cv_050`` / ``power_cv_075`` / ``power_cv_095`` for
+    the 50% / 75% / 95% power levels.
+
+  Six matching empirical-rho columns (``size_cv_075_emp``,
+  ``size_cv_100_emp``, ``size_cv_125_emp``, ``power_cv_050_emp``,
+  ``power_cv_075_emp``, ``power_cv_095_emp``) report the plug-in CVs at
+  the cell's empirical ρ̂² — the same CVs the verdict uses internally.
+  The rc1 ``strongest_claim_size`` / ``strongest_claim_power`` columns
+  are unchanged; the strongest claim string is equivalent to the F
+  clearing the relevant ``size_cv_075`` / ``power_cv_095`` column.
+* :meth:`ProblemResults.passthrough_comparison` is removed entirely.
+  The Dearing et al. (2026) pass-through diagnostic suite in v0.4 final
+  uses ``passthrough_summary`` (γ-free structural-feature distance) and
+  ``causal_effects`` (post-solve channel decomposition); see
+  :doc:`advanced_features`. The rc1 method's ``offdiag_frobenius``
+  metric was also paper-renumbered: the off-diagonal-to-diagonal
+  feature is Remark 1 in the current DMQSW draft, not Remark 4.
+
 Reporting issues
 ----------------
 

@@ -5,6 +5,64 @@ All notable changes to pyRVtest are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 project roughly follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — unreleased
+
+Final tag for v0.4. Supersedes the internal / coauthor-only
+`[0.4.0rc1]` snapshot below. The rc1-tagged code shipped a draft of the
+F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
+final cleans those up. There is no deprecation alias for the renamed /
+removed names because rc1 was not a public release.
+
+### Changed (rc1 → final)
+
+- **`F_reliability_summary` → `reliability_summary`.** The reliability
+  diagnostic on `ProblemResults` is renamed to
+  `ProblemResults.reliability_summary()`; the column structure of the
+  returned DataFrame is reshaped (see below). No alias: rc1 callers see
+  `AttributeError`.
+- **CV columns split by axis and level.** The rc1
+  `worst_case_cv_size` / `worst_case_cv_power` columns (each an object
+  cell holding a length-3 vector) are replaced by six scalar columns
+  reporting the worst-ρ CVs at the published-table levels: `size_cv_075`,
+  `size_cv_100`, `size_cv_125` (size at 7.5% / 10% / 12.5%) and
+  `power_cv_050`, `power_cv_075`, `power_cv_095` (power at 50% / 75% /
+  95%). Six matching empirical-ρ columns (`size_cv_075_emp` etc.) report
+  the plug-in CVs the verdict uses internally. `strongest_claim_size`
+  and `strongest_claim_power` are unchanged.
+- **Per-cell array attributes simplified.** `worst_case_cv_size` /
+  `worst_case_cv_power` remain on `ProblemResults` as `(M, M)` object
+  arrays per instrument set (used by the printed footer and exposed for
+  inspection); they are now exposed as scalar columns in
+  `reliability_summary()` rather than nested object cells.
+
+### Removed (rc1 → final)
+
+- **`F_se`, `F_ci_low`, `F_ci_high`.** The asymptotic-SE and 95%-CI
+  arrays for F are removed from both `ProblemResults` (per-cell array
+  attributes) and `reliability_summary()` (DataFrame columns). The
+  plug-in CV check the verdict already runs is the principled
+  robustness signal; the SE / CI was redundant inspection-only
+  metadata.
+- **`verdict` column from `reliability_summary()`'s DataFrame.** The
+  internal classification still drives the `⚠` warning glyph in the
+  printed output and remains accessible as
+  `ProblemResults.verdict[instrument_set]` (an `(M, M)` object array
+  per instrument set), but the diagnostic frame no longer carries a
+  `verdict` column.
+- **`ProblemResults.passthrough_comparison`.** Removed entirely along
+  with the private `_PASSTHROUGH_METRICS` and `_passthrough_distance`
+  helpers and `tests/test_passthrough_comparison.py`. The Dearing et al.
+  (2026) pass-through diagnostic suite in v0.4 final is provided by
+  `passthrough_summary` (γ-free structural-feature distance, ex-ante)
+  and `causal_effects` (post-solve channel decomposition); see
+  `docs/advanced_features.rst`. The rc1 method's `offdiag_frobenius`
+  metric was also paper-renumbered: the off-diagonal-to-diagonal
+  feature is Remark 1 in the current DMQSW draft, not Remark 4.
+- **`RELIABILITY_CI_LEVEL` constant** in
+  `pyRVtest.solve.test_engine`. Used only by the removed `F_se` /
+  `F_ci` computation. `RELIABILITY_LAMBDA_THRESHOLD` (the lambda
+  informational threshold) remains.
+
 ## [0.4.0rc1] — 2026-04-20
 
 Release candidate for v0.4.0. Version 0.4 is a substantial refactor of
