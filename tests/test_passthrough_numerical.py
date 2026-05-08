@@ -15,6 +15,10 @@ across:
 4. Smoke test on the shipped synthetic example: every supported conduct
    class returns a finite, well-conditioned per-market pass-through
    matrix via the public ``build_passthrough`` entry point.
+5. Cross-validation against equilibrium re-solve: the numerical core
+   (linearly perturb ``D`` and ``s``, evaluate markup, finite-difference)
+   agrees with the alternative "shock marginal cost and re-solve for
+   equilibrium prices" definition under random-coefficient logit demand.
 """
 
 from __future__ import annotations
@@ -255,3 +259,146 @@ class TestSyntheticExampleSmoke:
         result = pyRVtest.build_passthrough(synthetic_problem, model_index=3)
         for t, M in result.items():
             np.testing.assert_array_equal(M, np.eye(M.shape[0]))
+
+
+# ---------------------------------------------------------------------------
+# Category 5: cross-validation against equilibrium re-solve.
+# ---------------------------------------------------------------------------
+
+
+class TestApproachAvsApproachB:
+    """Cross-validate the Phase 1 numerical approach against the alternative
+    'shock marginal cost and re-solve equilibrium prices' definition under
+    random-coefficient logit demand.
+
+    Approach A (this package): perturb the linear-in-delta responses of D
+    and s, evaluate the markup function at the perturbed demand state,
+    finite-difference, then invert ``I − dDelta/dp``.
+
+    Approach B (textbook definition): perturb mc, find the new equilibrium
+    p* satisfying p* = mc + Delta_m(p*) via root-finding, finite-difference
+    p*.
+
+    Both target P_m = (I − dDelta_m/dp)^{-1} and converge to it as
+    delta → 0. At finite delta they differ by their respective truncation
+    errors. Random-coefficient demand exercises higher-order curvature in
+    the share function — the case where these errors are most meaningful.
+    """
+
+    @pytest.fixture(scope='class')
+    def rc_logit_demand(self):
+        """Random-coefficient logit with K Gauss-Hermite quadrature nodes
+        for a normally-distributed price coefficient.
+
+        Returns three closures (shares, jacobian, hessian) each taking a
+        price vector and returning the corresponding demand object.
+        """
+        from numpy.polynomial.hermite_e import hermegauss
+
+        alpha_bar = -2.0
+        sigma_alpha = 0.5
+        nodes, raw_weights = hermegauss(7)
+        weights = raw_weights / raw_weights.sum()
+        alphas = alpha_bar + sigma_alpha * nodes
+        xi = np.array([0.10, -0.20])
+
+        def _individual_shares(p):
+            """Per-quadrature-node share array, shape (K, J)."""
+            J = len(p)
+            K = len(alphas)
+            S = np.empty((K, J))
+            for k, alpha in enumerate(alphas):
+                u = alpha * p + xi
+                e = np.exp(u)
+                S[k] = e / (1.0 + e.sum())
+            return S
+
+        def shares(p):
+            S = _individual_shares(p)
+            return weights @ S
+
+        def jacobian(p):
+            J = len(p)
+            S = _individual_shares(p)
+            D = np.zeros((J, J))
+            for k, (alpha, w) in enumerate(zip(alphas, weights)):
+                s_k = S[k]
+                # ds_j/dp_l = alpha * s_j * (delta_jl - s_l)
+                D += w * alpha * (np.diag(s_k) - np.outer(s_k, s_k))
+            return D
+
+        def hessian(p):
+            """d^2 s_j / dp_l dp_m for random-coef logit, indexed [j, l, m]."""
+            J = len(p)
+            S = _individual_shares(p)
+            H = np.zeros((J, J, J))
+            for k, (alpha, w) in enumerate(zip(alphas, weights)):
+                s_k = S[k]
+                kron = np.eye(J)
+                for j in range(J):
+                    for l in range(J):
+                        for m in range(J):
+                            term1 = (kron[j, m] - s_k[m]) * (kron[j, l] - s_k[l])
+                            term2 = s_k[l] * (kron[l, m] - s_k[m])
+                            H[j, l, m] += w * alpha * alpha * s_k[j] * (term1 - term2)
+            return H
+
+        return shares, jacobian, hessian
+
+    def test_approach_a_matches_approach_b_random_coefficients(self, rc_logit_demand):
+        """Approach A vs B agreement under random-coefficient logit.
+
+        At delta=1e-5, both methods are well into their convergence regimes.
+        Approach A's truncation comes from linear-only treatment of
+        (D(p), s(p)); approach B's truncation is standard central-diff on
+        the equilibrium solution. Both should agree on Bertrand pass-through
+        to within ~1e-4 absolute tolerance, well below the magnitudes
+        users would interpret structurally.
+        """
+        from scipy.optimize import root  # type: ignore[import-untyped]
+
+        shares_fn, jacobian_fn, hessian_fn = rc_logit_demand
+        p_obs = np.array([1.0, 1.2])
+        O = np.eye(2)  # single-product firms
+
+        # State at observed prices.
+        s_obs = shares_fn(p_obs)
+        D_obs = jacobian_fn(p_obs)
+        H_obs = hessian_fn(p_obs)
+        markup_obs = -np.linalg.solve(O * D_obs, s_obs.reshape(-1, 1)).flatten()
+        mc_obs = p_obs - markup_obs
+
+        # Approach A: numerical perturbation through markup function.
+        P_A = compute_passthrough_numerical(
+            Bertrand(ownership='firm_ids'), O, D_obs, H_obs, s_obs, markup_obs,
+        )
+
+        # Approach B: shock mc, re-solve equilibrium, finite-difference p*.
+        def _equilibrium(mc):
+            def residual(p):
+                s = shares_fn(p)
+                D = jacobian_fn(p)
+                markup = -np.linalg.solve(O * D, s.reshape(-1, 1)).flatten()
+                return p - mc - markup
+            sol = root(residual, p_obs.copy(), method='hybr', tol=1e-13)
+            assert sol.success, f"Equilibrium solver failed: {sol.message}"
+            return sol.x
+
+        delta = 1e-5
+        P_B = np.zeros((2, 2))
+        for k in range(2):
+            e_k = np.zeros(2)
+            e_k[k] = delta
+            p_plus = _equilibrium(mc_obs + e_k)
+            p_minus = _equilibrium(mc_obs - e_k)
+            P_B[:, k] = (p_plus - p_minus) / (2.0 * delta)
+
+        np.testing.assert_allclose(
+            P_A, P_B, atol=1e-4, rtol=1e-3,
+            err_msg=(
+                "Approach A (numerical perturbation through markup) and "
+                "approach B (mc shock + equilibrium re-solve) disagree "
+                f"beyond expected truncation tolerance.\nA={P_A}\nB={P_B}\n"
+                f"diff={P_A - P_B}"
+            ),
+        )
