@@ -157,16 +157,91 @@ to ``costs_type='linear'`` and emits a warning. If you genuinely need
 log costs with a first-stage demand-adjustment correction, the
 combination is tracked as a v0.5 follow-up.
 
-**No warning, but I set ``endogenous_cost_component='shares'`` and
-``demand_adjustment=True``.**
+**Can I combine ``endogenous_cost_component`` with
+``demand_adjustment=True``?**
 
-This combination is silently allowed in v0.4 but produces a biased
-demand-adjusted variance: the gradient computation misses the
-``dgamma/dtheta`` channel that flows through the IV correction.
-Tracked as a v0.5 follow-up. As a workaround, set
-``demand_adjustment=False`` when ``endogenous_cost_component`` is
-active, or run the IV correction once externally and pass the
-corrected marginal cost.
+Yes. The unified ``compute_demand_adjustment`` pipeline computes the
+:math:`\partial \gamma_m / \partial \theta` channel (via finite
+differences over the IV correction at perturbed demand parameters)
+and includes it in the demand-adjusted variance. The two paths
+(``demand_results`` and ``demand_params``) produce the same TRV /
+F-stat correction up to analytical-vs-finite-difference noise; this
+is verified by
+``tests/test_demand_adjustment.py::test_option_a_demand_params_matches_demand_results_with_endogenous_cost``.
+
+
+Pass-through diagnostics (DMQSW framework)
+------------------------------------------
+
+**How do I check whether my IVs will distinguish my candidates before
+running the test?**
+
+Build the :class:`~pyRVtest.Problem` (do not solve yet), then run
+:meth:`~pyRVtest.Problem.passthrough_summary`. The output reports four
+γ-free pair-by-pair structural-feature distances corresponding to
+DMQSW Remarks 1, 2, 4, and 5 — one per primitive instrument type
+(rival cost shifters, own-and-rival cost / linear-index demand,
+per-unit taxes, ad-valorem taxes). A near-zero value under the row
+that matches your IV bundle means the test cannot distinguish that
+pair under that instrument type, period — even with infinite data.
+A nonzero value means the pair is structurally distinguishable; the
+test's empirical power is then a finite-sample question, answered
+post-solve by :meth:`~pyRVtest.ProblemResults.reliability_summary`.
+Worked walkthrough in :doc:`advanced_features`.
+
+**Why doesn't ``passthrough_summary`` give me a verdict?**
+
+The pre-solve framework view is a *γ-free structural feature
+distance*, not a power prediction. Zero distance is necessary and
+sufficient for asymptotic non-identification, so the diagnostic can
+*rule out* degenerate instrument-candidate combinations ex-ante. But
+nonzero distance is only necessary, not sufficient, for finite-sample
+power: how large the F-statistic ends up depends on the cost-side
+coefficients :math:`\gamma_m`, on demand fit, on the sample size, and
+on within-IV variation. The package does not collapse to a verdict
+because the framework cannot honestly predict any of those finite-
+sample quantities. Read off the magnitudes against your application's
+power requirement; cross-check post-solve with
+:meth:`~pyRVtest.ProblemResults.reliability_summary`.
+
+**How do I tell if a weak F-stat means structural degeneracy or
+limited identifying variation in my data?**
+
+Cross-read the empirical
+:meth:`~pyRVtest.ProblemResults.reliability_summary` against the
+structural :meth:`~pyRVtest.Problem.passthrough_summary` view:
+
+* ``offdiag_ratio = 0`` (or the relevant feature for your IV type) and
+  ``F`` near zero → structural degeneracy. No amount of data fixes
+  this; switch instrument type.
+* Feature distance > 0 but ``F`` low → empirical weakness in this
+  sample. The pair is structurally distinguishable; the data lack the
+  identifying variation to show it. Consider a richer instrument
+  bundle, more markets, or a different cost shifter.
+* Feature distance = 0 and ``F`` clearing CVs → suspicious; re-check
+  the candidate set and the IV bundle for misspecification.
+
+The synthetic-example walkthrough in :doc:`advanced_features`
+exercises the (Cournot, PerfectCompetition) degeneracy under rival
+cost shifters as a worked case.
+
+**Why isn't there a ``moment_relevance`` or empirical pre-screening
+method?**
+
+Empirical pre-screening of testing instruments — running the test
+diagnostics, picking the IV bundle with the highest F-stat, and then
+reporting *that* IV bundle's results — is a post-selection inference
+problem. The reported critical values, MCS p-values, and confidence
+sets all assume the IV bundle is fixed before looking at the data;
+choosing the bundle to maximize observed F invalidates the inference
+guarantees. The DMQSW framework view in
+:meth:`~pyRVtest.Problem.passthrough_summary` is the package's
+ex-ante answer instead: it is γ-free (does not depend on the cost-
+side fit), so it can be inspected before running ``solve`` without
+contaminating the inference. Post-solve,
+:meth:`~pyRVtest.ProblemResults.reliability_summary` reports honest
+finite-sample reliability claims for the IV bundle the user actually
+ran the test on.
 
 
 Performance

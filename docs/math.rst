@@ -108,6 +108,26 @@ package reports critical values for worst-case size in
 :math:`\{0.075, 0.10, 0.125\}` and best-case power in
 :math:`\{0.50, 0.75, 0.95\}`.
 
+For each :math:`(\alpha, K_{\text{eff}})` pair, the *worst-rho* CV is
+the maximum over :math:`\rho^2 \in [0, 0.99]` of the rho-indexed CV:
+
+.. math::
+
+   \mathrm{CV}^{\text{worst}}_{\alpha, K_{\text{eff}}}
+       = \max_{\rho^2 \in [0, 0.99]}
+         \mathrm{CV}_{\alpha, K_{\text{eff}}, \rho^2}.
+
+This is the conservative robustness bound :math:`F` must clear to
+support the claim "worst-case size :math:`\le \alpha`" without
+relying on the (noisy) plug-in :math:`\hat\rho^2`. The *empirical-rho*
+CV is the same table evaluated at the cell's
+:math:`\hat\rho^2`; sharper but plug-in-dependent. The package
+reports both side-by-side in
+:meth:`~pyRVtest.ProblemResults.reliability_summary` (columns
+``size_cv_*`` worst-rho vs. ``size_cv_*_emp`` empirical-rho;
+analogous power columns). The printed-output verdict uses the
+empirical-rho CVs.
+
 Numerical-fragility safeguard. When :math:`\hat\rho^2` is close to 1
 (the Cauchy-Schwarz boundary), float64 loses precision in computing
 :math:`D_\rho`. The package detects this case (see
@@ -234,6 +254,172 @@ ownership matrix, :math:`\odot` the Hadamard product.
   numerical core perturbs the user-supplied markup callable directly.
 
 
+Pass-through framework for instrument relevance
+-----------------------------------------------
+
+The Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026, "DMQSW")
+framework derives instrument relevance for the conduct test from
+candidate models' implied pass-through matrices. Two diagnostic
+methods surface the framework view in the package:
+
+* :meth:`~pyRVtest.Problem.passthrough_summary` — pre-solve γ-free
+  pair-by-pair structural feature distances.
+* :meth:`~pyRVtest.Problem.instrument_channels` — post-solve channel
+  decomposition for one chosen IV column, separating the
+  pass-through-mediated indirect channel from the markup-derivative
+  direct channel.
+
+Decomposition: indirect and direct channels
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Let :math:`z` denote a testing-instrument column and let
+:math:`\partial p_m / \partial z` be candidate :math:`m`'s implied
+causal effect of :math:`z` on equilibrium prices. Differentiating the
+candidate's first-order condition yields the chain-rule decomposition
+
+.. math::
+
+   \frac{\partial p_m}{\partial z}
+       = P_m \cdot \Big(\underbrace{\frac{\partial \Delta_m}{\partial z}}_{\text{direct}}
+                          + \underbrace{\frac{\partial \bar c}{\partial z}}_{\text{cost-side}}\Big),
+
+where :math:`P_m = (I - \partial \Delta_m / \partial p)^{-1}` is the
+candidate pass-through matrix and :math:`\bar c` is the cost
+formulation. For two candidates :math:`(m, m')` the per-pair
+*difference* in causal effects splits into
+
+.. math::
+
+   \frac{\partial p_m}{\partial z} - \frac{\partial p_{m'}}{\partial z}
+       = \underbrace{(P_m - P_{m'}) \cdot \frac{\partial \bar c}{\partial z}}_{\text{indirect channel}}
+       + \underbrace{P_m \cdot \frac{\partial \Delta_m}{\partial z}
+                       - P_{m'} \cdot \frac{\partial \Delta_{m'}}{\partial z}}_{\text{direct channel}}.
+
+A *cost-shifter* instrument enters only :math:`\partial \bar c /
+\partial z`, so :math:`\partial \Delta_m / \partial z = 0` for every
+candidate and the direct channel vanishes structurally. A *product-
+characteristic* instrument enters :math:`\partial \Delta_m / \partial
+z` (through the demand index), so the direct channel is nonzero in
+general. A *tax* instrument enters :math:`\partial \bar c / \partial
+z` for unit taxes, or both channels via the FOC level-adjustment for
+ad-valorem taxes (see DMQSW Section 3.3).
+
+The pass-through-mediated indirect channel is what
+:meth:`~pyRVtest.Problem.passthrough_summary` characterizes ex-ante:
+the four pass-through-feature distances each correspond to a
+projection of :math:`P_m - P_{m'}` against the cost-side response of
+a particular instrument type.
+
+Per-instrument-type targeting
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+DMQSW Remarks 1, 2, 4, and 5 each identify a γ-free pass-through
+feature whose distance vanishes if and only if the candidate pair is
+structurally indistinguishable under the corresponding instrument
+type:
+
+* **Rival cost shifter** (Remark 1). The relevant projection is the
+  off-diagonal column of :math:`P_m`: rival cost shifter :math:`w_\ell`
+  enters product :math:`j`'s price only through the
+  :math:`(j, \ell)` cell. The package reports the column-normalized
+  off-diagonal Frobenius norm
+
+  .. math::
+
+     \mathrm{offdiag\_ratio}(m, m')
+         = \Big\| \widetilde{P}_m^{\text{off}} - \widetilde{P}_{m'}^{\text{off}} \Big\|_F,
+     \qquad \widetilde{P}_{m, j\ell} = P_{m, j\ell} / P_{m, \ell\ell},
+
+  per market and aggregates by median across markets. Zero ⇒ Cournot-
+  vs-PerfectCompetition-style degeneracy under logit demand.
+
+* **Own and rival cost shifter** / **product characteristic** under
+  linear-index demand (Remark 2 / Remark 4). The relevant projection
+  is the *full* matrix :math:`P_m`. The package reports
+
+  .. math::
+
+     \mathrm{full\_pass}(m, m')
+         = \big\| P_m - P_{m'} \big\|_F.
+
+  γ-free under rival exclusion; for product-characteristic
+  instruments under linear-index demand, the difference of full
+  pass-through matrices is the relevant feature.
+
+* **Per-unit tax** (Remark 5, unit). The relevant projection is the
+  *row sum* of :math:`P_m`: a uniform :math:`\tau` shifts every
+  product by the row sum. The package reports
+
+  .. math::
+
+     \mathrm{row\_sum}(m, m')
+         = \Big\| P_m \mathbf{1} - P_{m'} \mathbf{1} \Big\|_2.
+
+  Fully computable: requires only the observed retention factor
+  :math:`\nu`.
+
+* **Ad-valorem tax** (Remark 5, ad valorem). The relevant projection
+  is the level-adjusted pass-through :math:`P_m (p - \Delta_m)`,
+  reflecting the way an ad-valorem rate scales the firm's net
+  margin in the FOC. The package reports
+
+  .. math::
+
+     \mathrm{level\_adj}(m, m')
+         = \Big\| P_m (p - \Delta_m) - P_{m'} (p - \Delta_{m'}) \Big\|_2.
+
+  Requires observed prices and the candidate's implied markup.
+
+Each feature distance is a *structural* magnitude, not a power
+prediction: zero distance under an instrument type rules out the
+pair ex-ante; nonzero distance is a necessary but not sufficient
+condition for the empirical test to have power. Cross-read against
+:meth:`~pyRVtest.ProblemResults.reliability_summary` post-solve.
+
+Direct channel via conditional regression
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For composite or non-primitive instruments — and as a finite-sample
+diagnostic for primitive cost shifters — the package identifies the
+direct channel empirically via a Frisch-Waugh-Lovell (FWL) conditional
+regression. Let :math:`\Delta_{mjt}` be the model-implied markup of
+product :math:`j` in market :math:`t` under candidate :math:`m`,
+:math:`p_{jt}` the observed price, and :math:`z_{jt}` the chosen IV
+column. The direct-channel coefficient
+
+.. math::
+
+   \beta_m = \frac{\mathrm{Cov}(\Delta_m, z \mid p)}
+                  {\mathrm{Var}(z \mid p)}
+
+is the OLS slope of :math:`\Delta_m` on :math:`z` after partialling
+:math:`p` out of both. Implementation:
+
+1. Regress :math:`\Delta_{m,\,jt}` on :math:`p_{jt}` and a constant;
+   take the residual :math:`\widetilde\Delta_{m,\,jt}`.
+2. Regress :math:`z_{jt}` on :math:`p_{jt}` and a constant; take the
+   residual :math:`\widetilde z_{jt}`.
+3. :math:`\beta_m = \mathrm{Cov}(\widetilde\Delta_m, \widetilde z) /
+   \mathrm{Var}(\widetilde z)`.
+
+For a cost-shifter instrument :math:`z = w_\ell` that does not enter
+the markup function, :math:`\beta_m \to 0` in population. A small-
+but-nonzero estimate in finite samples reflects empirical correlation
+between :math:`z` and other markup-function inputs (e.g. product
+characteristics) rather than a structural direct channel; the
+methodology footer of
+:meth:`~pyRVtest.Problem.instrument_channels` documents this. For a
+product-characteristic instrument that enters the demand index,
+:math:`\beta_m` identifies the structural markup response.
+
+The data-side magnitude :math:`\| \mathrm{d} p_0 / \mathrm{d} z \|_{\mathrm{obs}}`
+in :meth:`~pyRVtest.Problem.instrument_channels` is similarly
+estimated by OLS regression of observed prices on :math:`z` with
+cost-formulation controls; the structural-side magnitude
+:math:`\| P_m^{-1} - P_{m'}^{-1} \|_F` aggregates the inverse
+pass-through difference by median across markets.
+
+
 Where the formulas live in code
 -------------------------------
 
@@ -247,9 +433,15 @@ Where the formulas live in code
   :py:func:`pyRVtest.solve.demand_adjustment.compute_demand_adjustment`.
 * Villas-Boas passthrough matrix (Vertical analytical fast path):
   :py:func:`pyRVtest.construct_passthrough_matrix`.
-* Numerical pass-through for all conducts (DMQSW Phase 1):
+* Numerical pass-through for all conducts:
   :py:func:`pyRVtest.solve.passthrough.compute_passthrough_numerical`.
 * Pass-through dispatch entry point:
   :py:func:`pyRVtest.solve.passthrough.build_passthrough`.
+* Pre-solve framework diagnostic
+  (:meth:`~pyRVtest.Problem.passthrough_summary`):
+  :py:func:`pyRVtest.solve.passthrough.compute_passthrough_summary`.
+* Post-solve channel decomposition
+  (:meth:`~pyRVtest.Problem.instrument_channels`):
+  :py:func:`pyRVtest.solve.passthrough.compute_instrument_channels`.
 * mpmath high-precision recompute trigger:
   :py:func:`pyRVtest.solve.test_engine._recompute_F_high_precision`.

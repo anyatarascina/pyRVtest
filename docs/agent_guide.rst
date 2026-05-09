@@ -519,15 +519,21 @@ Pass-through diagnostics
 ------------------------
 
 Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026) show that two
-conduct models are distinguishable under pass-through-based instruments
-iff their pass-through matrices differ in their **off-diagonal**
-structure. A pair with near-identical pass-through is weakly identified:
-the RV test will be underpowered even if the underlying models are
-nominally different. :class:`pyRVtest.ProblemResults` exposes
-:meth:`~pyRVtest.ProblemResults.passthrough_matrix` (Villas-Boas
-(2007), per-model) for inspection; v0.4 final's pairwise diagnostic
-suite (``passthrough_summary``, ``causal_effects``) is the supported
-entry point for the Remark-1 off-diagonal-ratio framework.
+conduct models are distinguishable under a given testing-instrument
+type iff a γ-free pass-through-feature distance is nonzero (Remarks
+1, 2, 4, 5 keying off-diagonal ratio, full pass-through, row sums,
+and level-adjusted pass-through respectively). A pair whose feature
+distance is structurally zero under the user's IV bundle is weakly
+identified: the RV test will be underpowered no matter how much data
+is collected. :class:`pyRVtest.ProblemResults` exposes the v0.4 final
+DMQSW diagnostic suite as the supported entry point:
+:meth:`~pyRVtest.Problem.passthrough_summary` (pre-solve γ-free pair-
+by-pair feature distances),
+:meth:`~pyRVtest.ProblemResults.passthrough_matrix` (raw :math:`P_m`
+for one model in one market; numerical for non-Vertical, Villas-Boas
+(2007) analytical fast path for Vertical), and
+:meth:`~pyRVtest.Problem.instrument_channels` (post-solve channel
+decomposition for one chosen IV column).
 
 * :meth:`~pyRVtest.ProblemResults.passthrough_matrix` — Villas-Boas
   (2007) pass-through matrix for a single candidate model. Thin wrapper
