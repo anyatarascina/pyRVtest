@@ -45,6 +45,7 @@ from ._format import _dataframe_to_github_markdown
 if TYPE_CHECKING:
     import pandas as pd
     from ..problem import Problem
+    from ..solve.passthrough import PassthroughSummary
 
 
 # ----------------------------------------------------------------------
@@ -1102,19 +1103,20 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         model_index: int,
         market_id: Optional[Hashable] = None,
     ) -> Union[NDArray[Any], Dict[Hashable, NDArray[Any]]]:
-        """Return the Villas-Boas pass-through matrix for one candidate model.
+        """Return the candidate's pass-through matrix
+        :math:`P_m = (I - \\partial \\Delta_m / \\partial p)^{-1}`.
 
         Thin wrapper over :func:`pyRVtest.build_passthrough` exposed on
-        :class:`ProblemResults` so users do not need to remember a
-        separate top-level import. Input validation and the non-vertical
-        error path are delegated to ``build_passthrough``.
+        :class:`ProblemResults`. For a Vertical candidate, returns the
+        Villas-Boas (2007) :math:`dp/dw` analytical closed form. For
+        every other conduct class, returns the per-candidate
+        :math:`P_m` computed numerically via central-difference
+        perturbation through the markup function.
 
         Parameters
         ----------
         model_index : int
-            Index into ``self.problem._models``. Must refer to a
-            :class:`pyRVtest.Vertical` entry (build_passthrough raises
-            ``ValueError`` otherwise).
+            Index into ``self.problem._models``.
         market_id : hashable, optional
             If ``None`` (default), returns ``{market_id: matrix}`` across
             every market. Otherwise returns the single ``(J_t, J_t)``
@@ -1123,16 +1125,34 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         Returns
         -------
         ndarray or dict
-            Pass-through matrix per Villas-Boas (2007). Shape
-            ``(J_t, J_t)`` for a scalar ``market_id``, or
-            ``{market_id: (J_t, J_t)}`` across all markets.
+            Pass-through matrix. Shape ``(J_t, J_t)`` for a scalar
+            ``market_id``, or ``{market_id: (J_t, J_t)}`` across all
+            markets.
 
         See Also
         --------
         pyRVtest.build_passthrough : standalone helper the method wraps.
+        ProblemResults.passthrough_summary : per-pair distance summary
+            across all candidate pairs.
         """
         result = build_passthrough(
             self.problem, model_index=model_index, market_id=market_id,
+        )
+        return result
+
+    def passthrough_summary(
+        self,
+        with_models: bool = False,
+        detail: str = 'median',
+    ) -> 'PassthroughSummary':
+        """Pair × pass-through-feature distance summary across candidates.
+
+        Thin wrapper delegating to :meth:`pyRVtest.Problem.passthrough_summary`.
+        See that method's docstring for full parameter and return
+        documentation.
+        """
+        result: 'PassthroughSummary' = self.problem.passthrough_summary(
+            with_models=with_models, detail=detail,
         )
         return result
 

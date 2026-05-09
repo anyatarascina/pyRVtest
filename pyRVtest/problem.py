@@ -4,7 +4,10 @@ import abc
 import logging
 import time
 import warnings
-from typing import Any, Dict, Hashable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Hashable, List, Mapping, Optional, Sequence, Tuple, Union
+
+if TYPE_CHECKING:
+    from .solve.passthrough import PassthroughSummary
 
 import numpy as np
 from pyblp.utilities.algebra import precisely_identify_collinearity
@@ -2168,6 +2171,42 @@ class Problem(Container, StringRepresentation):
         :func:`pyRVtest.solve.passthrough.build_passthrough`.
         """
         return _markups_stage(self)
+
+    def passthrough_summary(
+        self,
+        with_models: bool = False,
+        detail: str = 'median',
+    ) -> 'PassthroughSummary':
+        """Pair × pass-through-feature distance summary across candidates.
+
+        For each unordered pair of candidate models in ``self._models``
+        and each market, computes four pass-through-feature distances:
+        ``offdiag_ratio`` (Remark 1, rival cost shifters), ``full_pass``
+        (Remark 2 / Remark 4), ``row_sum`` (Remark 5 unit tax), and
+        ``level_adj`` (Remark 5 ad valorem tax). Per-market values are
+        aggregated via median (default) or returned per-market when
+        ``detail='full'``.
+
+        Parameters
+        ----------
+        with_models : bool, optional
+            Add a per-model structural block (median diagonal, max
+            off-diagonal, median row sum) to the printed view.
+        detail : {'median', 'full'}, optional
+            Aggregation mode for the pair-distance table. Default
+            'median'; 'full' returns one row per (pair, market).
+
+        Returns
+        -------
+        PassthroughSummary
+            Structured result with ``__repr__`` for printing and
+            ``to_dataframe()`` for the underlying frame. See
+            :class:`pyRVtest.solve.passthrough.PassthroughSummary`.
+        """
+        from .solve.passthrough import compute_passthrough_summary
+        return compute_passthrough_summary(
+            self, with_models=with_models, detail=detail,
+        )
 
     def _prepare_orthogonal_variables(self, M: int, N: int, markups_effective: list, marginal_cost: Array):
         """Absorb fixed effects and residualize markups and marginal costs w.r.t. cost shifters.

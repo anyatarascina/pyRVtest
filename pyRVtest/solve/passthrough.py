@@ -37,12 +37,15 @@ math.rst documents the closed forms the numerics approximate.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Hashable, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Hashable, List, Optional, Union
 
 import numpy as np
 from numpy.linalg import inv
 from numpy.typing import NDArray
 from typing_extensions import TypeAlias
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from ..exceptions import HessianUnavailableError
 from ..markups import _construct_passthrough_from_hessian, evaluate_first_order_conditions
@@ -53,7 +56,12 @@ from ..models.user_supplied import UserSuppliedMarkups
 from ..models.vertical import Vertical
 
 
-__all__ = ['build_passthrough', 'compute_passthrough_numerical']
+__all__ = [
+    'PassthroughSummary',
+    'build_passthrough',
+    'compute_passthrough_numerical',
+    'compute_passthrough_summary',
+]
 
 
 _NDArray: TypeAlias = NDArray[Any]
@@ -586,3 +594,368 @@ def build_passthrough(
     if market_id is not None:
         return results[market_id]
     return results
+
+
+# ===========================================================================
+# Phase 2: passthrough_summary — pair × pass-through-feature distances
+# ===========================================================================
+
+
+def _metric_full_pass(P_i: _NDArray, P_j: _NDArray, p_t: _NDArray,
+                     D_i: _NDArray, D_j: _NDArray) -> float:
+    """Frobenius norm of full pass-through difference (Remark 2 target)."""
+    return float(np.linalg.norm(P_i - P_j, 'fro'))
+
+
+def _metric_offdiag_ratio(P_i: _NDArray, P_j: _NDArray, p_t: _NDArray,
+                         D_i: _NDArray, D_j: _NDArray) -> float:
+    """Frobenius norm of off-diagonal column-ratio differences (Remark 1 target).
+
+    For each off-diagonal position (j, ℓ) with j ≠ ℓ, the Remark 1 target
+    is the column-normalized off-diagonal entry (P)_{jℓ}/(P)_{ℓℓ}. The
+    aggregated distance over off-diagonals captures whether rival cost
+    shifters can distinguish the pair regardless of γ.
+    """
+    J = P_i.shape[0]
+    if J <= 1:
+        return 0.0
+    diag_i = np.diag(P_i).astype(float)
+    diag_j = np.diag(P_j).astype(float)
+    # Avoid division by zero. If a candidate has zero diagonal entry at
+    # column ℓ, its column ratio is undefined; we contribute 0 to the
+    # distance for that column (caller sees 0 → degenerate via the other
+    # candidate's check too).
+    safe_diag_i = np.where(np.abs(diag_i) > 1e-12, diag_i, np.inf)
+    safe_diag_j = np.where(np.abs(diag_j) > 1e-12, diag_j, np.inf)
+    ratio_i = P_i / safe_diag_i[np.newaxis, :]
+    ratio_j = P_j / safe_diag_j[np.newaxis, :]
+    diff = ratio_i - ratio_j
+    np.fill_diagonal(diff, 0.0)
+    return float(np.linalg.norm(diff, 'fro'))
+
+
+def _metric_row_sum(P_i: _NDArray, P_j: _NDArray, p_t: _NDArray,
+                   D_i: _NDArray, D_j: _NDArray) -> float:
+    """L2 norm of row-sum difference (Remark 5 unit-tax target)."""
+    iota = np.ones(P_i.shape[0])
+    return float(np.linalg.norm((P_i - P_j) @ iota))
+
+
+def _metric_level_adj(P_i: _NDArray, P_j: _NDArray, p_t: _NDArray,
+                     D_i: _NDArray, D_j: _NDArray) -> float:
+    """L2 norm of (P · (p − Δ)) difference (Remark 5 ad-valorem-tax target)."""
+    diff = P_i @ (p_t - D_i) - P_j @ (p_t - D_j)
+    return float(np.linalg.norm(diff))
+
+
+_PASSTHROUGH_FEATURE_METRICS: Dict[str, Any] = {
+    'offdiag_ratio': _metric_offdiag_ratio,
+    'full_pass': _metric_full_pass,
+    'row_sum': _metric_row_sum,
+    'level_adj': _metric_level_adj,
+}
+
+
+_FEATURE_NOTES: Dict[str, str] = {
+    'offdiag_ratio': (
+        "rival cost shifters: γ-free; column ratios. Zero ⇒ structural "
+        "degeneracy. Magnitude doesn't predict power."
+    ),
+    'full_pass': (
+        "own+rival cost; product chars under linear-index demand: γ_known "
+        "scaled or γ=0 by rival exclusion; full pass-through difference."
+    ),
+    'row_sum': (
+        "unit tax: row sums of pass-through. ν observed; fully computable."
+    ),
+    'level_adj': (
+        "ad valorem tax: ‖P_m·(p−Δ_m) − P_m'·(p−Δ_m')‖. ν, p observed."
+    ),
+}
+
+
+class PassthroughSummary:
+    """Output of :meth:`pyRVtest.Problem.passthrough_summary`.
+
+    Holds the per-pair pass-through-feature distance frame, optional
+    per-model structural block, candidate labels, methodology line, and
+    a ``__repr__`` that produces the formatted printable view.
+
+    The DataFrame is exposed via :attr:`pair_distances` (always populated)
+    and :attr:`per_model` (populated only when ``with_models=True``);
+    :meth:`to_dataframe` returns a copy of ``pair_distances``.
+    """
+
+    def __init__(
+        self,
+        pair_distances: 'pd.DataFrame',
+        per_model: Optional['pd.DataFrame'],
+        detail_mode: str,
+        n_markets: int,
+        candidate_labels: List[str],
+        methodology_line: str,
+    ) -> None:
+        self.pair_distances = pair_distances
+        self.per_model = per_model
+        self.detail_mode = detail_mode
+        self.n_markets = n_markets
+        self.candidate_labels = list(candidate_labels)
+        self.methodology_line = methodology_line
+
+    def to_dataframe(self) -> 'pd.DataFrame':
+        return self.pair_distances.copy()
+
+    def __repr__(self) -> str:
+        lines: List[str] = []
+
+        # Per-model block.
+        if self.per_model is not None:
+            lines.append(
+                f"Per-model pass-through structure "
+                f"(median across {self.n_markets} markets):"
+            )
+            lines.append("")
+            lines.append(self.per_model.to_string(index=False))
+            lines.append("")
+
+        # Pair distance table.
+        agg_label = (
+            f"median across {self.n_markets} markets"
+            if self.detail_mode == 'median'
+            else f"per-market over {self.n_markets} markets"
+        )
+        lines.append(f"Per-pair pass-through-feature distances ({agg_label}):")
+        lines.append("")
+
+        # Hide internal model_i / model_j columns from the printed view.
+        display_cols = [
+            c for c in self.pair_distances.columns
+            if c not in ('model_i', 'model_j')
+        ]
+        display_df = self.pair_distances[display_cols]
+        lines.append(display_df.to_string(index=False))
+        lines.append("")
+
+        # Per-feature notes.
+        lines.append("Per-feature notes:")
+        feature_cols = [c for c in display_cols if c in _FEATURE_NOTES]
+        for feature in feature_cols:
+            note = _FEATURE_NOTES[feature]
+            lines.append(f"  {feature} ({note.split(':', 1)[0]}):")
+            lines.append(f"    {note.split(':', 1)[1].strip()}")
+        lines.append("")
+
+        # Methodology line.
+        lines.append(self.methodology_line)
+
+        return "\n".join(lines)
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+
+def _build_methodology_line(problem: Any) -> str:
+    """One-line description of how P_m was computed, conditional on the
+    candidate-set composition."""
+    candidates = problem._models
+
+    has_vertical = any(isinstance(c, Vertical) for c in candidates)
+    trivial_classes = (
+        PerfectCompetition, ConstantMarkup, UserSuppliedMarkups, RuleOfThumb,
+    )
+    has_trivial = any(isinstance(c, trivial_classes) for c in candidates)
+    has_numerical = any(
+        not isinstance(c, Vertical) and not isinstance(c, trivial_classes)
+        for c in candidates
+    )
+
+    parts = []
+    if has_vertical:
+        parts.append("Villas-Boas analytical (Vertical candidates)")
+    if has_numerical:
+        parts.append("central-difference numerical, delta=1e-7 (Bertrand / Cournot / Monopoly / PartialCollusion / MixCournotBertrand / CustomConductModel)")
+    if has_trivial:
+        parts.append(
+            "exact via short-circuit (PerfectCompetition / ConstantMarkup / "
+            "UserSuppliedMarkups / RuleOfThumb)"
+        )
+
+    body = "; ".join(parts)
+
+    return (
+        f"Methodology — pass-through: {body}. "
+        f"See docs/math.rst."
+    )
+
+
+def compute_passthrough_summary(
+    problem: Any,
+    with_models: bool = False,
+    detail: str = 'median',
+) -> PassthroughSummary:
+    """Compute pair × pass-through-feature distance summary across all
+    candidate model pairs.
+
+    For each unordered pair ``(m, m')`` of candidate models in
+    ``problem._models`` and each market in ``problem.unique_market_ids``,
+    computes four pass-through-feature distances:
+
+    - ``offdiag_ratio`` (Remark 1, rival cost shifters): Frobenius norm of
+      column-normalized off-diagonal differences ``(P_m)_{jℓ}/(P_m)_{ℓℓ}
+      − (P_m')_{jℓ}/(P_m')_{ℓℓ}``.
+    - ``full_pass`` (Remark 2, own+rival cost; product chars under
+      linear-index demand): Frobenius norm of ``P_m − P_m'``.
+    - ``row_sum`` (Remark 5, unit tax): L2 norm of ``(P_m − P_m') · ι``.
+    - ``level_adj`` (Remark 5, ad valorem tax): L2 norm of
+      ``P_m·(p − Δ_m) − P_m'·(p − Δ_m')``.
+
+    Per-market values are aggregated across markets via median (default)
+    or returned per-market when ``detail='full'``.
+
+    Parameters
+    ----------
+    problem : pyRVtest.Problem
+        Constructed Problem. Must have a demand backend (markups/Hessian
+        available).
+    with_models : bool, optional
+        If True, also compute a per-model summary block (median diagonal,
+        max off-diagonal, median row sum across markets).
+    detail : {'median', 'full'}, optional
+        Aggregation mode for the pair-distance table. Default 'median'.
+
+    Returns
+    -------
+    PassthroughSummary
+        Structured result. ``__repr__`` produces the printable view;
+        ``to_dataframe`` returns the per-pair distance DataFrame.
+    """
+    import pandas as pd
+
+    if detail not in ('median', 'full'):
+        raise ValueError(
+            f"Expected detail in {{'median', 'full'}}. Received "
+            f"detail={detail!r}."
+        )
+
+    n_models = len(problem._models)
+    if n_models < 2:
+        raise ValueError(
+            f"passthrough_summary requires at least 2 candidate models for "
+            f"per-pair distances. Received n_models={n_models}."
+        )
+
+    market_ids = list(problem.unique_market_ids)
+
+    # Compute markups per candidate (per-observation) once.
+    markups_full, _, _ = problem._perturb_and_build_markups()
+
+    # Observed prices per observation; product_market_ids gives row → market mapping.
+    prices = np.asarray(problem.products.prices, dtype=float).flatten()
+    product_market_ids = problem.products.market_ids.flatten()
+
+    # Per-(model, market) pass-through matrices, computed once.
+    per_model_passthrough: Dict[int, Dict[Hashable, _NDArray]] = {}
+    for m in range(n_models):
+        # build_passthrough returns dict[market_id, ndarray] when called
+        # without market_id — narrowing the union type for mypy.
+        full_dict = build_passthrough(problem, model_index=m)
+        assert isinstance(full_dict, dict)
+        per_model_passthrough[m] = full_dict
+
+    # Candidate labels (class name; could expand later).
+    labels = [type(c).__name__ for c in problem._models]
+
+    # Per-market data extracted once.
+    market_data: Dict[Hashable, Dict[str, _NDArray]] = {}
+    for t in market_ids:
+        idx = np.where(product_market_ids == t)[0]
+        market_data[t] = {
+            'idx': idx,
+            'p': prices[idx],
+        }
+
+    # Per-pair distance computation.
+    pair_rows: List[Dict[str, Any]] = []
+    metric_names = list(_PASSTHROUGH_FEATURE_METRICS.keys())
+    for i in range(n_models):
+        for j in range(i + 1, n_models):
+            per_market_metrics: Dict[str, List[float]] = {m: [] for m in metric_names}
+            for t in market_ids:
+                P_i = np.asarray(per_model_passthrough[i][t], dtype=float)
+                P_j = np.asarray(per_model_passthrough[j][t], dtype=float)
+                idx = market_data[t]['idx']
+                p_t = market_data[t]['p']
+                D_i = np.asarray(markups_full[i][idx], dtype=float).flatten()
+                D_j = np.asarray(markups_full[j][idx], dtype=float).flatten()
+                for name, metric_fn in _PASSTHROUGH_FEATURE_METRICS.items():
+                    per_market_metrics[name].append(
+                        metric_fn(P_i, P_j, p_t, D_i, D_j),
+                    )
+
+            if detail == 'median':
+                row = {
+                    'pair': f"({labels[i]}, {labels[j]})",
+                    'model_i': i,
+                    'model_j': j,
+                }
+                for name in metric_names:
+                    row[name] = float(np.median(per_market_metrics[name]))
+                pair_rows.append(row)
+            else:  # detail == 'full'
+                for k, t in enumerate(market_ids):
+                    row = {
+                        'pair': f"({labels[i]}, {labels[j]})",
+                        'model_i': i,
+                        'model_j': j,
+                        'market_id': t,
+                    }
+                    for name in metric_names:
+                        row[name] = per_market_metrics[name][k]
+                    pair_rows.append(row)
+
+    pair_distances = pd.DataFrame(pair_rows)
+
+    # Per-model block.
+    per_model_df: Optional[pd.DataFrame] = None
+    if with_models:
+        rows: List[Dict[str, Any]] = []
+        for m in range(n_models):
+            diag_vals: List[float] = []
+            offdiag_max_vals: List[float] = []
+            row_sum_vals: List[float] = []
+            for t in market_ids:
+                P_m = np.asarray(per_model_passthrough[m][t], dtype=float)
+                diag_vals.extend(np.diag(P_m).tolist())
+                if P_m.shape[0] > 1:
+                    offdiag = P_m - np.diag(np.diag(P_m))
+                    if np.any(offdiag != 0):
+                        # Signed max-magnitude entry for visual cue.
+                        flat = offdiag[~np.eye(offdiag.shape[0], dtype=bool)]
+                        idx_max = int(np.argmax(np.abs(flat)))
+                        offdiag_max_vals.append(float(flat[idx_max]))
+                    else:
+                        offdiag_max_vals.append(0.0)
+                row_sum_vals.extend(
+                    (P_m @ np.ones(P_m.shape[0])).tolist()
+                )
+            rows.append({
+                'model': labels[m],
+                'diag_avg': float(np.median(diag_vals)),
+                'max_offdiag': (
+                    float(np.median(offdiag_max_vals))
+                    if offdiag_max_vals else 0.0
+                ),
+                'row_sum_avg': float(np.median(row_sum_vals)),
+            })
+        per_model_df = pd.DataFrame(rows)
+
+    methodology_line = _build_methodology_line(problem)
+
+    return PassthroughSummary(
+        pair_distances=pair_distances,
+        per_model=per_model_df,
+        detail_mode=detail,
+        n_markets=len(market_ids),
+        candidate_labels=labels,
+        methodology_line=methodology_line,
+    )
