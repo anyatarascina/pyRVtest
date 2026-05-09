@@ -111,15 +111,19 @@ def residualize(
     markups_orthogonal = np.zeros((M, N), dtype=options.dtype)
     marginal_cost_orthogonal = np.zeros((M, N), dtype=options.dtype)
 
-    # When an endogenous cost component is present, its coefficient was estimated via IV and the correction
-    # has already been applied to marginal_cost. The OLS projection therefore uses only the exogenous columns
-    # of w so that tau_list corresponds to the exogenous cost-shifter coefficients.
+    # When endogenous cost component(s) are present, their coefficients were estimated via IV
+    # and the correction has already been applied to marginal_cost. The OLS projection therefore
+    # uses only the exogenous columns of w so that tau_list corresponds to the exogenous
+    # cost-shifter coefficients. Generalized to K_endog >= 1.
     if problem.endogenous_cost_component is not None:
-        endog_col_idx = next(
-            i for i, f in enumerate(problem._w_formulation)
-            if str(f) == problem.endogenous_cost_component
-        )
-        exog_col_indices = [i for i in range(problem.products.w.shape[1]) if i != endog_col_idx]
+        name_to_w_idx = {str(f): i for i, f in enumerate(problem._w_formulation)}
+        endog_col_indices = {
+            name_to_w_idx[name] for name in problem._endogenous_cost_columns
+        }
+        exog_col_indices = [
+            i for i in range(problem.products.w.shape[1])
+            if i not in endog_col_indices
+        ]
         w_for_ols = problem.products.w[:, exog_col_indices]
     else:
         w_for_ols = problem.products.w

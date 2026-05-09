@@ -249,7 +249,10 @@ def compute_instrument_results(
     """
     instruments = problem.products["Z{0}".format(instrument)]
     K = np.shape(instruments)[1]
-    K_effective = K - 1 if endog_hat is not None else K
+    K_endog = (
+        len(problem._endogenous_cost_columns) if endog_hat is not None else 0
+    )
+    K_effective = K - K_endog
 
     # the tabulated F-statistic critical values (size and power) are
     # defined for K=1..30. For larger instrument sets we fall back to the K=30
@@ -266,13 +269,17 @@ def compute_instrument_results(
             UserWarning, stacklevel=2,
         )
 
-    # Use only exogenous cost-shifter columns when an endogenous component has been IV-corrected
+    # Use only exogenous cost-shifter columns when endogenous component(s)
+    # have been IV-corrected. Generalized to handle K_endog >= 1.
     if problem.endogenous_cost_component is not None:
-        endog_col_idx = next(
-            i for i, f in enumerate(problem._w_formulation)
-            if str(f) == problem.endogenous_cost_component
-        )
-        exog_col_indices = [i for i in range(problem.products.w.shape[1]) if i != endog_col_idx]
+        name_to_w_idx = {str(f): i for i, f in enumerate(problem._w_formulation)}
+        endog_col_indices = {
+            name_to_w_idx[name] for name in problem._endogenous_cost_columns
+        }
+        exog_col_indices = [
+            i for i in range(problem.products.w.shape[1])
+            if i not in endog_col_indices
+        ]
         w_for_ols = problem.products.w[:, exog_col_indices]
     else:
         w_for_ols = problem.products.w
@@ -335,14 +342,17 @@ def compute_instrument_results(
     # Precompute first-stage correction ingredients when endogenous cost component is present.
     # Per Appendix B of Duarte-Magnolfi-Quint-Solvsten-Sullivan (2026), the influence function
     # psi includes a correction for estimation of the linear predictor q_tilde.
+    # Generalized to K_endog >= 1: q_e is (N, K_endog), Lambda_q is (K, K_endog).
+    # When K_endog == 1 the math reduces bit-identically to the prior single-column code.
     endog_correction_data = None
     if endog_hat is not None:
-        endog_col_idx_local = next(
-            i for i, f in enumerate(problem._w_formulation)
-            if str(f) == problem.endogenous_cost_component
-        )
-        endog_col = problem.products.w[:, [endog_col_idx_local]]  # (N, 1) raw endogenous variable
-        q_e = endog_col - endog_hat                            # (N, 1) first-stage residual
+        K_endog_local = len(problem._endogenous_cost_columns)
+        name_to_w_idx_local = {str(f): i for i, f in enumerate(problem._w_formulation)}
+        endog_col_indices_local = [
+            name_to_w_idx_local[name] for name in problem._endogenous_cost_columns
+        ]
+        endog_col = problem.products.w[:, endog_col_indices_local]  # (N, K_endog) raw endogenous variables
+        q_e = endog_col - endog_hat                                  # (N, K_endog) first-stage residual
 
         # z^r = z residualized on w only (not on endog_hat)
         z_r = qr_residualize(instruments, w_for_ols) if w_for_ols.shape[1] > 0 else instruments.copy()
@@ -354,18 +364,21 @@ def compute_instrument_results(
         Z_cov = (1 / N) * z_r.T @ z_r                         # (K, K)
         Z_prec = np.linalg.pinv(Z_cov)                        # (K, K)
 
-        # lambda_q: coefficient on endog_hat in projection z^e = lambda_q * q_tilde + Lambda_w * w
-        # This is the coefficient from projecting z on [endog_hat, w], taking the endog_hat part
+        # Lambda_q: coefficient matrix relating z to endog_hat in the projection
+        # z = Lambda_q @ q_tilde + Lambda_w @ w + z^e. Shape (K, K_endog); column k
+        # says "how much of the k-th endogenous q_tilde appears in z column j" via row j.
+        # For K_endog == 1 this collapses to a (K, 1) column vector; the influence-function
+        # formulas below use Lambda_q as a 2-D matrix uniformly.
         proj_X = np.hstack([endog_hat, w_for_ols]) if w_for_ols.shape[1] > 0 else endog_hat
         Q_proj, R_proj = np.linalg.qr(proj_X, mode='reduced')
         lambda_coefs = np.linalg.solve(R_proj, Q_proj.T @ instruments)  # (d_proj, K)
-        lambda_q = lambda_coefs[0, :]  # (K,) — coefficient on endog_hat (first column)
+        Lambda_q = lambda_coefs[:K_endog_local, :].T  # (K, K_endog)
 
         # Precompute the (K, K) matrix M_correction = W^{3/4} W^+ Z_prec, used in correction
         W_plus = weight_matrix  # this is already the pseudo-inverse of W_inverse
         M_corr = W_34 @ W_plus @ Z_prec  # (K, K)
 
-        endog_correction_data = (z_r, q_e, lambda_q, M_corr, Z_prec, W_plus)
+        endog_correction_data = (z_r, q_e, Lambda_q, M_corr, Z_prec, W_plus, endog_col)
 
     for m in range(M):
         psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
@@ -376,41 +389,51 @@ def compute_instrument_results(
 
         # First-stage correction: Appendix B of Duarte-Magnolfi-Quint-Solvsten-Sullivan (2026).
         # Per observation i, the correction to psi[m][i,:] is:
-        #   (1/2) W^{3/4} (W^+ Z_prec u_i lambda'_q + lambda_q u'_i Z_prec W^+) W^{3/4} g_m
-        # where u_i = z^r_i * q^e_i, M_corr = W^{3/4} W^+ Z_prec.
-        # Term 1 contracts to: M_corr @ u_i * (lambda_q . W^{3/4} g_m)
-        # Term 2 contracts to: W^{3/4} lambda_q * (u_i . Z_prec W^+ W^{3/4} g_m)
+        #   (1/2) W^{3/4} (W^+ Z_prec (z^r_i ⊗ Lambda_q q^e_i)' + (Lambda_q q^e_i ⊗ z^r_i) Z_prec W^+) W^{3/4} g_m
+        # which collapses to two rank-1 update terms (term1 and term2 below).
+        # K_endog = 1 case is bit-identical to the prior single-column formulation.
         if endog_correction_data is not None and not getattr(problem, '_skip_appendix_b', False):
-            z_r, q_e, lambda_q, M_corr, Z_prec, W_plus = endog_correction_data
+            z_r, q_e, Lambda_q, M_corr, Z_prec, W_plus, _endog_col_raw = endog_correction_data
             W34_gm = W_34 @ g[m]                                       # (K,)
             v = Z_prec @ W_plus @ W34_gm                               # (K,) right-side contraction
-            u = q_e * z_r                                              # (N, K)
-            term1 = (u @ M_corr.T) * (lambda_q @ W34_gm)              # (N, K)
-            term2 = (u @ v)[:, np.newaxis] * (W_34 @ lambda_q)[np.newaxis, :]  # (N, K)
+
+            # term1[i] = (M_corr @ z^r_i) * (Lambda_q q^e_i . W^{3/4} g_m)
+            #         = (M_corr @ z^r_i) * (q^e_i' Lambda_q' W^{3/4} g_m)
+            z_r_M = z_r @ M_corr.T                                       # (N, K)
+            Lambda_q_T_W34_gm = Lambda_q.T @ W34_gm                      # (K_endog,)
+            scalar_term1 = q_e @ Lambda_q_T_W34_gm                       # (N,)
+            term1 = z_r_M * scalar_term1[:, np.newaxis]                  # (N, K)
+
+            # term2[i] = (W^{3/4} Lambda_q q^e_i) * (z^r_i . v)
+            z_r_v = z_r @ v                                              # (N,)
+            W34_Lambda_q = W_34 @ Lambda_q                               # (K, K_endog)
+            W34_Lambda_q_q_e = q_e @ W34_Lambda_q.T                      # (N, K)
+            term2 = W34_Lambda_q_q_e * z_r_v[:, np.newaxis]              # (N, K)
+
             psi[m] = psi[m] + 0.5 * (term1 + term2)
 
         if demand_adjustment:
             G_k = -1 / N * np.transpose(Z_orthogonal) @ gradient_markups[m]
             # When endogenous_cost_component is set, account for d(gamma_m)/d(theta) in G_k.
             # The full gradient of omega w.r.t. theta includes a term from gamma changing,
-            # which contributes -(1/N) Z' @ (d_gamma/d_theta * endog_resid) to G_k.
+            # which contributes -(1/N) Z' @ (endog_resid @ (d_gamma/d_theta).T) to G_k.
             if gradient_gamma is not None and endog_correction_data is not None:
-                endog_col_resid = endog_correction_data[1] + endog_correction_data[0]  # q^e + z^r... no
-                # Actually: the endogenous column residualized on w is needed. Reconstruct it.
-                endog_col_idx_local2 = next(
-                    i for i, f in enumerate(problem._w_formulation)
-                    if str(f) == problem.endogenous_cost_component
-                )
-                endog_col_raw = problem.products.w[:, [endog_col_idx_local2]]
+                # Reconstruct the endogenous columns residualized on w (N, K_endog).
+                _z_r, _q_e, _Lambda_q, _M_corr, _Z_prec, _W_plus, endog_col_raw = endog_correction_data
                 if problem._absorb_cost_ids is not None:
                     endog_col_for_grad, _ = problem._absorb_cost_ids(endog_col_raw)
                 else:
                     endog_col_for_grad = endog_col_raw
                 if w_absorbed.shape[1] > 0:
                     endog_col_for_grad = qr_residualize(endog_col_for_grad, w_absorbed)
-                # gradient_gamma[m] is (n_theta,) — d gamma_m / d theta_k for each k
-                # G_k[:, k] -= (1/N) * Z' @ (d_gamma_m/d_theta_k * endog_resid)
-                G_k = G_k - 1 / N * np.transpose(Z_orthogonal) @ (endog_col_for_grad @ gradient_gamma[[m], :])
+                # gradient_gamma[m] shape (n_theta,) for K_endog == 1, (n_theta, K_endog) for K > 1.
+                # Reshape to (n_theta, K_endog) uniformly so endog_col_for_grad @ gg_m_T produces (N, n_theta).
+                gg_m = np.asarray(gradient_gamma[m])
+                if gg_m.ndim == 1:
+                    gg_m_T = gg_m.reshape(1, -1)  # (K_endog=1, n_theta)
+                else:
+                    gg_m_T = gg_m.T               # (K_endog, n_theta)
+                G_k = G_k - 1 / N * np.transpose(Z_orthogonal) @ (endog_col_for_grad @ gg_m_T)
             adjustment_value[m] = W_12 @ G_k @ inv(H_prime_wd @ H) @ H_prime_wd
             psi[m] = psi[m] - (h_i - np.transpose(h)) @ np.transpose(adjustment_value[m])
 

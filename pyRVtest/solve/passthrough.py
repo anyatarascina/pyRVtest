@@ -1107,18 +1107,37 @@ def _build_instrument_channels_methodology_line(
 ) -> str:
     """Methodology line for instrument_channels output."""
     base = _build_methodology_line(problem)  # passthrough computation method
-    iv_note = (
-        "Direct channel β_m via conditional regression of Δ_m on z controlling "
-        "for p (FWL); data-side ‖dp_0/dz‖_obs via regression of observed prices "
-        "on z with cost-formulation controls; structural-side ‖P_m^{-1} − P_m'^{-1}‖ "
-        "from the candidate pass-through matrices computed as above. "
-        "See instrument_channels() docstring for the channel decomposition formula."
-    )
+    if problem.endogenous_cost_component is not None:
+        # Non-constant MC: data-side regression and FWL partialling use
+        # z residualized on (g(q_tilde), w_exog) — DMQSS Appendix B's
+        # z^e — so a single magnitude simultaneously reflects the
+        # instrument-relevance condition (DMQSW) and the economic
+        # distinctness condition (DMQSS Appendix A.4) under non-constant
+        # cost.
+        iv_note = (
+            "Data-side ‖dp_0/dz‖_obs and direct channel β_m use z residualized "
+            "on (g(q̃), w_exog) — DMQSS z^e — which simultaneously reflects the "
+            "instrument-relevance condition (DMQSW) and the economic distinctness "
+            "condition (DMQSS Appendix A.4). Magnitudes are finite-sample "
+            "sample-regression estimates; small-but-nonzero values may reflect "
+            "noise rather than population identifying variation. Structural-side "
+            "‖P_m^{-1} − P_m'^{-1}‖ is γ-free, computed from the candidate "
+            "pass-through matrices as above. See instrument_channels() docstring "
+            "+ docs/math.rst."
+        )
+    else:
+        # Constant MC: standard Dearing decomposition with cost-formulation controls.
+        iv_note = (
+            "Direct channel β_m via conditional regression of Δ_m on z controlling "
+            "for p (FWL); data-side ‖dp_0/dz‖_obs via regression of observed prices "
+            "on z with cost-formulation controls; structural-side ‖P_m^{-1} − P_m'^{-1}‖ "
+            "from the candidate pass-through matrices computed as above. "
+            "See instrument_channels() docstring for the channel decomposition formula."
+        )
     if instrument_type is not None:
         iv_note += (
             f" Declared instrument type: {instrument_type!r} — see "
-            f"docs/math.rst and Dearing et al. (2026) for the targeting "
-            f"interpretation."
+            f"docs/math.rst and DMQSW for the targeting interpretation."
         )
     return f"{base}\n{iv_note}"
 
@@ -1205,6 +1224,61 @@ def compute_instrument_channels(
     if w.ndim == 1:
         w = w.reshape(-1, 1)
 
+    # When endogenous_cost_component is set, the data-side regression
+    # should partial z on (g(q_tilde), w_exog) — DMQSS Appendix B's
+    # z^e residualization — rather than on raw (q, w_exog). Using raw q
+    # over-residualizes z along the endogeneity direction (q is
+    # correlated with the cost shock omega) and biases the empirical
+    # slope. Using the first-stage prediction q_tilde absorbs only the
+    # exogenous component of q in z, so the resulting magnitude is the
+    # unified Dearing + DMQSS A.4 distinctness diagnostic (rank-K+1
+    # condition collapses to first-stage rank K + nonzero
+    # Cov(z^e, model-implied cost difference); see math.rst).
+    #
+    # The first stage uses the FULL declared instrument set (combined
+    # across instrument_formulation entries) plus w_exog, NOT the single
+    # diagnostic column z. Using only z would make q_tilde span
+    # {z, w_exog}, so z would be perfectly explained by (q_tilde, w_exog)
+    # and the residualization would degenerate to zero. The full IV set
+    # ensures q_tilde captures the exogenous content of q WITHOUT
+    # exhausting z's own variation.
+    #
+    # Constant-MC case: endogenous_cost_component is None, so this
+    # block is a no-op and the prior raw-w residualization remains.
+    controls_for_data_side = w
+    if problem.endogenous_cost_component is not None:
+        # Build (g(q_tilde), w_exog) controls. q_tilde is the first-stage
+        # OLS prediction of the K_endog endogenous columns on (Z_full,
+        # w_exog). Compute here rather than reusing iv_correct so the
+        # diagnostic stays callable pre-solve (no IV correction yet).
+        name_to_w_idx = {str(f): i for i, f in enumerate(problem._w_formulation)}
+        endog_indices = [name_to_w_idx[name] for name in problem._endogenous_cost_columns]
+        endog_set = set(endog_indices)
+        exog_indices = [
+            i for i in range(problem.products.w.shape[1]) if i not in endog_set
+        ]
+        endog_cols = problem.products.w[:, endog_indices]  # (N, K_endog)
+        w_exog = problem.products.w[:, exog_indices]       # (N, K_w - K_endog)
+        # Stack every declared instrument set (across all L bundles) for
+        # the first stage. Using the union of test IVs matches DMQSS's
+        # construction: q_tilde is the projection of g(q^p) onto the
+        # column space of all available exogenous variation.
+        z_blocks = []
+        for l in range(problem.L):
+            z_blocks.append(np.asarray(problem.products["Z{0}".format(l)], dtype=float))
+        Z_full = np.hstack(z_blocks)                       # (N, sum_l K_inst_l)
+        if w_exog.shape[1] > 0:
+            first_stage_X = np.hstack([Z_full, w_exog])
+        else:
+            first_stage_X = Z_full
+        Q_fs, _ = np.linalg.qr(first_stage_X, mode='reduced')
+        q_tilde = Q_fs @ (Q_fs.T @ endog_cols)              # (N, K_endog)
+        # Controls = (q_tilde, w_exog).
+        if w_exog.shape[1] > 0:
+            controls_for_data_side = np.hstack([q_tilde, w_exog])
+        else:
+            controls_for_data_side = q_tilde
+
     # Markups per candidate (per-observation, may be (M, N, 1) shape).
     markups_full, _, _ = problem._perturb_and_build_markups()
 
@@ -1217,19 +1291,30 @@ def compute_instrument_channels(
 
     labels = [type(c).__name__ for c in problem._models]
 
-    # Data-side: empirical regression slope of prices on z with w controls.
-    dp0_dz_obs = _ols_slope_partialled(prices, z, w)
+    # Data-side: empirical regression slope of prices on z with the
+    # appropriate controls (raw w under constant MC; (q_tilde, w_exog)
+    # under non-constant MC — DMQSS z^e residualization).
+    dp0_dz_obs = _ols_slope_partialled(prices, z, controls_for_data_side)
     sd_z = float(np.std(z))
     z_min = float(np.min(z))
     z_max = float(np.max(z))
 
-    # Direct channel: per-candidate β_m from regression of Δ_m on z given p.
+    # Direct channel: per-candidate β_m from regression of Δ_m on z given controls.
+    # Same controls as the data-side regression: (p) under constant MC,
+    # (p, q_tilde, w_exog) under non-constant MC. The non-constant-MC
+    # form prevents endogeneity-direction leakage in β_m exactly like
+    # it does for dp_0/dz.
+    if problem.endogenous_cost_component is not None:
+        # Stack p with the (q_tilde, w_exog) controls computed above.
+        controls_for_direct = np.hstack([prices.reshape(-1, 1), controls_for_data_side])
+    else:
+        controls_for_direct = prices
     per_candidate_rows: List[Dict[str, Any]] = []
     betas: List[float] = []
     for m in range(n_models):
         delta_m = np.asarray(markups_full[m], dtype=float).flatten()
-        # Control on observed prices p only (FWL: y on z | p).
-        beta_m = _ols_slope_partialled(delta_m, z, prices)
+        # FWL: regress y on z | controls.
+        beta_m = _ols_slope_partialled(delta_m, z, controls_for_direct)
         betas.append(beta_m)
         per_candidate_rows.append({
             'model': labels[m],

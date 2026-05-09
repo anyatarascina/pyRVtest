@@ -449,12 +449,15 @@ def _residualize_grad_on_cost_shifters(
     as residualizing per perturbation in the inline PyBLP path).
     """
     if problem.endogenous_cost_component is not None:
-        endog_col_idx = next(
-            i for i, f in enumerate(problem._w_formulation)
-            if str(f) == problem.endogenous_cost_component
-        )
+        # Multi-column generalization: drop every endogenous column from the
+        # exogenous regressor matrix used for residualization.
+        name_to_w_idx = {str(f): i for i, f in enumerate(problem._w_formulation)}
+        endog_col_indices = {
+            name_to_w_idx[name] for name in problem._endogenous_cost_columns
+        }
         exog_col_indices = [
-            i for i in range(problem.products.w.shape[1]) if i != endog_col_idx
+            i for i in range(problem.products.w.shape[1])
+            if i not in endog_col_indices
         ]
         w_for_ols = problem.products.w[:, exog_col_indices]
     else:
@@ -487,19 +490,38 @@ def _compute_gamma_gradient(
 ) -> List[_NDArray]:
     """Finite-diff of per-instrument gamma w.r.t. each demand parameter.
 
-    Matches the inline PyBLP path's `_record_gamma_gradient` helper:
-    for each theta_k, re-evaluate markups at +eps/2 and -eps/2 with the
-    backend perturbed, apply tax adjustment, compute implied mc,
-    run `_compute_iv_correction` per instrument set, and finite-diff
-    the last element of cost_param (the gamma coefficient).
+    For each theta_k, re-evaluate markups at +eps/2 and -eps/2 with the
+    backend perturbed, apply tax adjustment, compute implied mc, run
+    ``problem._compute_iv_correction`` per instrument set, and finite-
+    diff the last ``K_endog`` elements of ``cost_param`` (the gamma
+    vector). Returns one array per instrument set with shape
+    ``(M, n_theta)`` when ``K_endog == 1`` (preserves the prior
+    single-column contract) and ``(M, n_theta, K_endog)`` when
+    ``K_endog > 1``.
     """
     from .. import options
     eps = options.finite_differences_epsilon
     L_inst = problem.L
     prices = problem.products.prices
-    grad_gamma: List[_NDArray] = [
-        np.zeros((M, n_theta), dtype=options.dtype) for _ in range(L_inst)
-    ]
+    K_endog = len(problem._endogenous_cost_columns)
+    if K_endog == 0:
+        # Caller only invokes this when endogenous_cost_component is set;
+        # zero is an internal contract violation, so we surface it.
+        raise RuntimeError(
+            "pyRVtest internal error: _compute_gamma_gradient called with "
+            "K_endog == 0; endogenous_cost_component must be set."
+        )
+
+    # Allocate per-instrument-set output. Single-column case keeps the
+    # prior (M, n_theta) shape so downstream consumers are unchanged.
+    if K_endog == 1:
+        grad_gamma: List[_NDArray] = [
+            np.zeros((M, n_theta), dtype=options.dtype) for _ in range(L_inst)
+        ]
+    else:
+        grad_gamma = [
+            np.zeros((M, n_theta, K_endog), dtype=options.dtype) for _ in range(L_inst)
+        ]
 
     for k in range(n_theta):
         markups_up, _, _ = _perturb_and_rebuild_markups(
@@ -523,8 +545,14 @@ def _compute_gamma_gradient(
             cp_up, _, _ = problem._compute_iv_correction(inst, M, N, mc_up)
             cp_dn, _, _ = problem._compute_iv_correction(inst, M, N, mc_dn)
             for m in range(M):
-                grad_gamma[inst][m, k] = (
-                    float(cp_up[m][-1].item()) - float(cp_dn[m][-1].item())
-                ) / eps
+                # Last K_endog rows of cp[m] are the gamma vector;
+                # cp_up[m] is shape (K_w, 1) so we squeeze and slice.
+                gamma_up = np.asarray(cp_up[m]).ravel()[-K_endog:]
+                gamma_dn = np.asarray(cp_dn[m]).ravel()[-K_endog:]
+                gamma_diff = (gamma_up - gamma_dn) / eps
+                if K_endog == 1:
+                    grad_gamma[inst][m, k] = float(gamma_diff[0])
+                else:
+                    grad_gamma[inst][m, k, :] = gamma_diff
 
     return grad_gamma
