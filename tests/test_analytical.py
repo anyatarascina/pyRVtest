@@ -769,3 +769,123 @@ class TestAlgebraScaleEconomies:
             gamma_pyrvtest = float(results.endogenous_cost_coefficient[0, m].item())
             np.testing.assert_allclose(gamma_pyrvtest, expected['gamma'][m], atol=1e-8,
                                        err_msg=f"gamma for model {m} does not match")
+
+
+class TestKInstValidationWithEndogenousCost:
+    """K_inst > K_endog gate when endogenous_cost_component is set.
+
+    The IV correction absorbs K_endog instruments to identify cost
+    parameters, leaving K_inst - K_endog testing dimensions. Without at
+    least one testing dimension the test is mechanically degenerate
+    (DMQSS 2026, Remark 1) and the F-stat denominator collapses to zero.
+    The validation in ``_validate_solve_args`` rejects this case with a
+    clear ``ValueError`` before ``test_engine`` would otherwise crash
+    with ``ZeroDivisionError``.
+    """
+
+    @pytest.fixture(scope='class')
+    def data_with_log_q(self):
+        data = pyRVtest.data.load_example()
+        data['log_q'] = np.log(np.maximum(data['shares'], 1e-8))
+        return data
+
+    def test_single_iv_set_with_one_instrument_raises(self, data_with_log_q):
+        """K_inst = 1, K_endog = 1 -> hard error (would otherwise ZeroDivisionError)."""
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1 + log_q'),
+            instrument_formulation=pyRVtest.Formulation('0 + rival_z1'),
+            models=[
+                pyRVtest.Bertrand(ownership='firm_ids'),
+                pyRVtest.PerfectCompetition(),
+            ],
+            product_data=data_with_log_q,
+            demand_params={
+                'estimate': 'logit',
+                'formulation_X': pyRVtest.Formulation('1 + x1'),
+                'formulation_Z': pyRVtest.Formulation('0 + z1'),
+            },
+            endogenous_cost_component='log_q',
+        )
+        with pytest.raises(ValueError) as exc_info:
+            problem.solve(demand_adjustment=False)
+        msg = str(exc_info.value)
+        assert 'K_endog + 1' in msg
+        assert 'set 0 (K_inst = 1)' in msg
+        assert 'DMQSS' in msg
+
+    def test_two_iv_sets_only_one_bad_lists_only_bad(self, data_with_log_q):
+        """Multi-set listing: only the bad set is named in the error."""
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1 + log_q'),
+            instrument_formulation=[
+                pyRVtest.Formulation('0 + rival_z1 + rival_z2'),  # K=2, fine
+                pyRVtest.Formulation('0 + rival_z1'),               # K=1, bad
+            ],
+            models=[
+                pyRVtest.Bertrand(ownership='firm_ids'),
+                pyRVtest.PerfectCompetition(),
+            ],
+            product_data=data_with_log_q,
+            demand_params={
+                'estimate': 'logit',
+                'formulation_X': pyRVtest.Formulation('1 + x1'),
+                'formulation_Z': pyRVtest.Formulation('0 + z1'),
+            },
+            endogenous_cost_component='log_q',
+        )
+        with pytest.raises(ValueError) as exc_info:
+            problem.solve(demand_adjustment=False)
+        msg = str(exc_info.value)
+        assert 'set 1 (K_inst = 1)' in msg
+        assert 'set 0' not in msg  # the good set should NOT be listed
+
+    def test_boundary_kinst_equals_kendog_plus_one_passes(self, data_with_log_q):
+        """K_inst = K_endog + 1 = 2: minimum testing dimensions; test runs.
+
+        F may collapse near zero (per existing behavior), but solve()
+        succeeds without error. The post-solve F-stat reliability output
+        is the right diagnostic for this regime, not a construction-time
+        warning.
+        """
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1 + log_q'),
+            instrument_formulation=pyRVtest.Formulation('0 + rival_z1 + rival_z2'),
+            models=[
+                pyRVtest.Bertrand(ownership='firm_ids'),
+                pyRVtest.PerfectCompetition(),
+            ],
+            product_data=data_with_log_q,
+            demand_params={
+                'estimate': 'logit',
+                'formulation_X': pyRVtest.Formulation('1 + x1'),
+                'formulation_Z': pyRVtest.Formulation('0 + z1'),
+            },
+            endogenous_cost_component='log_q',
+        )
+        # Should not raise.
+        results = problem.solve(demand_adjustment=False)
+        # Sanity: F is well-defined (a finite number).
+        assert np.isfinite(results.F[0][0, 1])
+
+    def test_no_endogenous_cost_no_validation(self, data_with_log_q):
+        """K_inst = 1 with no endogenous_cost_component: no error.
+
+        The K_inst > K_endog gate only applies when an endogenous cost
+        component is present (otherwise K_endog = 0).
+        """
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1 + z2'),
+            instrument_formulation=pyRVtest.Formulation('0 + rival_z1'),
+            models=[
+                pyRVtest.Bertrand(ownership='firm_ids'),
+                pyRVtest.PerfectCompetition(),
+            ],
+            product_data=data_with_log_q,
+            demand_params={
+                'estimate': 'logit',
+                'formulation_X': pyRVtest.Formulation('1 + x1'),
+                'formulation_Z': pyRVtest.Formulation('0 + z1'),
+            },
+        )
+        results = problem.solve(demand_adjustment=False)
+        assert np.isfinite(results.F[0][0, 1])
