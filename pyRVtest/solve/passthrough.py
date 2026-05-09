@@ -1110,16 +1110,20 @@ def _build_instrument_channels_methodology_line(
     if problem.endogenous_cost_component is not None:
         # Non-constant MC: data-side regression and FWL partialling use
         # z residualized on (g(q_tilde), w_exog) — DMQSS Appendix B's
-        # z^e — so the diagnostic unifies the Dearing condition (LHS of
-        # DMQSS Eq 10) with the A.4 distinctness check via the rank-K+1
-        # decomposition.
+        # z^e — so a single magnitude simultaneously reflects the
+        # instrument-relevance condition (DMQSW) and the economic
+        # distinctness condition (DMQSS Appendix A.4) under non-constant
+        # cost.
         iv_note = (
             "Data-side ‖dp_0/dz‖_obs and direct channel β_m use z residualized "
-            "on (g(q̃), w_exog) — DMQSS z^e — so the diagnostic collapses the "
-            "Dearing condition and the K+1 distinctness check (Appendix A.4) "
-            "into one. Structural-side ‖P_m^{-1} − P_m'^{-1}‖ is γ-free, "
-            "computed from the candidate pass-through matrices as above. "
-            "See instrument_channels() docstring + docs/math.rst."
+            "on (g(q̃), w_exog) — DMQSS z^e — which simultaneously reflects the "
+            "instrument-relevance condition (DMQSW) and the economic distinctness "
+            "condition (DMQSS Appendix A.4). Magnitudes are finite-sample "
+            "sample-regression estimates; small-but-nonzero values may reflect "
+            "noise rather than population identifying variation. Structural-side "
+            "‖P_m^{-1} − P_m'^{-1}‖ is γ-free, computed from the candidate "
+            "pass-through matrices as above. See instrument_channels() docstring "
+            "+ docs/math.rst."
         )
     else:
         # Constant MC: standard Dearing decomposition with cost-formulation controls.
@@ -1133,8 +1137,7 @@ def _build_instrument_channels_methodology_line(
     if instrument_type is not None:
         iv_note += (
             f" Declared instrument type: {instrument_type!r} — see "
-            f"docs/math.rst and Dearing et al. (2026) for the targeting "
-            f"interpretation."
+            f"docs/math.rst and DMQSW for the targeting interpretation."
         )
     return f"{base}\n{iv_note}"
 
