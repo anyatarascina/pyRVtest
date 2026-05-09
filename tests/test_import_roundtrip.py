@@ -142,7 +142,12 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.solve', []),
     # v0.4 step 8b: markups stage populated.
     ('pyRVtest.solve.markups', ['compute']),
-    ('pyRVtest.solve.passthrough', ['build_passthrough', 'compute_passthrough_numerical']),  # v0.4 step 11; numerical core added in DMQSW Phase 1
+    ('pyRVtest.solve.passthrough', [  # v0.4 step 11; expanded by DMQSW Phase 1 + Phase 2
+        'PassthroughSummary',
+        'build_passthrough',
+        'compute_passthrough_numerical',
+        'compute_passthrough_summary',
+    ]),
     # v0.4 step 8a: orthogonalize stage populated.
     ('pyRVtest.solve.orthogonalize', ['qr_residualize', 'residualize']),
     # v0.4 step 8c: endogenous-cost stage populated.
