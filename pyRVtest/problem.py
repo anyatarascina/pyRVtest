@@ -1076,7 +1076,7 @@ class Problem(Container, StringRepresentation):
             product_data: Mapping, demand_results: Mapping = None,
             model_formulations: Sequence[ModelFormulation] = None,
             markup_data: Optional[RecArray] = None,
-            endogenous_cost_component: Optional[str] = None,
+            endogenous_cost_component: Optional[Union[str, Sequence[str]]] = None,
             demand_params: Optional[dict] = None,
             models: Optional[Sequence[Any]] = None,
             market_side: str = 'product',
@@ -1314,33 +1314,75 @@ class Problem(Container, StringRepresentation):
                 )
 
         if endogenous_cost_component is not None:
-            if not isinstance(endogenous_cost_component, str):
-                raise TypeError(
-                    f"Expected endogenous_cost_component to be a column-name string. "
-                    f"Received {type(endogenous_cost_component).__name__}. "
-                    f"Fix: pass the column name as a string."
-                )
-            _, w_formulation_check, _ = cost_formulation._build_matrix(product_data)
-            endog_terms = [f for f in w_formulation_check if endogenous_cost_component in f.names]
-            if not endog_terms:
-                raise ValueError(
-                    f"Expected endogenous_cost_component to appear in cost_formulation. "
-                    f"Received endogenous_cost_component={endogenous_cost_component!r} "
-                    f"but the parsed cost_formulation has no matching term. "
-                    f"Fix: include '{endogenous_cost_component}' in cost_formulation "
-                    f"(e.g., Formulation('0 + {endogenous_cost_component} + ...'))."
-                )
-            for f in endog_terms:
-                if str(f) != endogenous_cost_component:
+            # Accept str (single endogenous column) or a non-string sequence
+            # of strs (multiple endogenous columns, paper DMQSS A.4 examples
+            # for q+q^2 and scale+scope). Normalize to a tuple of strs for
+            # uniform downstream handling; the user-supplied value is
+            # preserved on self.endogenous_cost_component for back-compat.
+            if isinstance(endogenous_cost_component, str):
+                _endog_cols_normalized: Tuple[str, ...] = (endogenous_cost_component,)
+            elif (
+                isinstance(endogenous_cost_component, Sequence)
+                and not isinstance(endogenous_cost_component, (bytes, bytearray))
+            ):
+                seq = tuple(endogenous_cost_component)
+                if len(seq) == 0:
                     raise ValueError(
-                        f"Expected endogenous_cost_component to enter "
-                        f"cost_formulation linearly (no interactions or "
-                        f"transformations). "
-                        f"Received the term {str(f)!r} for "
-                        f"endogenous_cost_component={endogenous_cost_component!r}. "
-                        f"Fix: split the nonlinear term out of cost_formulation "
-                        f"and include the plain linear column."
+                        "Expected endogenous_cost_component to be a non-empty "
+                        "column-name string or sequence of column-name strings. "
+                        "Received an empty sequence. "
+                        "Fix: pass the endogenous column name(s), or pass "
+                        "endogenous_cost_component=None to disable the IV correction."
                     )
+                if not all(isinstance(c, str) for c in seq):
+                    bad = next(c for c in seq if not isinstance(c, str))
+                    raise TypeError(
+                        f"Expected each entry of endogenous_cost_component to be "
+                        f"a column-name string. "
+                        f"Received an entry of type {type(bad).__name__}. "
+                        f"Fix: pass a list of column-name strings."
+                    )
+                if len(set(seq)) != len(seq):
+                    raise ValueError(
+                        f"Expected endogenous_cost_component to contain distinct "
+                        f"column names. "
+                        f"Received {list(seq)!r} with at least one duplicate. "
+                        f"Fix: deduplicate the list."
+                    )
+                _endog_cols_normalized = seq
+            else:
+                raise TypeError(
+                    f"Expected endogenous_cost_component to be a column-name "
+                    f"string or a sequence of column-name strings. "
+                    f"Received {type(endogenous_cost_component).__name__}. "
+                    f"Fix: pass either a column name string or a list of them."
+                )
+
+            _, w_formulation_check, _ = cost_formulation._build_matrix(product_data)
+            for col in _endog_cols_normalized:
+                endog_terms = [f for f in w_formulation_check if col in f.names]
+                if not endog_terms:
+                    raise ValueError(
+                        f"Expected each endogenous_cost_component column to appear "
+                        f"in cost_formulation. "
+                        f"Received column {col!r} but the parsed cost_formulation "
+                        f"has no matching term. "
+                        f"Fix: include {col!r} in cost_formulation "
+                        f"(e.g., Formulation('0 + {col} + ...'))."
+                    )
+                for f in endog_terms:
+                    if str(f) != col:
+                        raise ValueError(
+                            f"Expected each endogenous_cost_component column to "
+                            f"enter cost_formulation linearly (no interactions "
+                            f"or transformations). "
+                            f"Received the term {str(f)!r} for column {col!r}. "
+                            f"Fix: split the nonlinear term out of "
+                            f"cost_formulation and include the plain linear "
+                            f"column. (Pre-compute polynomial / interaction "
+                            f"transforms — e.g. q_sq = q ** 2 — and pass them "
+                            f"as separate column names.)"
+                        )
 
         # Problem-level tax validation. Normalize the payer
         # string (maps 'firms' -> 'firm', 'consumers' -> 'consumer') so
@@ -1447,6 +1489,17 @@ class Problem(Container, StringRepresentation):
         self._product_data_raw = product_data  # kept for demand_params path to access arbitrary columns
         self.markups = markups
         self.endogenous_cost_component = endogenous_cost_component
+        # Normalized tuple of endogenous-cost column names for uniform
+        # downstream consumption (iv_correct, _compute_gamma_gradient,
+        # test_engine variance term). () when None, (name,) when str,
+        # tuple(names) when a list/tuple was passed. Computed at
+        # __init__ time after validation; consumers should prefer this
+        # over re-parsing self.endogenous_cost_component.
+        if endogenous_cost_component is None:
+            self._endogenous_cost_columns: Tuple[str, ...] = ()
+        else:
+            # _endog_cols_normalized was computed in the validation block above.
+            self._endogenous_cost_columns = _endog_cols_normalized
 
         # construct the demand backend exactly once at Problem
         # init. Downstream code (Problem.solve, _perturb_and_build_markups,
@@ -1762,7 +1815,20 @@ class Problem(Container, StringRepresentation):
         if self.endogenous_cost_component is not None:
             logger.info('Computing IV correction for endogenous cost component ...')
             marginal_cost_base = marginal_cost.copy()
-            endogenous_cost_coefficient = np.empty((L, M), dtype=options.dtype)
+            K_endog = len(self._endogenous_cost_columns)
+            # endogenous_cost_coefficient has shape (L, M) for K_endog == 1
+            # (each cell is a scalar, preserving the prior single-column
+            # contract) and (L, M, K_endog) for K_endog > 1 (each cell is
+            # the gamma vector). The element type stays scalar in the
+            # K_endog == 1 case so legacy callers reading
+            # ``results.endogenous_cost_coefficient[l, m]`` as a float
+            # continue to work.
+            if K_endog == 1:
+                endogenous_cost_coefficient = np.empty((L, M), dtype=options.dtype)
+            else:
+                endogenous_cost_coefficient = np.empty(
+                    (L, M, K_endog), dtype=options.dtype
+                )
             omega_per_instrument = [None] * L
             tau_list_per_instrument = [None] * L
             endog_hat_per_instrument = [None] * L
@@ -1778,7 +1844,11 @@ class Problem(Container, StringRepresentation):
                     marginal_cost = mc_l        # store first instrument's corrected MC for results
                     tau_list = tau_l
                 for m in range(M):
-                    endogenous_cost_coefficient[l, m] = np.asarray(cp_l[m]).ravel()[-1]
+                    gamma_block = np.asarray(cp_l[m]).ravel()[-K_endog:]
+                    if K_endog == 1:
+                        endogenous_cost_coefficient[l, m] = float(gamma_block[0])
+                    else:
+                        endogenous_cost_coefficient[l, m, :] = gamma_block
                 omega_per_instrument[l] = omega_l
                 tau_list_per_instrument[l] = tau_l
                 endog_hat_per_instrument[l] = endog_hat_l

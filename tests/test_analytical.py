@@ -889,3 +889,177 @@ class TestKInstValidationWithEndogenousCost:
         )
         results = problem.solve(demand_adjustment=False)
         assert np.isfinite(results.F[0][0, 1])
+
+
+class TestMultiColumnEndogenousCostRoundTrip:
+    """Multi-column endogenous_cost_component API: K_endog >= 1.
+
+    The API accepts ``Optional[Union[str, Sequence[str]]]``. Single-string
+    and length-one-list specifications must produce bit-identical output
+    (no regression). Multi-column specifications must run end-to-end on a
+    fixture with K_endog distinct endogenous columns and at least
+    K_endog + 1 instruments per set.
+    """
+
+    @pytest.fixture(scope='class')
+    def scale_data(self):
+        product_data, dgp = _build_scale_dgp()
+        return product_data, dgp
+
+    def _build_problem(self, product_data, *, endogenous_cost_component):
+        """Build a fresh Problem with non-shared Formulation objects.
+
+        Reusing Formulation objects across two Problem constructions can
+        leak _build_matrix state (the in-place w-design-matrix expansion);
+        building fresh per call keeps the tests deterministic.
+        """
+        return pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + cost_shifter + log_quantity'),
+            instrument_formulation=pyRVtest.Formulation('0 + iv1 + iv2'),
+            model_formulations=(
+                pyRVtest.ModelFormulation(
+                    model_downstream='bertrand',
+                    ownership_downstream='firm_ids',
+                    user_supplied_markups='markups_m1',
+                ),
+                pyRVtest.ModelFormulation(
+                    model_downstream='perfect_competition',
+                    user_supplied_markups='markups_m2',
+                ),
+            ),
+            product_data=product_data,
+            demand_results=None,
+            endogenous_cost_component=endogenous_cost_component,
+        )
+
+    def test_string_and_list_of_one_produce_identical_results(self, scale_data):
+        """endogenous_cost_component='log_quantity' and ['log_quantity']
+        must produce bit-identical TRV / F / gamma.
+        """
+        product_data, _ = scale_data
+
+        problem_str = self._build_problem(
+            product_data, endogenous_cost_component='log_quantity',
+        )
+        problem_list = self._build_problem(
+            product_data, endogenous_cost_component=['log_quantity'],
+        )
+
+        # Internal normalization: both should yield the same tuple of cost columns.
+        assert problem_str._endogenous_cost_columns == ('log_quantity',)
+        assert problem_list._endogenous_cost_columns == ('log_quantity',)
+
+        results_str = problem_str.solve(
+            demand_adjustment=False, clustering_adjustment=False, costs_type='log',
+        )
+        results_list = problem_list.solve(
+            demand_adjustment=False, clustering_adjustment=False, costs_type='log',
+        )
+
+        np.testing.assert_array_equal(results_str.TRV[0], results_list.TRV[0])
+        np.testing.assert_array_equal(results_str.F[0], results_list.F[0])
+        np.testing.assert_array_equal(
+            np.asarray(results_str.endogenous_cost_coefficient),
+            np.asarray(results_list.endogenous_cost_coefficient),
+        )
+
+    def test_multi_column_solve_runs_end_to_end(self, scale_data):
+        """K_endog = 2 with 3 instruments runs to completion.
+
+        Use ``log_quantity`` and ``log_quantity_sq = log_quantity ** 2``
+        as two endogenous columns. Three instruments (iv1, iv2, and
+        ``iv1 * iv2`` as a manufactured-distinct third) satisfy
+        ``K_inst > K_endog``. The 2SLS first stage is well-conditioned
+        (the synthetic IVs are independent uniforms whose products give
+        a mild nonlinearity vs. the originals).
+        """
+        product_data, _ = scale_data
+        product_data = product_data.copy()
+        product_data['log_quantity_sq'] = product_data['log_quantity'] ** 2
+        product_data['iv12'] = product_data['iv1'] * product_data['iv2']
+
+        problem = pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation(
+                '1 + cost_shifter + log_quantity + log_quantity_sq'
+            ),
+            instrument_formulation=pyRVtest.Formulation('0 + iv1 + iv2 + iv12'),
+            model_formulations=(
+                pyRVtest.ModelFormulation(
+                    model_downstream='bertrand',
+                    ownership_downstream='firm_ids',
+                    user_supplied_markups='markups_m1',
+                ),
+                pyRVtest.ModelFormulation(
+                    model_downstream='perfect_competition',
+                    user_supplied_markups='markups_m2',
+                ),
+            ),
+            product_data=product_data,
+            demand_results=None,
+            endogenous_cost_component=['log_quantity', 'log_quantity_sq'],
+        )
+
+        assert problem._endogenous_cost_columns == ('log_quantity', 'log_quantity_sq')
+
+        results = problem.solve(
+            demand_adjustment=False, clustering_adjustment=False, costs_type='log',
+        )
+
+        assert np.isfinite(results.TRV[0][0, 1])
+        assert np.isfinite(results.F[0][0, 1])
+
+        # K_endog = 2 absorbs 2 of 3 instruments, leaving K_eff = 1 testing dimension.
+        # endogenous_cost_coefficient is shape (L, M); each entry is the LAST
+        # cost-param (the gamma block) — for K_endog = 2, this is a length-2 vector.
+        # We just check it's finite, since this is a smoke test, not a hand-derived
+        # correctness test (those land in a separate quadratic-cost / scale+scope
+        # fixture with closed-form expected values).
+        for m in range(2):
+            cell = results.endogenous_cost_coefficient[0, m]
+            arr = np.asarray(cell).ravel()
+            assert arr.size >= 2, f"Expected K_endog >= 2 gamma coefficients; got {arr.size}"
+            assert np.all(np.isfinite(arr))
+
+    def test_empty_list_rejected(self, scale_data):
+        product_data, _ = scale_data
+        with pytest.raises(ValueError, match='non-empty'):
+            self._build_problem(product_data, endogenous_cost_component=[])
+
+    def test_duplicate_columns_rejected(self, scale_data):
+        product_data, _ = scale_data
+        with pytest.raises(ValueError, match='distinct'):
+            self._build_problem(
+                product_data,
+                endogenous_cost_component=['log_quantity', 'log_quantity'],
+            )
+
+    def test_non_string_entry_rejected(self, scale_data):
+        product_data, _ = scale_data
+        with pytest.raises(TypeError, match='column-name string'):
+            self._build_problem(
+                product_data,
+                endogenous_cost_component=['log_quantity', 42],
+            )
+
+    def test_missing_column_in_cost_formulation_rejected(self, scale_data):
+        product_data, _ = scale_data
+        with pytest.raises(ValueError, match='no matching term'):
+            pyRVtest.Problem(
+                cost_formulation=pyRVtest.Formulation('1 + cost_shifter + log_quantity'),
+                # 'not_a_column' isn't in cost_formulation
+                instrument_formulation=pyRVtest.Formulation('0 + iv1 + iv2'),
+                model_formulations=(
+                    pyRVtest.ModelFormulation(
+                        model_downstream='bertrand',
+                        ownership_downstream='firm_ids',
+                        user_supplied_markups='markups_m1',
+                    ),
+                    pyRVtest.ModelFormulation(
+                        model_downstream='perfect_competition',
+                        user_supplied_markups='markups_m2',
+                    ),
+                ),
+                product_data=product_data,
+                demand_results=None,
+                endogenous_cost_component=['log_quantity', 'not_a_column'],
+            )
