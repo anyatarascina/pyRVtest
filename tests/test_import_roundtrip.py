@@ -142,9 +142,11 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.solve', []),
     # v0.4 step 8b: markups stage populated.
     ('pyRVtest.solve.markups', ['compute']),
-    ('pyRVtest.solve.passthrough', [  # v0.4 step 11; expanded by DMQSW Phase 1 + Phase 2
+    ('pyRVtest.solve.passthrough', [  # v0.4 step 11; expanded by DMQSW Phases 1-3
+        'InstrumentChannels',
         'PassthroughSummary',
         'build_passthrough',
+        'compute_instrument_channels',
         'compute_passthrough_numerical',
         'compute_passthrough_summary',
     ]),

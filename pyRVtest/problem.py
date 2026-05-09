@@ -7,7 +7,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Dict, Hashable, List, Mapping, Optional, Sequence, Tuple, Union
 
 if TYPE_CHECKING:
-    from .solve.passthrough import PassthroughSummary
+    from .solve.passthrough import InstrumentChannels, PassthroughSummary
 
 import numpy as np
 from pyblp.utilities.algebra import precisely_identify_collinearity
@@ -2206,6 +2206,43 @@ class Problem(Container, StringRepresentation):
         from .solve.passthrough import compute_passthrough_summary
         return compute_passthrough_summary(
             self, with_models=with_models, detail=detail,
+        )
+
+    def instrument_channels(
+        self,
+        column: str,
+        instrument: Optional[str] = None,
+    ) -> 'InstrumentChannels':
+        """Per-pair channel decomposition of dp_m/dz - dp_m'/dz.
+
+        For one chosen instrument column, returns the structural-side
+        (pass-through-mediated) and direct (markup-derivative) channels
+        of how candidates differ in their causal effect of the instrument
+        on prices.
+
+        Parameters
+        ----------
+        column : str
+            Name of the IV column in ``self.products`` (e.g.
+            ``'rival_z2'``). Must be a field of the products structured
+            array.
+        instrument : str, optional
+            Declared primitive instrument type for the methodology line:
+            'rival_cost', 'own_rival_cost', 'unit_tax', 'advalorem_tax',
+            'rival_product_char', 'own_product_char', or 'composite'. Does
+            not change the computation; documents the targeting
+            interpretation.
+
+        Returns
+        -------
+        InstrumentChannels
+            Structured result with ``__repr__`` for printing and
+            ``to_dataframe()`` for the per-pair frame. See
+            :class:`pyRVtest.solve.passthrough.InstrumentChannels`.
+        """
+        from .solve.passthrough import compute_instrument_channels
+        return compute_instrument_channels(
+            self, column=column, instrument=instrument,
         )
 
     def _prepare_orthogonal_variables(self, M: int, N: int, markups_effective: list, marginal_cost: Array):
