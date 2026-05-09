@@ -413,6 +413,66 @@ def test_option_a_demand_params_matches_demand_results_with_endogenous_cost(
     )
 
 
+def test_log_cost_demand_adjustment_runs_end_to_end():
+    """costs_type='log' + demand_adjustment=True runs without crashing.
+
+    Pre-Phase-2 the combination either silently fell back to linear costs
+    (UserWarning) or hard-rejected on the fix/log-costs-with-demand-adjustment
+    branch. Phase 2 implements the proper chain rule: gradient_markups[m]
+    is rescaled by 1/(p - Delta_m) elementwise so the variance term gets
+    the log-cost moment derivative f'(p - Delta_m) * (-d Delta_m / d theta).
+
+    Smoke-tests on the scale-economies fixture from test_analytical.py
+    with the analytical demand_params path. Verifies (a) the log-cost
+    path runs to completion, (b) the linear and log runs both produce
+    finite TRV / F, and (c) they differ — i.e. the cost-transform
+    rescaling is having the expected effect rather than being a no-op.
+    """
+    from tests.test_analytical import _build_scale_dgp
+    product_data, _ = _build_scale_dgp()
+    product_data = product_data.copy()
+    product_data['intercept'] = 1.0
+
+    demand_params = {
+        'alpha': -1.5,                                # value used inside _build_scale_dgp
+        'beta': np.array([0.0, 1.0]),                 # [intercept, beta_x]
+        'sigma': [],
+        'x_columns': ['intercept', 'x'],
+        'demand_instrument_columns': ['iv1', 'intercept', 'x'],
+    }
+    problem = pyRVtest.Problem(
+        cost_formulation=pyRVtest.Formulation('1 + cost_shifter + log_quantity'),
+        instrument_formulation=pyRVtest.Formulation('0 + iv1 + iv2'),
+        models=[
+            pyRVtest.Bertrand(ownership='firm_ids'),
+            pyRVtest.PerfectCompetition(),
+        ],
+        product_data=product_data,
+        demand_params=demand_params,
+        endogenous_cost_component='log_quantity',
+    )
+
+    pyRVtest.options.verbose = False
+    r_lin = problem.solve(
+        demand_adjustment=True, clustering_adjustment=False, costs_type='linear',
+    )
+    r_log = problem.solve(
+        demand_adjustment=True, clustering_adjustment=False, costs_type='log',
+    )
+
+    # Both paths run.
+    assert np.isfinite(r_lin.TRV[0][0, 1])
+    assert np.isfinite(r_lin.F[0][0, 1])
+    assert np.isfinite(r_log.TRV[0][0, 1])
+    assert np.isfinite(r_log.F[0][0, 1])
+
+    # Linear and log produce different statistics — the cost-transform
+    # rescaling actually does something. If both were identical, that
+    # would mean the chain-rule rescaling silently no-op'd.
+    assert not np.isclose(r_lin.TRV[0][0, 1], r_log.TRV[0][0, 1], atol=1e-3)
+    assert not np.isclose(r_lin.F[0][0, 1], r_log.F[0][0, 1], atol=1e-3)
+
+
 # ---------------------------------------------------------------------------
 # Option B: hand-derived H / gradient_markups on a minimal fixture.
 # ---------------------------------------------------------------------------

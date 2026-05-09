@@ -1774,8 +1774,13 @@ class Problem(Container, StringRepresentation):
             markups_effective[m] = (advalorem_tax_adj[m] / (1 + cost_scaling[m])) * markups[m]
             marginal_cost[m] = prices_effective[m] - markups_effective[m]
 
-        if costs_type == "log" and not demand_adjustment:
-            if np.any(marginal_cost < 0):
+        # Save the level marginal cost (p - Delta_m, tax-adjusted) before
+        # any transform. With costs_type='log' + demand_adjustment=True the
+        # chain rule needs f'(p - Delta_m) = 1/(p - Delta_m) to rescale
+        # gradient_markups; we hold on to the unlogged values for that.
+        marginal_cost_level = marginal_cost
+        if costs_type == "log":
+            if np.any(marginal_cost_level < 0):
                 raise ValueError(
                     "Expected all implied marginal costs to be positive when "
                     "costs_type='log' (log is undefined for <= 0). "
@@ -1783,7 +1788,7 @@ class Problem(Container, StringRepresentation):
                     "Fix: switch to costs_type='linear', or inspect the candidate "
                     "conduct models whose markups exceed price."
                 )
-            marginal_cost = np.log(marginal_cost)
+            marginal_cost = np.log(marginal_cost_level)
 
         if mc_correction is not None:
             global _mc_correction_deprecation_warned
@@ -1876,6 +1881,23 @@ class Problem(Container, StringRepresentation):
                 self._demand_backend, self, M, N, markups,
                 advalorem_tax_adj, cost_scaling, mc_base_for_grad,
             )
+
+            # Cost-transform chain rule. The demand-adjustment gradient
+            # captures d omega_m / d theta = f'(p - Delta_m) * (-d Delta_m / d theta)
+            # - q * (d gamma_m / d theta). For costs_type='linear' the cost
+            # transform is f(c) = c so f' = 1 and gradient_markups already
+            # represents the markup channel correctly. For costs_type='log'
+            # the cost transform is f(c) = log(c) so f'(p - Delta_m) =
+            # 1/(p - Delta_m); rescale gradient_markups elementwise by
+            # 1/marginal_cost_level so the variance term gets the right
+            # log-cost moment. The endogenous-cost gamma channel does not
+            # need rescaling here: gamma is already estimated in the LOG
+            # cost regression, so d omega_m / d gamma = -q in both cases.
+            if costs_type == "log":
+                # marginal_cost_level shape (M, N, 1) (per-model). Broadcast over n_theta.
+                for m in range(M):
+                    mc_m = marginal_cost_level[m].reshape(-1)  # (N,)
+                    gradient_markups[m] = gradient_markups[m] / mc_m[:, np.newaxis]
 
         # -----------------------------------------------------------------
         # Stage 5: test engine — RV, F, MCS per instrument set.
@@ -1984,15 +2006,10 @@ class Problem(Container, StringRepresentation):
                 f"Received {costs_type!r}. "
                 f"Fix: pass costs_type='linear' (default) or costs_type='log'."
             )
-        if costs_type == "log" and demand_adjustment:
-            warnings.warn(
-                "costs_type='log' is ignored when demand_adjustment=True; "
-                "the test will run with linear costs. "
-                "Fix: set demand_adjustment=False to use log costs, "
-                "or pass costs_type='linear' to silence this warning.",
-                UserWarning,
-                stacklevel=3,
-            )
+        # costs_type='log' + demand_adjustment=True is now fully supported;
+        # the chain-rule rescaling of gradient_markups by 1/(p - Delta_m)
+        # happens in solve() after compute_demand_adjustment returns. No
+        # warning here.
         if clustering_adjustment and np.shape(self.products.clustering_ids)[1] != 1:
             raise ValueError(
                 "Expected product_data to contain a 'clustering_ids' column "
