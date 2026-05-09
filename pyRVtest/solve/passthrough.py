@@ -57,8 +57,10 @@ from ..models.vertical import Vertical
 
 
 __all__ = [
+    'InstrumentChannels',
     'PassthroughSummary',
     'build_passthrough',
+    'compute_instrument_channels',
     'compute_passthrough_numerical',
     'compute_passthrough_summary',
 ]
@@ -956,6 +958,336 @@ def compute_passthrough_summary(
         per_model=per_model_df,
         detail_mode=detail,
         n_markets=len(market_ids),
+        candidate_labels=labels,
+        methodology_line=methodology_line,
+    )
+
+
+# ===========================================================================
+# Phase 3: instrument_channels — per-pair channel decomposition
+# ===========================================================================
+
+
+def _fwl_residualize(y: _NDArray, X: _NDArray) -> _NDArray:
+    """Residualize ``y`` on the columns of ``X`` (with implicit intercept).
+
+    OLS partialling-out. Returns the residual vector. ``X`` may be a
+    column matrix or a 2D array; an intercept column is added internally.
+    """
+    y = np.asarray(y, dtype=float).reshape(-1)
+    X = np.asarray(X, dtype=float)
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+    intercept = np.ones((X.shape[0], 1))
+    X_full = np.hstack([intercept, X])
+    # OLS coefficients via lstsq (robust to near-singular X).
+    beta, *_ = np.linalg.lstsq(X_full, y, rcond=None)
+    return np.asarray(y - X_full @ beta)
+
+
+def _ols_slope_partialled(y: _NDArray, z: _NDArray, controls: _NDArray) -> float:
+    """OLS coefficient on ``z`` in a regression of ``y`` on ``z`` with
+    ``controls`` (intercept added). Computed via FWL: residualize ``y`` and
+    ``z`` on ``controls``, then take the simple bivariate slope."""
+    y_res = _fwl_residualize(y, controls)
+    z_res = _fwl_residualize(z, controls)
+    var_z = float(np.var(z_res))
+    if var_z < 1e-30:
+        return 0.0
+    return float(np.cov(y_res, z_res, ddof=0)[0, 1] / var_z)
+
+
+class InstrumentChannels:
+    """Output of :meth:`pyRVtest.Problem.instrument_channels`.
+
+    Holds the per-pair channel decomposition (indirect, direct, total)
+    plus the data-side empirical magnitude, the per-candidate direct
+    coefficients, the methodology line, and a ``__repr__`` that produces
+    the formatted printable view.
+    """
+
+    def __init__(
+        self,
+        column_name: str,
+        instrument_type: Optional[str],
+        dp0_dz_obs: float,
+        sd_z: float,
+        z_min: float,
+        z_max: float,
+        per_candidate: 'pd.DataFrame',
+        pair_distances: 'pd.DataFrame',
+        n_markets: int,
+        candidate_labels: List[str],
+        methodology_line: str,
+    ) -> None:
+        self.column_name = column_name
+        self.instrument_type = instrument_type
+        self.dp0_dz_obs = dp0_dz_obs
+        self.sd_z = sd_z
+        self.z_min = z_min
+        self.z_max = z_max
+        self.per_candidate = per_candidate
+        self.pair_distances = pair_distances
+        self.n_markets = n_markets
+        self.candidate_labels = list(candidate_labels)
+        self.methodology_line = methodology_line
+
+    def to_dataframe(self) -> 'pd.DataFrame':
+        return self.pair_distances.copy()
+
+    def __repr__(self) -> str:
+        lines: List[str] = []
+
+        header = f"Post-solve instrument-channel decomposition: column {self.column_name!r}"
+        if self.instrument_type is not None:
+            header += f" (declared type: {self.instrument_type!r})"
+        header += "."
+        lines.append(header)
+        lines.append(f"γ_m fitted from solve.")
+        lines.append("")
+
+        lines.append(
+            "Channel components (combine per instrument type):"
+        )
+        lines.append(
+            "  indirect = P_m · (P_m^{-1} − P_m'^{-1}) · (dp_0/dz)"
+        )
+        lines.append(
+            "                    └── structural ──┘   └── data ──┘"
+        )
+        lines.append(
+            "  direct = β_m − β_m'  (empirical OLS partialling on prices)"
+        )
+        lines.append("")
+
+        # Data side.
+        lines.append("Data-side: empirical effect of z on prices")
+        lines.append(
+            f"  ‖dp_0/dz‖_obs = {self.dp0_dz_obs:.4f}     "
+            f"(sample regression slope of p on {self.column_name})"
+        )
+        lines.append(f"  SD({self.column_name})  = {self.sd_z:.4f}")
+        lines.append(f"  range          = [{self.z_min:.4f}, {self.z_max:.4f}]")
+        lines.append("")
+
+        # Per-candidate direct channel.
+        lines.append("Direct channel: per-candidate β_m (OLS slope of Δ_m on z | p)")
+        lines.append(self.per_candidate.to_string(index=False))
+        lines.append("")
+
+        # Per-pair table.
+        lines.append(f"Per-pair channel components (median across {self.n_markets} markets):")
+        lines.append("")
+        display_cols = [
+            c for c in self.pair_distances.columns
+            if c not in ('model_i', 'model_j')
+        ]
+        lines.append(self.pair_distances[display_cols].to_string(index=False))
+        lines.append("")
+        lines.append(
+            "  structural: ‖P_m^{-1} − P_m'^{-1}‖_F, γ-free; multiply by the "
+            "instrument-specific projection of dp_0/dz to get indirect channel."
+        )
+        lines.append(
+            "  direct: |β_m − β_m'|, empirical magnitude difference."
+        )
+        lines.append("")
+
+        # Methodology.
+        lines.append(self.methodology_line)
+
+        return "\n".join(lines)
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+
+def _build_instrument_channels_methodology_line(
+    problem: Any, instrument_type: Optional[str],
+) -> str:
+    """Methodology line for instrument_channels output."""
+    base = _build_methodology_line(problem)  # passthrough computation method
+    iv_note = (
+        "Direct channel β_m via conditional regression of Δ_m on z controlling "
+        "for p (FWL); data-side ‖dp_0/dz‖_obs via regression of observed prices "
+        "on z with cost-formulation controls; structural-side ‖P_m^{-1} − P_m'^{-1}‖ "
+        "from the candidate pass-through matrices computed as above."
+    )
+    if instrument_type is not None:
+        iv_note += (
+            f" Declared instrument type: {instrument_type!r} — see "
+            f"docs/math.rst and Dearing et al. (2026) for the targeting "
+            f"interpretation."
+        )
+    return f"{base}\n{iv_note}"
+
+
+def compute_instrument_channels(
+    problem: Any,
+    column: str,
+    instrument: Optional[str] = None,
+) -> InstrumentChannels:
+    """Per-pair channel decomposition components for one instrument column.
+
+    Reports the building blocks of ``dp_m/dz − dp_m'/dz`` separately:
+
+    - **Data-side**: ``‖dp_0/dz‖_obs``, the sample regression slope of
+      observed prices on ``z`` controlling for the cost formulation.
+      Plus sample ``SD(z)`` and range.
+    - **Direct channel**, per candidate: ``β_m`` from OLS regression of
+      model-implied ``Δ_m`` on ``z`` with ``p`` as a control (FWL
+      partialling). For cost-shifter and tax instruments where the
+      analytical direct channel is zero, residual ``β_m`` reflects
+      empirical correlation between ``z`` and other markup-function
+      inputs (e.g. product characteristics).
+    - **Structural-side**, per pair: ``‖P_m^{-1} − P_m'^{-1}‖_F``
+      aggregated by median across markets. γ-free.
+    - **Direct-side**, per pair: ``|β_m − β_m'|``.
+
+    The full indirect channel ``P_m·(P_m^{-1} − P_m'^{-1})·(dp_0/dz)``
+    requires a projection of ``dp_0/dz`` that depends on the instrument's
+    targeting (column ℓ of pass-through for rival cost shifter ``z = w_ℓ``;
+    row sums for unit tax; ``P·(p−Δ)`` for ad valorem tax). We report
+    the structural-side magnitude as a γ-free building block and let the
+    user apply the appropriate projection per their instrument type.
+
+    Parameters
+    ----------
+    problem : pyRVtest.Problem
+        Constructed Problem.
+    column : str
+        Name of the IV column in ``problem.products``. Must be a field of
+        the products structured array.
+    instrument : str, optional
+        Declared instrument type for documentation: 'rival_cost',
+        'own_rival_cost', 'unit_tax', 'advalorem_tax', 'rival_product_char',
+        'own_product_char', or 'composite'. Used in the methodology line;
+        does not change the computation.
+
+    Returns
+    -------
+    InstrumentChannels
+    """
+    import pandas as pd
+
+    n_models = len(problem._models)
+    if n_models < 2:
+        raise ValueError(
+            f"instrument_channels requires at least 2 candidate models for "
+            f"per-pair decomposition. Received n_models={n_models}."
+        )
+
+    # Validate column exists.
+    if column not in problem.products.dtype.fields:
+        available = [
+            f for f in problem.products.dtype.fields
+            if not f.startswith('_') and f not in (
+                'market_ids', 'cost_ids', 'nesting_ids', 'product_ids',
+                'clustering_ids', 'shares', 'prices', 'w', 'Z0',
+            )
+        ]
+        raise ValueError(
+            f"Expected column={column!r} to be a field of "
+            f"problem.products. Received an unknown column. "
+            f"Available columns: {sorted(available)}. "
+            f"Fix: pass a column name from the data passed to "
+            f"product_data= at Problem construction."
+        )
+
+    market_ids = list(problem.unique_market_ids)
+    n_markets = len(market_ids)
+
+    # Per-observation z, prices, cost-formulation controls (w).
+    z = np.asarray(problem.products[column], dtype=float).flatten()
+    prices = np.asarray(problem.products['prices'], dtype=float).flatten()
+    w = np.asarray(problem.products['w'], dtype=float)
+    if w.ndim == 1:
+        w = w.reshape(-1, 1)
+
+    # Markups per candidate (per-observation, may be (M, N, 1) shape).
+    markups_full, _, _ = problem._perturb_and_build_markups()
+
+    # Pre-compute pass-through per (model, market).
+    per_model_passthrough: Dict[int, Dict[Hashable, _NDArray]] = {}
+    for m in range(n_models):
+        full_dict = build_passthrough(problem, model_index=m)
+        assert isinstance(full_dict, dict)
+        per_model_passthrough[m] = full_dict
+
+    labels = [type(c).__name__ for c in problem._models]
+
+    # Data-side: empirical regression slope of prices on z with w controls.
+    dp0_dz_obs = _ols_slope_partialled(prices, z, w)
+    sd_z = float(np.std(z))
+    z_min = float(np.min(z))
+    z_max = float(np.max(z))
+
+    # Direct channel: per-candidate β_m from regression of Δ_m on z given p.
+    per_candidate_rows: List[Dict[str, Any]] = []
+    betas: List[float] = []
+    for m in range(n_models):
+        delta_m = np.asarray(markups_full[m], dtype=float).flatten()
+        # Control on observed prices p only (FWL: y on z | p).
+        beta_m = _ols_slope_partialled(delta_m, z, prices)
+        betas.append(beta_m)
+        per_candidate_rows.append({
+            'model': labels[m],
+            'beta_m': beta_m,
+        })
+    per_candidate_df = pd.DataFrame(per_candidate_rows)
+
+    # Per-market index map.
+    product_market_ids = problem.products.market_ids.flatten()
+    market_idx: Dict[Hashable, _NDArray] = {
+        t: np.where(product_market_ids == t)[0] for t in market_ids
+    }
+
+    # Per-pair structural-side and direct-side magnitudes. We report these
+    # as separate components rather than collapse into a single "indirect"
+    # channel: indirect = P_m·(P_m^{-1}−P_m'^{-1})·(dp_0/dz) requires a
+    # projection of dp_0/dz that depends on the instrument's targeting
+    # (column ℓ for rival cost shifter, row sums for unit tax, etc.).
+    # The user combines structural and direct magnitudes per their
+    # instrument type — see the methodology footer.
+    pair_rows: List[Dict[str, Any]] = []
+    for i in range(n_models):
+        for j in range(i + 1, n_models):
+            structural_per_market: List[float] = []
+            for t in market_ids:
+                P_i = np.asarray(per_model_passthrough[i][t], dtype=float)
+                P_j = np.asarray(per_model_passthrough[j][t], dtype=float)
+                # Inverse-pass-through difference, Frobenius (γ-free).
+                Pinv_i = np.linalg.inv(P_i)
+                Pinv_j = np.linalg.inv(P_j)
+                structural_per_market.append(
+                    float(np.linalg.norm(Pinv_i - Pinv_j, 'fro'))
+                )
+
+            structural_pair = float(np.median(structural_per_market))
+            direct_pair = abs(betas[i] - betas[j])
+
+            pair_rows.append({
+                'pair': f"({labels[i]}, {labels[j]})",
+                'model_i': i,
+                'model_j': j,
+                'structural': structural_pair,
+                'direct': direct_pair,
+            })
+
+    pair_distances = pd.DataFrame(pair_rows)
+
+    methodology_line = _build_instrument_channels_methodology_line(problem, instrument)
+
+    return InstrumentChannels(
+        column_name=column,
+        instrument_type=instrument,
+        dp0_dz_obs=dp0_dz_obs,
+        sd_z=sd_z,
+        z_min=z_min,
+        z_max=z_max,
+        per_candidate=per_candidate_df,
+        pair_distances=pair_distances,
+        n_markets=n_markets,
         candidate_labels=labels,
         methodology_line=methodology_line,
     )

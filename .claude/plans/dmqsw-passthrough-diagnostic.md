@@ -83,7 +83,7 @@ problem.passthrough_matrix(model_idx, market_id)  raw P_m for one model in one m
 print(results)                                    existing TRV/F/MCS table (unchanged)
 results.reliability_summary([as_dataframe=True])  CVs + F-stat + rho² (renamed from F_reliability_summary)
 results.passthrough_summary(...)                  same as pre-solve; callable post-solve too
-results.causal_effects(column=...)                γ-fitted dp/dz with channel decomposition
+results.instrument_channels(column=...)                γ-fitted dp/dz with channel decomposition
 ```
 
 ### Sample outputs
@@ -167,10 +167,10 @@ F_high_precision, rho_squared_high_precision,
 lambda_dmss
 ```
 
-#### `results.causal_effects(column='rival_z2')`
+#### `results.instrument_channels(column='rival_z2')`
 
 ```
-Post-solve causal-effect decomposition: rival cost shifter rival_z2.
+Post-solve instrument-channel decomposition: rival cost shifter rival_z2.
 γ_m fitted from solve.
 
 Indirect channel = P_m · (P_m^{-1} − P_m'^{-1}) · (dp_0/dz)
@@ -210,7 +210,7 @@ Notes:
   β_m is the OLS slope of model-implied Δ_m on z controlling for p (FWL).
   Indirect = P_m · (P_m^{-1} − P_m'^{-1}) · dp_0/dz at observed states.
   Structural-side ‖P_m^{-1} − P_m'^{-1}‖ has no IV sampling noise.
-  See causal_effects() docstring for methodology and Dearing et al. (2026)
+  See instrument_channels() docstring for methodology and Dearing et al. (2026)
   for the framework.
 ```
 
@@ -312,7 +312,7 @@ per-feature footnotes.
 **Deliverables:** `passthrough_summary` on Problem and ProblemResults;
 per-model block; metric registry; methodology line; tests.
 
-### Phase 3 — `causal_effects` with channel decomposition (1–2 sessions)
+### Phase 3 — `instrument_channels` with channel decomposition (1–2 sessions)
 
 Post-solve magnitude decomposition of per-pair `‖dp_m/dz − dp_m'/dz‖`
 into indirect (pass-through-mediated) and direct (markup-derivative)
@@ -320,7 +320,7 @@ channels.
 
 **Steps:**
 
-3.1 `ProblemResults.causal_effects(column=None, instrument=None)`. If
+3.1 `ProblemResults.instrument_channels(column=None, instrument=None)`. If
     `column=None`, iterates over all instrument columns in declared
     `instrument_formulation`s. If `column=...`, drills into one column.
     `instrument=` reads from `Problem(instrument_types=...)` declaration
@@ -366,7 +366,7 @@ channels.
     - Cross-validate indirect formula against per-market
       `dp_m/dz − dp_m'/dz` differences (within numerical tolerance).
 
-**Deliverables:** `causal_effects` method; conditional regression for
+**Deliverables:** `instrument_channels` method; conditional regression for
 direct channel; per-pair table assembly; tests.
 
 ### Phase 4 — rc1 → final cleanup (≤0.25 session)
@@ -418,7 +418,7 @@ F_ci anywhere in the codebase; no v0.4 rc1 cruft.
     walkthrough on the synthetic example. Sections:
     - The framework's role in instrument selection
     - `passthrough_summary` walkthrough
-    - `causal_effects` walkthrough
+    - `instrument_channels` walkthrough
     - Reading `reliability_summary` alongside the framework view
 
 5.2 Expand `math.rst`:
@@ -434,7 +434,7 @@ F_ci anywhere in the codebase; no v0.4 rc1 cruft.
     - Pass-through inspection on the synthetic example
     - Identifying the (Cournot, PC) degenerate pair via offdiag_ratio = 0
     - Switching to unit-tax instruments to break the degeneracy
-    - Post-solve `causal_effects` channel decomposition
+    - Post-solve `instrument_channels` channel decomposition
 
 5.4 FAQ entries:
     - "How do I check whether my IVs will distinguish my candidates
@@ -454,7 +454,7 @@ F_ci anywhere in the codebase; no v0.4 rc1 cruft.
     - `verdict` column removed
     - `passthrough_comparison` removed; use `passthrough_summary`
     - CV column renames
-    - New `passthrough_summary` and `causal_effects` methods on
+    - New `passthrough_summary` and `instrument_channels` methods on
       `Problem` / `ProblemResults`
     - `Problem(instrument_types=...)` kwarg
 
@@ -462,7 +462,7 @@ F_ci anywhere in the codebase; no v0.4 rc1 cruft.
     include the DMQSW pass-through diagnostic suite.
 
 5.7 Docstring methodology text for each new/renamed method
-    (`reliability_summary`, `passthrough_summary`, `causal_effects`).
+    (`reliability_summary`, `passthrough_summary`, `instrument_channels`).
     Single source of truth for the methodology; printed-output footers
     point to the docstring.
 
@@ -480,7 +480,7 @@ headline application.
 
 **Deliverables:** `docs/notebooks/replication_DMQSW_marijuana.py` that
 reproduces the Bertrand-vs-Keystone test using ad valorem tax instruments,
-with ex-ante `passthrough_summary` framing and post-solve `causal_effects`
+with ex-ante `passthrough_summary` framing and post-solve `instrument_channels`
 + `reliability_summary` interpretation.
 
 ## Open design decisions
@@ -506,7 +506,7 @@ block later.
    uniformly for primitive and composite z. No special-casing needed
    in v0.4. ✓
 
-6. **Naming `causal_effects`.** **Resolved.**
+6. **Naming `instrument_channels`.** **Resolved.**
 
 7. **Naming `reliability_summary`.** **Resolved.**
 
@@ -587,7 +587,7 @@ block later.
   Per-feature footnotes render correctly. `with_models=True` adds the
   per-model block with expected diagonal/off-diagonal patterns.
 
-- **`causal_effects` (Phase 3):** synthetic example shows zero direct
+- **`instrument_channels` (Phase 3):** synthetic example shows zero direct
   channel for cost shifters. Indirect channel reproduces the
   `(Cournot, PC)` degeneracy. Synthetic product-char fixture shows
   `(Cournot, RT(2))` as direct-only.
@@ -600,7 +600,7 @@ block later.
 - **End-to-end:** the README quick-start narrative now runs
   `passthrough_summary()` between Problem construction and `solve()`;
   the diagnostic output flags `(Cournot, PC)` ex-ante; post-solve
-  `reliability_summary` confirms with F-stat = 0; `causal_effects`
+  `reliability_summary` confirms with F-stat = 0; `instrument_channels`
   shows the zero indirect.
 
 - **Snapshot regression suite:** existing snapshots (analytical_base,
@@ -614,7 +614,7 @@ block later.
 |---|---|
 | 1 — Numerical pass-through | 1–2 |
 | 2 — `passthrough_summary` | 1–2 |
-| 3 — `causal_effects` | 1–2 |
+| 3 — `instrument_channels` | 1–2 |
 | 4 — rc1 → final cleanup (renames, drops; no aliases needed) | ≤0.25 |
 | 5 — Documentation | 1–2 |
 | 6 (optional) — Replication script | 1 |
@@ -636,7 +636,7 @@ inference API without yet introducing new methods.
 **rc3: + Phase 2** — `passthrough_summary` lands. Researchers get the
 structural pre-solve view with multi-feature per-pair distances.
 
-**v0.4.0 final: + Phase 3 + Phase 5** — `causal_effects` + tutorial /
+**v0.4.0 final: + Phase 3 + Phase 5** — `instrument_channels` + tutorial /
 FAQ / docs. The headline DMQSW diagnostic is complete and documented.
 
 Phase 6 (replication) ships as a follow-on commit on `main` or in v0.4.1.
@@ -651,7 +651,7 @@ the pass-through machinery before the new methods are layered on top.
 - `passthrough_summary` returns the four pass-through-feature distances
   per pair on the synthetic example with the expected pattern
   (`(Cournot, PC)` shows `offdiag_ratio = 0.000`).
-- `causal_effects(column='rival_z2')` returns the structural-side,
+- `instrument_channels(column='rival_z2')` returns the structural-side,
   data-side, direct-channel blocks plus the per-pair indirect/direct/
   total table. Direct channel is ~0 for cost shifters across all
   candidates.
@@ -678,6 +678,6 @@ the pass-through machinery before the new methods are layered on top.
   v0.4 final API is what they should be pinning. Phase 6 (replication
   script) gives them a working in-package example.
 - Lorenzo's audits historically catch labor-side and exception-hierarchy
-  issues. The new methods (`passthrough_summary`, `causal_effects`)
+  issues. The new methods (`passthrough_summary`, `instrument_channels`)
   should get a dedicated audit pass before final tag, similar to the
   rc1 break-it pass on 2026-04-18.

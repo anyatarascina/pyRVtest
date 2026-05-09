@@ -45,7 +45,7 @@ from ._format import _dataframe_to_github_markdown
 if TYPE_CHECKING:
     import pandas as pd
     from ..problem import Problem
-    from ..solve.passthrough import PassthroughSummary
+    from ..solve.passthrough import InstrumentChannels, PassthroughSummary
 
 
 # ----------------------------------------------------------------------
@@ -1153,6 +1153,21 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         """
         result: 'PassthroughSummary' = self.problem.passthrough_summary(
             with_models=with_models, detail=detail,
+        )
+        return result
+
+    def instrument_channels(
+        self,
+        column: str,
+        instrument: Optional[str] = None,
+    ) -> 'InstrumentChannels':
+        """Per-pair channel decomposition for one IV column.
+
+        Thin wrapper delegating to :meth:`pyRVtest.Problem.instrument_channels`.
+        See that method's docstring for full documentation.
+        """
+        result: 'InstrumentChannels' = self.problem.instrument_channels(
+            column=column, instrument=instrument,
         )
         return result
 
