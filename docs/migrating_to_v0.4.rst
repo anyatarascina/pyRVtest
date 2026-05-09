@@ -495,12 +495,12 @@ conduct closed-form expressions are documented in :doc:`math` as
 reference. See the methodology footer in each diagnostic's printed
 output for which paths fired on your candidate set.
 
-Multi-endogenous-variable cost regressions
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Multi-endogenous-variable cost regressions (rc2 → rc3)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 ``endogenous_cost_component`` now accepts either a single column name
 (the original single-endogenous case, unchanged) or a list of column
-names for multi-endogenous-variable cost regressions per Dearing,
+names for multi-endogenous-variable cost regressions per Duarte,
 Magnolfi, Quint, Sølvsten, and Sullivan (2026, "DMQSS") Appendix A.4.
 
 .. code-block:: python
@@ -526,14 +526,40 @@ IV set (paper Remark 1); ``Problem.solve`` raises a
 :class:`ValueError` listing every offending instrument set if not.
 The pre-existing single-string API path remains bit-identical.
 
-``costs_type='log' + demand_adjustment=True``
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+``costs_type='log' + demand_adjustment=True`` (rc2 → rc3)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The combination is now fully supported. Pre-v0.4-final the package
-silently fell back to ``costs_type='linear'`` with a UserWarning;
-the chain rule is now correctly applied (``gradient_markups``
-rescaled by :math:`f'(p - \Delta_m) = 1/(p - \Delta_m)`). No code
-change required from users — just the surprise behavior is gone.
+The combination is now fully supported. Pre-rc3 the package silently
+fell back to ``costs_type='linear'`` with a UserWarning; rc3 applies
+the chain rule correctly (``gradient_markups`` rescaled by
+:math:`f'(p - \Delta_m) = 1/(p - \Delta_m)`). No code change required
+from users — just the surprise behavior is gone.
+
+``instrument_channels`` z^e residualization (rc2 → rc3)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When ``endogenous_cost_component`` is set,
+:meth:`~pyRVtest.Problem.instrument_channels` now uses DMQSS Appendix B
+z^e residualization automatically — the data-side regression and FWL
+partialling project on :math:`(g(\widetilde q), w_{\text{exog}})` rather
+than raw :math:`(q, w_{\text{exog}})`. The first stage uses the full
+declared instrument set. Constant-MC behavior (no
+``endogenous_cost_component``) is unchanged. The methodology footer
+in the printed view documents the residualization. Effect: a single
+magnitude simultaneously reflects the instrument-relevance condition
+(DMQSW) and the economic distinctness condition (DMQSS Appendix A.4).
+See :ref:`advanced-passthrough` and :doc:`math` for the rank-(K+1)
+decomposition.
+
+``K_inst > K_endog`` validation gate (rc2 → rc3)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When ``endogenous_cost_component`` is set, every testing-IV bundle
+must satisfy ``K_inst[ℓ] > K_endog`` (paper Remark 1).
+:meth:`~pyRVtest.Problem.solve` now raises a clear :class:`ValueError`
+when this fails, naming every offending instrument set. Pre-rc3 the
+condition surfaced as a downstream ``ZeroDivisionError`` in the
+test engine.
 
 Reporting issues
 ----------------

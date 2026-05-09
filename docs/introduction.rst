@@ -91,8 +91,11 @@ To run a test, the user supplies:
   :class:`~pyRVtest.CustomConductModel`.
 * **Cost shifters.** Variables that explain marginal cost, specified
   via the cost formulation. To handle a marginal cost that depends on
-  an endogenous component (e.g., quantity, under scale economies),
-  pass the column name to ``endogenous_cost_component=``; see DMQSS.
+  one or more endogenous components (e.g., own quantity under scale
+  economies, own + same-firm-platform output under scale-and-scope, or
+  ``q + q²`` under quadratic cost), pass the column name(s) to
+  ``endogenous_cost_component=`` — single string for one variable or a
+  list of strings for the multi-variable case (DMQSS Appendix A.4).
 * **Testing instruments.** Variables that distinguish candidate models
   by their differential implications for prices or markups. DMQSW
   characterizes which instruments have power against which model
@@ -114,12 +117,24 @@ A typical ``pyRVtest`` session has four stages:
    demand-adjustment and clustering corrections. Returns a
    :class:`~pyRVtest.ProblemResults` object.
 4. **Inspect.** ``print(results)`` shows the formatted RV / F / MCS
-   table per instrument set. The ``results`` object also exposes
-   ``markups``, ``marginal_cost``,
-   :meth:`~pyRVtest.ProblemResults.passthrough_matrix`,
-   :meth:`~pyRVtest.ProblemResults.reliability_summary`,
-   :meth:`~pyRVtest.ProblemResults.to_dataframe`, and other
-   diagnostics.
+   table per instrument set. The ``results`` object exposes
+   ``markups``, ``marginal_cost``, and the v0.4 DMSS + DMQSW + DMQSS
+   diagnostic suite:
+
+   * :meth:`~pyRVtest.ProblemResults.reliability_summary` — per-cell
+     F-stat with worst-rho and empirical-rho DMSS critical values.
+   * :meth:`~pyRVtest.ProblemResults.passthrough_matrix` — raw
+     :math:`P_m = (I - \partial \Delta_m / \partial p)^{-1}` for one
+     candidate / market.
+   * :meth:`~pyRVtest.Problem.passthrough_summary` — pre- or post-solve
+     γ-free pair-by-pair structural feature distances (DMQSW
+     instrument-relevance framework).
+   * :meth:`~pyRVtest.Problem.instrument_channels` — post-solve
+     per-pair channel decomposition for one IV column. Under
+     non-constant marginal cost
+     (``endogenous_cost_component`` set), uses DMQSS Appendix B z^e
+     residualization automatically.
+   * :meth:`~pyRVtest.ProblemResults.to_dataframe` — long-form export.
 
 See :doc:`tutorial` for a step-by-step walkthrough of each stage on the
 synthetic example dataset shipped with the package, with the actual

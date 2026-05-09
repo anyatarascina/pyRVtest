@@ -35,11 +35,16 @@ class MixCournotBertrand(ConductModel):
 
     Parameters
     ----------
-    mix_flag : str, required
+    mix_flag : str
         Column name for the per-product boolean indicating Bertrand (True)
         vs Cournot (False). Required; enforced in ``__init__``.
-    ownership, kappa_specification, user_supplied_markups, taxes,
-    cost_scaling, vertical_integration : see ``ConductModel``.
+
+    Notes
+    -----
+    Other parameters (``ownership``, ``kappa_specification``,
+    ``user_supplied_markups``, taxes, ``cost_scaling``,
+    ``vertical_integration``) follow the :class:`ConductModel` base-class
+    contract.
 
     Examples
     --------

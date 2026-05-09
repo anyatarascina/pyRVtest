@@ -330,8 +330,26 @@ by purpose:
 - **v0.4 labor-side models:** `Monopsony`, `BertrandWages`,
   `CournotEmployment`, `NashBargaining` (raises `NotImplementedError`
   in v0.4; full formula deferred to v0.5).
-- **v0.4 diagnostic helper:** `build_passthrough`; also exposed on
-  `ProblemResults` as `passthrough_matrix`.
+- **v0.4 pass-through diagnostic suite (DMQSW + DMQSS):**
+  `build_passthrough` standalone helper; also exposed on
+  `ProblemResults` as `passthrough_matrix`. Plus
+  `Problem.passthrough_summary` / `ProblemResults.passthrough_summary`
+  (pre- or post-solve γ-free pair-by-pair structural-feature distances
+  against the four DMQSW Remarks-keyed metrics);
+  `Problem.instrument_channels` / `ProblemResults.instrument_channels`
+  (post-solve per-pair channel decomposition for one IV column,
+  automatically applies DMQSS Appendix B z^e residualization when
+  `endogenous_cost_component` is set);
+  `ProblemResults.reliability_summary` (per-cell DMSS F-stat with
+  worst-rho and empirical-rho critical values).
+- **v0.4 endogenous-cost (DMQSS A.4):** `endogenous_cost_component`
+  on `Problem` accepts `Optional[Union[str, Sequence[str]]]` —
+  single-column for the classic DMQSS scale-economies case
+  (`'log_quantity'`); list-of-strings for the multi-column case
+  (`['q', 'q_sq']` for quadratic cost; `['log_q', 'log_Q_minus']`
+  for scale + scope). `K_inst > K_endog` enforced per testing-IV
+  bundle. Combinable with `costs_type='log'` and
+  `demand_adjustment=True`.
 - **v0.4 agent guide exporter:** `show_agent_guide`.
 - **v0.4 exception hierarchy:** `PyRVTestError`, `ValidationError`,
   `InstrumentDataError`, `BackendError`, `DemandBackendError`,

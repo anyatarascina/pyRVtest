@@ -518,42 +518,73 @@ Use these as a starting point for your own Z matrix; glue them into a
 Pass-through diagnostics
 ------------------------
 
-Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026) show that two
-conduct models are distinguishable under a given testing-instrument
-type iff a γ-free pass-through-feature distance is nonzero (Remarks
-1, 2, 4, 5 keying off-diagonal ratio, full pass-through, row sums,
-and level-adjusted pass-through respectively). A pair whose feature
-distance is structurally zero under the user's IV bundle is weakly
-identified: the RV test will be underpowered no matter how much data
-is collected. :class:`pyRVtest.ProblemResults` exposes the v0.4 final
-DMQSW diagnostic suite as the supported entry point:
-:meth:`~pyRVtest.Problem.passthrough_summary` (pre-solve γ-free pair-
-by-pair feature distances),
-:meth:`~pyRVtest.ProblemResults.passthrough_matrix` (raw :math:`P_m`
-for one model in one market; numerical for non-Vertical, Villas-Boas
-(2007) analytical fast path for Vertical), and
-:meth:`~pyRVtest.Problem.instrument_channels` (post-solve channel
-decomposition for one chosen IV column).
+Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026, "DMQSW")
+develop the pass-through framework for instrument relevance: under a
+chosen testing-instrument type, two candidate conduct models are
+distinguishable iff a γ-free pass-through-feature distance is nonzero
+(Remarks 1, 2, 4, 5 — off-diagonal column-ratio, full pass-through,
+row sums, level-adjusted pass-through). A pair whose feature distance
+is structurally zero under the user's IV bundle is structurally
+indistinguishable; the RV test has no asymptotic power against this
+candidate, no matter how much data is collected.
 
-* :meth:`~pyRVtest.ProblemResults.passthrough_matrix` — Villas-Boas
-  (2007) pass-through matrix for a single candidate model. Thin wrapper
-  over :func:`pyRVtest.build_passthrough`; returns either an ``(N, J_t,
-  J_t)`` matrix for a given ``market_id`` or a ``{market_id: matrix}``
-  dict across all markets.
+v0.4 final ships three first-class methods on
+:class:`pyRVtest.Problem` / :class:`pyRVtest.ProblemResults`:
+
+* :meth:`~pyRVtest.Problem.passthrough_summary` — pre-solve γ-free
+  pair-by-pair feature distances against the four DMQSW Remarks-keyed
+  metrics. ``with_models=True`` adds a per-model structural block.
+  Also callable post-solve. The methodology footer in the printed view
+  documents whether each candidate's pass-through matrix was computed
+  numerically (default), via the Villas-Boas analytical fast path
+  (``Vertical``), or short-circuited (``PerfectCompetition``,
+  ``ConstantMarkup``, ``UserSuppliedMarkups``, ``RuleOfThumb``).
+
+* :meth:`~pyRVtest.ProblemResults.passthrough_matrix` — raw
+  :math:`P_m = (I - \partial \Delta_m / \partial p)^{-1}` for one
+  candidate / market. Thin wrapper over
+  :func:`pyRVtest.build_passthrough`. Returns a single
+  ``(J_t, J_t)`` matrix for a specific ``market_id`` or a
+  ``{market_id: matrix}`` dict across all markets. **All conduct
+  classes are supported** since rc2; the ``Vertical``-only
+  restriction from v0.4.0rc1 was lifted by the numerical
+  central-difference perturbation in
+  :func:`pyRVtest.solve.passthrough.compute_passthrough_numerical`.
+
+* :meth:`~pyRVtest.Problem.instrument_channels` — post-solve
+  per-pair channel decomposition for one chosen IV column. Reports
+  the data-side empirical magnitude :math:`\| \mathrm{d} p_0 /
+  \mathrm{d} z \|`, the per-candidate direct-channel coefficient
+  :math:`\beta_m` (FWL partialling), and the structural-side
+  :math:`\| P_m^{-1} - P_{m'}^{-1} \|_F` aggregated by median.
+  When ``endogenous_cost_component`` is set, applies DMQSS
+  Appendix B z^e residualization automatically — the data-side
+  regression and FWL partialling project on
+  :math:`(g(\widetilde q), w_{\text{exog}})` rather than raw
+  :math:`(q, w_{\text{exog}})`. The methodology footer documents
+  the residualization and notes that a single magnitude
+  simultaneously reflects the instrument-relevance condition (DMQSW)
+  and the economic distinctness condition (DMQSS Appendix A.4) under
+  non-constant marginal cost.
 
 Example::
 
     results = problem.solve(demand_adjustment=True)
 
-    # Inspect the underlying matrix for one model.
+    # 1) Pre-solve framework view: which IV types distinguish which pairs?
+    print(problem.passthrough_summary())
+
+    # 2) Inspect a candidate's raw pass-through in one market:
     P0 = results.passthrough_matrix(model_index=0, market_id=2024)
 
-**Scope limitation.** v0.4 only implements pass-through for
-:class:`pyRVtest.Vertical` candidate models, because the Villas-Boas
-passthrough formula is the only per-model closed form currently in the
-package. Calling
-:meth:`~pyRVtest.ProblemResults.passthrough_matrix` on a non-Vertical
-candidate raises ``NotImplementedError`` with a pointer to v0.5.
+    # 3) Post-solve channel decomposition for a chosen IV column:
+    print(results.instrument_channels(column='rival_z2',
+                                      instrument='rival_cost'))
+
+See :ref:`advanced-passthrough` for a worked walkthrough on the
+synthetic example and :doc:`math` for the per-conduct closed-form
+references and the rank-(K+1) decomposition argument that justifies
+the unified diagnostic under non-constant cost.
 
 Deprecation plan (detailed)
 ---------------------------

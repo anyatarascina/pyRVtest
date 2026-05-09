@@ -666,7 +666,7 @@ class Models(object):
         The column name for the column containing unit taxes.
     advalorem_tax: `ndarray, optional`
         A vector containing information on advalorem taxes.
-    advalorem_tax_name: ``str, optional`
+    advalorem_tax_name: `str, optional`
         The column name for the column containing advalorem taxes.
     advalorem_payer: `str, optional`
         If there are advalorem taxes in the model, this specifies who the payer of these taxes are. It can be either the

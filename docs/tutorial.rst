@@ -164,15 +164,32 @@ view and the DMQSW pass-through framework:
    results.marginal_cost  # implied marginal costs per candidate model
    results.to_dataframe() # long-form DataFrame for export
 
-The DMQSW framework view in :meth:`~pyRVtest.ProblemResults.passthrough_summary`
-identifies the (Cournot, PerfectCompetition) degenerate pair from
-Step 4 *ex-ante*: the ``offdiag_ratio`` column is numerically zero
-for the pair, signalling that no rival cost shifter — observed or
-hypothetical — can distinguish the two under logit demand. The other
-three columns (``full_pass``, ``row_sum``, ``level_adj``) are nonzero
-for the same pair, telling you which other instrument types could in
-principle break the degeneracy. See :ref:`advanced-passthrough` for
-the worked walkthrough.
+The DMQSW framework view in
+:meth:`~pyRVtest.ProblemResults.passthrough_summary` identifies the
+(Cournot, PerfectCompetition) degenerate pair from Step 4 *ex-ante*::
+
+   Per-pair pass-through-feature distances (median across 3000 markets):
+
+                             pair  offdiag_ratio  full_pass  row_sum  level_adj
+              (Bertrand, Cournot)   1.267916e-01   0.173728 0.207784   0.343116
+             (Bertrand, Monopoly)   2.025077e+00   0.800202 0.813289   0.661342
+   (Bertrand, PerfectCompetition)   1.267916e-01   0.685104 0.378482   1.924238
+              (Cournot, Monopoly)   1.799031e+00   0.755743 0.361467   0.489735
+    (Cournot, PerfectCompetition)   1.335208e-09   0.837912 0.837912   2.162204
+   (Monopoly, PerfectCompetition)   1.799031e+00   0.958163 1.134994   2.252656
+
+The ``(Cournot, PerfectCompetition)`` row's ``offdiag_ratio`` is
+``1.3e-9``, numerical zero. This is the headline DMQSW result: under
+logit demand, both Cournot and PerfectCompetition have diagonal
+pass-through matrices, so rival cost shifters cannot distinguish them
+— no matter how much data you collect. The other three columns
+(``full_pass``, ``row_sum``, ``level_adj``) are nonzero for the same
+pair, telling you which other instrument types *could* break the
+degeneracy: own-and-rival cost, per-unit taxes, ad-valorem taxes.
+
+See :ref:`advanced-passthrough` for the post-solve cross-read against
+``reliability_summary`` and the per-pair channel decomposition via
+``instrument_channels``.
 
 See :doc:`api` for the full attribute / method reference and
 :doc:`math` for the formulas behind ``TRV``, ``F``, ``MCS``, and the

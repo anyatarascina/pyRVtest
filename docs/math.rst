@@ -137,6 +137,17 @@ Numerical-fragility safeguard. When :math:`\hat\rho^2` is close to 1
 the printed results table notes ``recomputed with extra precision``
 when this happens.
 
+Identically-zero-markup boundary. When one model in a pair has
+identically-zero markup (notably :class:`pyRVtest.PerfectCompetition`),
+the DMSS variance-difference structure
+:math:`(\hat\sigma_0, \hat\sigma_1, \hat\sigma_2)` collapses and
+:math:`F` can fall to small or zero values even when the
+corresponding ``TRV`` is sharply significant. The ``TRV`` and MCS
+p-values remain reliable in this regime; only the F-stat *diagnostic*
+appears uninformative. Tracked in
+``.claude/plans/v0.5-followups.md`` item 5; see also
+:doc:`faq` ("F-stat is NaN, negative, or near zero").
+
 
 Model Confidence Set
 --------------------
