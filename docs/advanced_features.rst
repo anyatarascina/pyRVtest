@@ -586,6 +586,53 @@ component.
    test in ``tests/test_demand_adjustment.py`` pins this cross-path
    parity.
 
+Multiple endogenous variables (q + q², scale + scope)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``endogenous_cost_component`` accepts a list of column names for
+multi-endogenous-variable cost regressions. The DMQSS (2026)
+Appendix A.4 examples both fit:
+
+* **Quadratic cost** (``c = γ_1 q + γ_2 q² + w'τ + ω``): pre-compute
+  ``q_sq = q ** 2``, include both as endogenous columns.
+* **Scale + scope** (``log(c) = γ_1 log(q) + γ_2 log(Q⁻) + w'τ + ω``):
+  pre-compute ``log_q`` and ``log_Q_minus``, include both.
+
+.. code-block:: python
+
+   import numpy as np
+
+   data['log_q'] = np.log(data['quantity'])
+   data['log_Q_minus'] = np.log(data['rival_quantity_sum'])
+
+   problem = pyRVtest.Problem(
+       cost_formulation=pyRVtest.Formulation('1 + z1 + log_q + log_Q_minus'),
+       instrument_formulation=pyRVtest.Formulation(
+           '0 + rival_z1 + own_x1 + rival_segment_count'
+       ),
+       models=[...],
+       product_data=data,
+       endogenous_cost_component=['log_q', 'log_Q_minus'],
+   )
+
+The instrument bundle must satisfy ``K_inst > K_endog`` (here
+``K_inst = 3 > K_endog = 2``); ``Problem.solve`` raises a
+:class:`ValueError` otherwise. Beyond the dimension count, the
+DMQSS Appendix A.4 economic-distinctness rank condition requires
+the instruments to enter the equilibrium system through *different*
+economic channels — the package cross-validates this empirically
+through the unified diagnostic in
+:meth:`~pyRVtest.Problem.instrument_channels` (see :ref:`advanced-passthrough`
+and :doc:`math` for the rank-K+1 decomposition).
+
+The variance machinery generalizes mechanically: the cost-side
+gamma block in ``cost_param`` becomes length-K_endog, the
+demand-adjustment chain rule rescales by the cost transform's
+derivative, and the Appendix B influence-function correction uses
+``Lambda_q`` as a ``(K, K_endog)`` matrix. ``K_endog == 1`` (string
+or length-one list) preserves bit-identical output for the original
+single-endogenous use case.
+
 
 Where to go from here
 ---------------------

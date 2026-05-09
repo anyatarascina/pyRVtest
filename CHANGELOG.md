@@ -187,6 +187,61 @@ Tests:
 Test suite progression: 706 (pre-Phase-1 baseline) → 767 (+61) tests
 passing. mypy `--strict` clean throughout.
 
+### Added (Phase 6: multi-column endogenous cost + log-cost
+demand-adjustment + z^e diagnostic, 2026-05-08)
+
+DMQSS (2026) Appendix A.4 + B generalization, paper-supported per
+identification arguments and the parametric-linearity argument
+written into `docs/math.rst`'s "Pass-through diagnostic under
+non-constant marginal cost" section.
+
+- **Multi-column `endogenous_cost_component`.** The kwarg widens
+  from `Optional[str]` to `Optional[Union[str, Sequence[str]]]`.
+  Examples from the paper that now slot into the API directly:
+  quadratic cost (`['q', 'q_sq']`), scale + scope
+  (`['log_q', 'log_Q_minus']`), and any linear-in-basis-columns
+  cost regression with `K_endog >= 1` endogenous variables. The
+  IV correction's first stage projects all `K_endog` endogenous
+  columns simultaneously; the second stage estimates a length-
+  `K_endog` gamma vector. Demand-adjustment gradient and Appendix
+  B influence-function correction generalize via a `(K, K_endog)`
+  Lambda_q matrix. `K_endog == 1` (string or length-one list) is
+  bit-identical to the prior single-column behavior.
+- **`costs_type='log' + demand_adjustment=True`.** Implemented the
+  proper chain rule: `gradient_markups[m]` rescales by
+  `f'(p − Δ_m) = 1/(p − Δ_m)` so the demand-adjusted variance
+  reflects the log-cost moment derivative. Replaces the prior
+  silent fallback (and the never-merged hard-reject branch
+  `fix/log-costs-with-demand-adjustment`).
+- **`instrument_channels` z^e residualization under non-constant MC.**
+  When `endogenous_cost_component` is set, the data-side regression
+  and FWL partialling project on `(g(q̃), w_exog)` rather than on
+  raw `(q, w)`. The residualization absorbs the K_endog cost-
+  parameter-identifying dimensions of `z` and leaves the surviving
+  testing dimension; the diagnostic then unifies the Dearing
+  pass-through condition (LHS of DMQSS Eq 10) with the A.4
+  rank-`K + 1` distinctness check. Constant-MC behavior (no
+  endogenous cost) is unchanged. Methodology footer updated
+  conditionally.
+
+Test additions:
+
+- **`tests/test_analytical.py::TestMultiColumnEndogenousCostRoundTrip`**
+  (6 tests): single-string vs list-of-one bit-identical round trip;
+  K_endog == 2 end-to-end smoke; rejection of empty list, duplicate
+  columns, non-string entries, and missing columns.
+- **`tests/test_demand_adjustment.py::test_log_cost_demand_adjustment_runs_end_to_end`**:
+  costs_type='log' + demand_adjustment=True runs on the
+  `_build_scale_dgp` fixture; linear and log produce different TRV/F
+  (the chain-rule rescaling has effect rather than no-op'ing).
+- **`tests/test_instrument_channels.py::TestZeResidualizationUnderNonConstantMC`**
+  (3 tests): data-side regression matches the manually-computed z^e
+  slope; differs from the raw-(q, w) projection; methodology footer
+  mentions z^e under non-constant MC, doesn't mention it under
+  constant MC.
+
+Closes v0.5-followups item 1 (log + demand_adjustment hard-reject).
+
 ## [0.4.0rc1] — 2026-04-20
 
 Release candidate for v0.4.0. Version 0.4 is a substantial refactor of

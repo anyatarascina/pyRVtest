@@ -149,13 +149,16 @@ that is too weak.
 Migrate to the class-based API. ``ModelFormulation`` will be removed
 in v0.6. See :doc:`migrating_to_v0.4` for per-case rewrites.
 
-**``UserWarning`` when passing ``costs_type='log'`` together with
-``demand_adjustment=True``.**
+**Can I combine ``costs_type='log'`` with ``demand_adjustment=True``?**
 
-The two options interact incompletely in v0.4: the package falls back
-to ``costs_type='linear'`` and emits a warning. If you genuinely need
-log costs with a first-stage demand-adjustment correction, the
-combination is tracked as a v0.5 follow-up.
+Yes. The chain rule rescales ``gradient_markups`` by
+:math:`f'(p - \Delta_m) = 1/(p - \Delta_m)` so the demand-adjusted
+variance reflects the log-cost moment derivative
+:math:`\partial \omega_m / \partial \theta = -\partial \Delta_m
+/ \partial \theta \cdot 1/(p - \Delta_m) - q \cdot \partial \gamma_m
+/ \partial \theta`. Both ``demand_results`` and ``demand_params``
+paths support the combination. The hard-reject on the
+``fix/log-costs-with-demand-adjustment`` branch is retired.
 
 **Can I combine ``endogenous_cost_component`` with
 ``demand_adjustment=True``?**
@@ -168,6 +171,18 @@ and includes it in the demand-adjusted variance. The two paths
 F-stat correction up to analytical-vs-finite-difference noise; this
 is verified by
 ``tests/test_demand_adjustment.py::test_option_a_demand_params_matches_demand_results_with_endogenous_cost``.
+
+**What if I have q + q² (quadratic cost) or scale + scope?**
+
+Pass ``endogenous_cost_component=['q', 'q_sq']`` (or
+``['log_q', 'log_Q_minus']`` for scale + scope). The IV correction's
+2SLS first stage handles all endogenous columns jointly; the second
+stage estimates a length-:math:`K_{\text{endog}}` ``gamma`` vector.
+You must supply at least :math:`K_{\text{endog}} + 1` instruments per
+testing-IV bundle; ``Problem.solve`` raises a clear
+:class:`ValueError` if you do not. See the worked example in
+:ref:`advanced-passthrough`'s "Multiple endogenous variables"
+subsection. DMQSS (2026) Appendix A.4 covers the identification.
 
 
 Pass-through diagnostics (DMQSW framework)

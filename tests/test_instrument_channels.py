@@ -262,3 +262,103 @@ class TestDataSideMatchesIndependentCalculation:
         np.testing.assert_allclose(
             result.dp0_dz_obs, manual_slope, atol=1e-10,
         )
+
+
+class TestZeResidualizationUnderNonConstantMC:
+    """Phase 3: when ``endogenous_cost_component`` is set, the data-side
+    regression and FWL partialling use ``(g(q_tilde), w_exog)`` instead
+    of raw ``(q, w)``. This is DMQSS Appendix B's z^e residualization
+    and collapses the Dearing condition + A.4 distinctness check into a
+    single unified diagnostic.
+
+    Constant-MC behavior (``endogenous_cost_component is None``) is
+    unchanged and covered by the rest of this module — these tests
+    only exercise the new non-constant-MC branch.
+    """
+
+    @pytest.fixture(scope='class')
+    def endog_problem(self):
+        data = pyRVtest.data.load_example().copy()
+        data['log_q'] = np.log(np.maximum(data['shares'] * 1000.0, 1e-3))
+        return pyRVtest.Problem(
+            cost_formulation=pyRVtest.Formulation('1 + z1 + log_q'),
+            instrument_formulation=pyRVtest.Formulation('0 + rival_z1 + rival_z2'),
+            models=[
+                Bertrand(ownership='firm_ids'),
+                PerfectCompetition(),
+            ],
+            product_data=data,
+            demand_params={
+                'estimate': 'logit',
+                'formulation_X': pyRVtest.Formulation('1 + x1'),
+                'formulation_Z': pyRVtest.Formulation('0 + z1'),
+            },
+            endogenous_cost_component='log_q',
+        )
+
+    def test_dp0_dz_uses_q_tilde_residualization(self, endog_problem):
+        """Data-side dp_0/dz_obs differs from the raw-(q, w) projection
+        when endog is set. The package projects on (q_tilde, w_exog),
+        where q_tilde uses the FULL declared instrument set (rival_z1
+        + rival_z2 here) for the first stage — not just the diagnostic
+        column.
+        """
+        from pyRVtest.solve.passthrough import _ols_slope_partialled
+
+        result = endog_problem.instrument_channels(column='rival_z2')
+
+        # Reproduce the package's z^e regression independently.
+        z = np.asarray(endog_problem.products['rival_z2'], dtype=float).flatten()
+        prices = np.asarray(endog_problem.products['prices'], dtype=float).flatten()
+        z1 = np.asarray(endog_problem.products['z1'], dtype=float).flatten()
+        rival_z1 = np.asarray(endog_problem.products['rival_z1'], dtype=float).flatten()
+        rival_z2 = np.asarray(endog_problem.products['rival_z2'], dtype=float).flatten()
+        log_q = np.asarray(endog_problem.products['log_q'], dtype=float).flatten()
+        n = len(z)
+        ones = np.ones(n)
+
+        # First stage uses the FULL test IV bundle (rival_z1 + rival_z2)
+        # plus w_exog (intercept, z1) — NOT just the diagnostic column.
+        first_stage_X = np.column_stack([rival_z1, rival_z2, ones, z1])
+        beta_fs, *_ = np.linalg.lstsq(first_stage_X, log_q, rcond=None)
+        log_q_tilde = first_stage_X @ beta_fs
+
+        # Second stage: pass (q_tilde, w_exog) as controls to the package's
+        # _ols_slope_partialled helper (which adds an implicit intercept).
+        controls_for_zE = np.column_stack([log_q_tilde, ones, z1])
+        manual_zE_slope = _ols_slope_partialled(prices, z, controls_for_zE)
+
+        # Package's slope should match.
+        np.testing.assert_allclose(result.dp0_dz_obs, manual_zE_slope, atol=1e-8)
+
+        # And it should DIFFER from the raw-(q, w) projection that the
+        # constant-MC branch would have used.
+        controls_raw = np.column_stack([log_q, ones, z1])
+        raw_slope = _ols_slope_partialled(prices, z, controls_raw)
+
+        # The two should differ; on this fixture they genuinely do.
+        assert not np.isclose(manual_zE_slope, raw_slope, atol=1e-8), (
+            "z^e and raw-q residualization produced identical data-side "
+            "slopes; the z^e generalization may not be active."
+        )
+
+    def test_methodology_line_mentions_z_e(self, endog_problem):
+        """The methodology footer documents the z^e residualization
+        when endog is set.
+        """
+        result = endog_problem.instrument_channels(column='rival_z2')
+        line = result.methodology_line
+        assert 'z^e' in line or 'DMQSS' in line, (
+            f"Expected methodology footer to mention z^e or DMQSS when "
+            f"endogenous_cost_component is set; got: {line!r}"
+        )
+
+    def test_methodology_line_unchanged_for_constant_mc(self, synthetic_problem):
+        """The constant-MC methodology footer keeps its prior wording."""
+        result = synthetic_problem.instrument_channels(column='rival_z2')
+        line = result.methodology_line
+        # Constant-MC footer mentions the standard FWL / cost-formulation
+        # controls language and should NOT mention z^e or DMQSS A.4.
+        assert 'cost-formulation controls' in line
+        assert 'z^e' not in line
+        assert 'A.4' not in line

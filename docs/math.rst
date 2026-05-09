@@ -420,6 +420,79 @@ cost-formulation controls; the structural-side magnitude
 pass-through difference by median across markets.
 
 
+Pass-through diagnostic under non-constant marginal cost
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When marginal cost is *non-constant* — depending on endogenous
+variables :math:`q_1, \ldots, q_{K_{\text{endog}}}` (own production,
+rival production, polynomials, etc.) — the framework requires both
+the Dearing pass-through condition AND the DMQSS Appendix A.4
+"economic distinctness" rank condition. The package's
+:meth:`~pyRVtest.Problem.instrument_channels` collapses the two into
+a single diagnostic via the residualization argument below.
+
+**The DMQSS rank condition.** With :math:`K_{\text{endog}}`
+endogenous variables in the cost regression, falsification of
+candidate :math:`m` against the truth requires that the
+:math:`(K_{\text{endog}} + 1) \times d_z` matrix
+
+.. math::
+
+   M(z, m) = \begin{pmatrix}
+       \mathrm{Cov}(z, q_1) \\
+       \vdots \\
+       \mathrm{Cov}(z, q_{K_{\text{endog}}}) \\
+       \mathrm{Cov}(z, f(p - \Delta_m) - f(p - \Delta_0))
+   \end{pmatrix}
+
+have rank :math:`K_{\text{endog}} + 1`, where :math:`f` is the cost
+transform (identity for ``costs_type='linear'``, log for
+``'log'``). For :math:`K_{\text{endog}} = 1` this is the paper's
+Equation (7) ratio condition.
+
+**Decomposition.** Standard linear-projection arithmetic decomposes
+the rank-:math:`(K_{\text{endog}}+1)` condition into two equivalent
+pieces:
+
+1. **First-stage rank** :math:`K_{\text{endog}}`: the first
+   :math:`K_{\text{endog}}` rows of :math:`M(z, m)` are linearly
+   independent, i.e. the instruments :math:`z` jointly identify the
+   endogenous cost variables. The :math:`K_{\text{inst}} >
+   K_{\text{endog}}` gate in
+   :meth:`~pyRVtest.Problem.solve` enforces the necessary dimension
+   count; the residualization-based collapse below tests the
+   stronger linear-independence condition empirically.
+
+2. **Residualized Dearing condition**:
+   :math:`\mathrm{Cov}(z^e, f(p - \Delta_m) - f(p - \Delta_0))
+   \neq 0`, where :math:`z^e = z - \widehat\Lambda_q
+   \widetilde q - \widehat\Lambda_w w` is :math:`z` with the
+   first-stage prediction of the endogenous variables and the
+   exogenous shifters projected out (DMQSS Appendix B notation).
+
+The two-piece decomposition is exact under the parametric
+linear-in-basis-columns cost regression that pyRVtest implements:
+the cost-coefficient differences :math:`(\gamma_{m,k} - \gamma_{0,k})`
+are constants that come out of the moment-level covariance, leaving
+only the residualized term :math:`\mathrm{Cov}(z^e, f(p-\Delta_m) -
+f(p-\Delta_0))`.
+
+**Implementation.** When ``endogenous_cost_component`` is set, the
+data-side regression in
+:meth:`~pyRVtest.Problem.instrument_channels` projects on
+:math:`(\widetilde q, w_{\text{exog}})` rather than on raw
+:math:`(q, w_{\text{exog}})`. This reproduces the :math:`z^e`
+residualization the inferential machinery already uses internally
+in :py:func:`pyRVtest.solve.test_engine.compute_instrument_results`,
+so the pre-solve diagnostic and the post-solve test agree on which
+moment direction carries identifying variation.
+
+The constant-MC case (``endogenous_cost_component is None``) is the
+:math:`K_{\text{endog}} = 0` special case: the residualization
+collapses to projection on :math:`w` only, recovering the standard
+Dearing-decomposition behavior.
+
+
 Where the formulas live in code
 -------------------------------
 

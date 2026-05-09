@@ -495,6 +495,46 @@ conduct closed-form expressions are documented in :doc:`math` as
 reference. See the methodology footer in each diagnostic's printed
 output for which paths fired on your candidate set.
 
+Multi-endogenous-variable cost regressions
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``endogenous_cost_component`` now accepts either a single column name
+(the original single-endogenous case, unchanged) or a list of column
+names for multi-endogenous-variable cost regressions per Dearing,
+Magnolfi, Quint, Sølvsten, and Sullivan (2026, "DMQSS") Appendix A.4.
+
+.. code-block:: python
+
+   # v0.4 single endogenous variable (unchanged):
+   pyRVtest.Problem(
+       ...,
+       endogenous_cost_component='log_quantity',
+   )
+
+   # v0.4 final: multi-endogenous variables (DMQSS A.4 examples)
+   pyRVtest.Problem(  # quadratic cost: c = γ_1 q + γ_2 q² + w'τ + ω
+       ...,
+       endogenous_cost_component=['q', 'q_sq'],
+   )
+   pyRVtest.Problem(  # scale + scope: log(c) = γ_1 log(q) + γ_2 log(Q⁻) + w'τ + ω
+       ...,
+       endogenous_cost_component=['log_q', 'log_Q_minus'],
+   )
+
+The instrument bundle must satisfy ``K_inst > K_endog`` per testing-
+IV set (paper Remark 1); ``Problem.solve`` raises a
+:class:`ValueError` listing every offending instrument set if not.
+The pre-existing single-string API path remains bit-identical.
+
+``costs_type='log' + demand_adjustment=True``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The combination is now fully supported. Pre-v0.4-final the package
+silently fell back to ``costs_type='linear'`` with a UserWarning;
+the chain rule is now correctly applied (``gradient_markups``
+rescaled by :math:`f'(p - \Delta_m) = 1/(p - \Delta_m)`). No code
+change required from users — just the surprise behavior is gone.
+
 Reporting issues
 ----------------
 
