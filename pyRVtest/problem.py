@@ -1931,6 +1931,38 @@ class Problem(Container, StringRepresentation):
                 "Fix: add 'clustering_ids' to product_data, or set "
                 "clustering_adjustment=False."
             )
+        # Test-relevance gate when endogenous_cost_component is set:
+        # Each instrument set must satisfy K_inst > K_endog (equivalently
+        # K_effective >= 1) so the IV correction's K_endog absorbed degrees
+        # of freedom leave at least one testing dimension. Paper Remark 1
+        # (DMQSS 2026) shows that K_inst = K_endog produces F = 0
+        # mechanically. Without the gate, K_effective = 0 trips a
+        # ZeroDivisionError downstream in test_engine.compute. K_endog is
+        # forward-compatible with a future list-of-columns API; today the
+        # __init__ validator gates endogenous_cost_component to str so the
+        # else branch is unreachable, but locking in the count semantics
+        # avoids a latent bug if the type widens.
+        if self.endogenous_cost_component is not None:
+            K_endog = (
+                1 if isinstance(self.endogenous_cost_component, str)
+                else len(self.endogenous_cost_component)
+            )
+            bad_sets: List[Tuple[int, int]] = []
+            for l in range(self.L):
+                K_inst_l = int(np.shape(self.products["Z{0}".format(l)])[1])
+                if K_inst_l <= K_endog:
+                    bad_sets.append((l, K_inst_l))
+            if bad_sets:
+                bad_descriptions = ", ".join(
+                    f"set {l} (K_inst = {K})" for l, K in bad_sets
+                )
+                raise ValueError(
+                    f"Expected K_inst >= K_endog + 1 = {K_endog + 1} for every "
+                    f"instrument set when endogenous_cost_component is set. "
+                    f"Received {bad_descriptions}. "
+                    f"Fix: add instruments, drop the set(s), or remove "
+                    f"endogenous_cost_component. See DMQSS (2026) Remark 1."
+                )
         # demand_adjustment + endogenous_cost_component is now supported; the gradient
         # accounts for the dependence of gamma_m on theta via per-instrument finite differences.
         if demand_adjustment and self.demand_params is not None:
