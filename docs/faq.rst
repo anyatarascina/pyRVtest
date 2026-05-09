@@ -157,16 +157,17 @@ to ``costs_type='linear'`` and emits a warning. If you genuinely need
 log costs with a first-stage demand-adjustment correction, the
 combination is tracked as a v0.5 follow-up.
 
-**No warning, but I set ``endogenous_cost_component='shares'`` and
-``demand_adjustment=True``.**
+**Can I combine ``endogenous_cost_component`` with
+``demand_adjustment=True``?**
 
-This combination is silently allowed in v0.4 but produces a biased
-demand-adjusted variance: the gradient computation misses the
-``dgamma/dtheta`` channel that flows through the IV correction.
-Tracked as a v0.5 follow-up. As a workaround, set
-``demand_adjustment=False`` when ``endogenous_cost_component`` is
-active, or run the IV correction once externally and pass the
-corrected marginal cost.
+Yes. The unified ``compute_demand_adjustment`` pipeline computes the
+:math:`\partial \gamma_m / \partial \theta` channel (via finite
+differences over the IV correction at perturbed demand parameters)
+and includes it in the demand-adjusted variance. The two paths
+(``demand_results`` and ``demand_params``) produce the same TRV /
+F-stat correction up to analytical-vs-finite-difference noise; this
+is verified by
+``tests/test_demand_adjustment.py::test_option_a_demand_params_matches_demand_results_with_endogenous_cost``.
 
 
 Pass-through diagnostics (DMQSW framework)

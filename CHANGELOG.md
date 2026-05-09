@@ -151,6 +151,20 @@ Documentation:
 - **Method docstrings** as the single source of truth for methodology
   text; methodology footers in printed output now reference
   `passthrough_summary()` / `instrument_channels()` docstrings.
+- **Endogenous-cost + demand-adjustment documentation corrected.**
+  Earlier docs (FAQ, advanced_features) carried a stale caveat
+  claiming the combination silently produced biased variance. The
+  unified-demand-adjustment refactor (step 4d/4e) actually fixed
+  this: `_compute_gamma_gradient` finite-differences the per-
+  instrument-set IV correction at perturbed demand parameters and
+  the `∂γ_m / ∂θ` channel is folded into the test_engine variance
+  term (`G_k -= 1/N · Z' · (endog_resid · gradient_gamma[m])`).
+  Cross-path parity between `demand_results` and `demand_params`
+  is pinned to `atol=5e-9` on a 30-market endogenous-cost fixture
+  (`tests/test_demand_adjustment.py::test_option_a_demand_params_matches_demand_results_with_endogenous_cost`).
+  The stale `tests/regressions/test_memo1_section42_adjustment_interaction.py`
+  xfail-strict gate (asserted `ValueError` for the combination) is
+  removed; correctness coverage moved to the cross-path parity test.
 
 Tests:
 

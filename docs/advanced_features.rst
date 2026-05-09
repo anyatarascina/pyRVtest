@@ -573,14 +573,18 @@ component.
 .. note::
 
    Combining ``endogenous_cost_component`` with
-   ``demand_adjustment=True`` is silently allowed in v0.4 but
-   produces a biased demand-adjusted variance: the gradient
-   computation does not currently capture the
-   :math:`\partial\gamma_m / \partial\theta` channel that flows
-   through the IV correction. Tracked as a v0.5 follow-up. Run with
-   ``demand_adjustment=False`` when ``endogenous_cost_component`` is
-   active, or apply the IV correction once externally and pass the
-   corrected marginal cost.
+   ``demand_adjustment=True`` is fully supported. The unified
+   :func:`pyRVtest.solve.demand_adjustment.compute_demand_adjustment`
+   pipeline computes the
+   :math:`\partial\gamma_m / \partial\theta` channel (via finite
+   differences over the IV correction evaluated at perturbed demand
+   parameters) and folds it into the demand-adjusted variance.
+   ``demand_results`` and ``demand_params`` paths produce the same
+   TRV / F-stat correction up to analytical-vs-finite-difference
+   noise; the
+   ``test_option_a_demand_params_matches_demand_results_with_endogenous_cost``
+   test in ``tests/test_demand_adjustment.py`` pins this cross-path
+   parity.
 
 
 Where to go from here
