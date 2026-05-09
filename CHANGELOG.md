@@ -54,14 +54,124 @@ removed names because rc1 was not a public release.
   helpers and `tests/test_passthrough_comparison.py`. The Dearing et al.
   (2026) pass-through diagnostic suite in v0.4 final is provided by
   `passthrough_summary` (γ-free structural-feature distance, ex-ante)
-  and `causal_effects` (post-solve channel decomposition); see
-  `docs/advanced_features.rst`. The rc1 method's `offdiag_frobenius`
-  metric was also paper-renumbered: the off-diagonal-to-diagonal
-  feature is Remark 1 in the current DMQSW draft, not Remark 4.
+  and `instrument_channels` (post-solve channel decomposition); see
+  the new "Added" subsection below and `docs/advanced_features.rst`.
+  The rc1 method's `offdiag_frobenius` metric was also paper-
+  renumbered: the off-diagonal-to-diagonal feature is Remark 1 in the
+  current DMQSW draft, not Remark 4.
 - **`RELIABILITY_CI_LEVEL` constant** in
   `pyRVtest.solve.test_engine`. Used only by the removed `F_se` /
   `F_ci` computation. `RELIABILITY_LAMBDA_THRESHOLD` (the lambda
   informational threshold) remains.
+
+### Added (rc1 → final)
+
+The Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026, "DMQSW")
+pass-through diagnostic suite is now first-class on `Problem` and
+`ProblemResults`. Three coordinated methods:
+
+- **`Problem.passthrough_summary(with_models=False, detail='median')`.**
+  Pre-solve γ-free pair-by-pair structural feature distances across
+  every unordered candidate pair. Reports four DMQSW-keyed metrics:
+  `offdiag_ratio` (Remark 1, rival cost shifters), `full_pass`
+  (Remark 2 / Remark 4, own+rival cost; product chars under linear-
+  index demand), `row_sum` (Remark 5, per-unit tax), and `level_adj`
+  (Remark 5, ad valorem tax). `with_models=True` adds a per-model
+  structural block (median diagonal, signed-max off-diagonal, median
+  row sum). `detail='full'` returns one row per (pair, market). Also
+  callable on `ProblemResults` post-solve. Each printed view ends
+  with a methodology footer documenting how the underlying pass-
+  through matrices were computed (numerical / analytical / short-
+  circuit, conditional on the candidate-set composition).
+- **`Problem.instrument_channels(column, instrument=None)`.** Post-
+  solve per-pair channel decomposition for one chosen IV column.
+  Reports the data-side empirical magnitude `‖dp_0/dz‖_obs` (sample
+  regression slope of observed prices on z controlling for the cost
+  formulation), the per-candidate direct-channel coefficient `β_m`
+  (FWL conditional regression of model-implied Δ_m on z given p),
+  the structural-side magnitude `‖P_m^{-1} − P_m'^{-1}‖_F`
+  aggregated by median across markets, and the per-pair
+  `|β_m − β_m'|`. The optional `instrument=` kwarg labels the
+  declared primitive instrument type ('rival_cost', 'unit_tax',
+  'advalorem_tax', 'rival_product_char', etc.) in the methodology
+  footer; it does not change the computation. Also accessible on
+  `ProblemResults`.
+- **`ProblemResults.passthrough_matrix(model_index, market_id=None)`
+  generalized.** Now returns the per-candidate pass-through matrix
+  for *every* conduct class via numerical central-difference
+  perturbation of prices through the candidate's first-order
+  condition. The existing `Vertical` / Villas-Boas (2007) analytical
+  fast path is preserved and dispatched automatically; trivial
+  conducts (`PerfectCompetition`, `ConstantMarkup`,
+  `UserSuppliedMarkups`, `RuleOfThumb`) short-circuit to identity /
+  `φI`. The v0.4 rc1 `Vertical`-only restriction is removed.
+
+Internal computation:
+
+- **`compute_passthrough_numerical(conduct_model, ownership, response,
+  hessian, shares, markups, delta=1e-7)`** in
+  `pyRVtest/solve/passthrough.py`. Single numerical core handling
+  every conduct uniformly via central-difference perturbation through
+  the candidate's markup function; closed-form expressions per conduct
+  documented in `docs/math.rst` as reference for what the numerics
+  approximate.
+- **Pass-through dispatch** in `pyRVtest.solve.passthrough.build_passthrough`
+  routes `Vertical` to the existing analytical fast path, trivial
+  conducts to short-circuit identity / `φI`, and everything else to
+  the numerical core.
+- **Cross-validation against textbook approach** in
+  `tests/test_passthrough_numerical.py::test_numerical_matches_rc_logit_resolve`:
+  self-coded random-coefficient logit demand (Gauss-Hermite quadrature)
+  with a scipy fixed-point equilibrium price solver confirms approach
+  A (linear-perturbation) agrees with approach B (textbook "shock mc
+  and re-solve equilibrium prices") to ~1e-9 absolute under RC logit
+  at delta=1e-5.
+
+Documentation:
+
+- **`docs/advanced_features.rst`** Pass-through diagnostics section
+  rewritten as a three-method walkthrough on the synthetic example,
+  including the (Cournot, PerfectCompetition) `offdiag_ratio = 0`
+  degeneracy demonstration and the cross-read pattern between
+  `passthrough_summary` and `reliability_summary`.
+- **`docs/math.rst`** expanded with per-conduct closed-form pass-
+  through formulas, the indirect/direct channel decomposition
+  `dp/dz = P · (∂Δ/∂z + ∂c̄/∂z)`, the FWL conditional-regression
+  identification of the direct channel, and worst-rho CV bound
+  notation alongside the existing F-statistic section.
+- **FAQ entries** in `docs/faq.rst` covering: how to check IV-
+  candidate distinguishability ex-ante (`passthrough_summary`); why
+  the framework view does not return a verdict; how to diagnose
+  weak F-stats as structural vs. empirical; and why there is no
+  `moment_relevance` / empirical IV pre-screening method.
+- **Tutorial section** in `docs/tutorial.rst` ("Pre-test framework
+  reasoning per DMQSW") pointing to the advanced-features walkthrough.
+- **Migration notes** in `docs/migrating_to_v0.4.rst` covering the
+  new methods.
+- **Method docstrings** as the single source of truth for methodology
+  text; methodology footers in printed output now reference
+  `passthrough_summary()` / `instrument_channels()` docstrings.
+
+Tests:
+
+- **`tests/test_passthrough_numerical.py`** (18 tests): trivial
+  closed-form bit-exact agreement (PC, ConstantMarkup,
+  UserSuppliedMarkups, RuleOfThumb), paper Example 2 hand-derived
+  2×2 logit cases (Bertrand off-diagonal nonzero; Cournot diagonal —
+  the headline DMQSW result), and smoke tests across every conduct
+  class on the synthetic example.
+- **`tests/test_passthrough_summary.py`** (21 tests): headline DMQSW
+  result confirmed — `(Cournot, PerfectCompetition).offdiag_ratio <
+  1e-6` (degenerate under rival cost shifters) but `row_sum`,
+  `level_adj`, `full_pass` all > 0.1 (other instrument types break
+  the degeneracy). Plus per-feature notes, methodology line
+  composition, and edge-case coverage.
+- **`tests/test_instrument_channels.py`** (21 tests): structural
+  shapes, PC `β_m` exactly zero, ProblemResults wrapper match,
+  methodology line contents, and edge cases.
+
+Test suite progression: 706 (pre-Phase-1 baseline) → 767 (+61) tests
+passing. mypy `--strict` clean throughout.
 
 ## [0.4.0rc1] — 2026-04-20
 

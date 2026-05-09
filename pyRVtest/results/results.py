@@ -863,40 +863,97 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         return frame
 
     def reliability_summary(self) -> 'pd.DataFrame':
-        """Return per-cell F-stat reliability diagnostics.
+        """Per-cell F-stat reliability diagnostics with DMSS critical values.
 
-        One row per (instrument set, model_i, model_j) with model_i < model_j.
-        Columns (under the v0.4 final layout):
+        Long-form table reporting, for each (instrument set,
+        :math:`m_i`, :math:`m_j`) cell with :math:`m_i < m_j`, the
+        Duarte, Magnolfi, Sølvsten, and Sullivan (2024, "DMSS")
+        F-statistic, the plug-in :math:`\\hat\\rho^2`, and the size /
+        power critical values that map :math:`F` onto a reliability
+        claim of the form "worst-case size :math:`\\le \\alpha`,
+        best-case power :math:`\\ge \\beta`."
 
-        - ``F``, ``rho_squared``: existing test statistic and DMSS rho².
-          When mpmath fires (lambda < 1e-10), these store the
-          higher-precision values; ``F_high_precision`` exposes the swap
-          explicitly.
-        - ``lambda_dmss``: numerical-cancellation depth,
-          ``((σ_0+σ_1)² − 4σ_2²) / (σ_0+σ_1)²``. Informational; surfaces
-          the cancellation regime where mpmath replaced float64.
-        - ``strongest_claim_size``, ``strongest_claim_power``: strongest
-          size/power claim F supports at the plug-in ρ̂² (e.g.,
-          ``"worst-case size <= 10%"``).
-        - Worst-rho CV columns (max CV across rho² ∈ [0, 0.99] at this K):
-          ``size_cv_075`` / ``size_cv_100`` / ``size_cv_125`` for the
-          7.5%, 10%, 12.5% size levels, and ``power_cv_050`` /
-          ``power_cv_075`` / ``power_cv_095`` for the 50%, 75%, 95%
-          power levels. F clearing ``size_cv_075`` is the strongest
-          worst-rho size claim; F clearing ``power_cv_095`` is the
-          strongest worst-rho power claim.
-        - Empirical-rho CV columns (CVs at the cell's plug-in ρ̂²):
-          ``size_cv_075_emp`` / ``size_cv_100_emp`` / ``size_cv_125_emp``
-          and ``power_cv_050_emp`` / ``power_cv_075_emp`` /
-          ``power_cv_095_emp``. These are the plug-in CVs the verdict
-          uses internally; they take ρ̂² noise as given (no robustness
-          margin) and are typically less conservative than the worst-rho
-          set.
+        Two CV variants are reported side-by-side:
+
+        - **Worst-rho CVs** (``size_cv_*``, ``power_cv_*``): for the
+          cell's instrument count :math:`K_{\\text{eff}}`, the
+          *maximum* DMSS critical value across :math:`\\rho^2 \\in
+          [0, 0.99]`. Conservative reliability bound — F clearing
+          ``size_cv_075`` supports the worst-case size claim regardless
+          of the (noisy) plug-in :math:`\\hat\\rho^2`.
+        - **Empirical-rho CVs** (``size_cv_*_emp``, ``power_cv_*_emp``):
+          DMSS critical values evaluated at the cell's plug-in
+          :math:`\\hat\\rho^2`. Sharper but ρ-dependent; takes
+          :math:`\\hat\\rho^2` noise as given (no robustness margin).
+          These are the CVs the printed-output verdict uses internally;
+          ``strongest_claim_size`` / ``strongest_claim_power`` summarize
+          the resulting claim string.
+
+        Read the worst-rho columns when you want the conservative
+        reliability bound; read the empirical-rho columns when you trust
+        the plug-in :math:`\\hat\\rho^2` and want the sharpest
+        feasible claim.
 
         Returns
         -------
-        pd.DataFrame
-            Long-form frame with ``L * M * (M - 1) / 2`` rows.
+        pandas.DataFrame
+            Long-form frame with ``L * M * (M - 1) / 2`` rows. Columns:
+
+            - ``instrument_set``, ``instrument_set_label``: integer
+              index and label of the testing-IV bundle.
+            - ``model_i``, ``model_j``, ``model_i_label``,
+              ``model_j_label``: candidate-pair indices and labels.
+            - ``F``, ``rho_squared``: DMSS scaled F-statistic and
+              :math:`\\hat\\rho^2 = (\\hat\\sigma_0 - \\hat\\sigma_1)^2
+              / D_\\rho`. When mpmath fires (lambda < 1e-10), these are
+              the high-precision values.
+            - ``F_high_precision``: F recomputed via mpmath when the
+              float64 denominator is in the catastrophic-cancellation
+              regime; NaN otherwise.
+            - ``lambda_dmss``: numerical-cancellation depth,
+              :math:`((\\hat\\sigma_0 + \\hat\\sigma_1)^2 -
+              4\\hat\\sigma_2^2) /
+              (\\hat\\sigma_0 + \\hat\\sigma_1)^2`.
+              Informational; surfaces the regime where mpmath replaced
+              float64.
+            - ``strongest_claim_size``, ``strongest_claim_power``:
+              strongest empirical-rho size / power claim F supports at
+              the plug-in :math:`\\hat\\rho^2` (e.g.
+              ``"worst-case size <= 10%"``).
+            - ``size_cv_075``, ``size_cv_100``, ``size_cv_125``:
+              worst-rho CVs for the 7.5% / 10% / 12.5% size levels
+              (DMSS Table 1, panel A).
+            - ``power_cv_050``, ``power_cv_075``, ``power_cv_095``:
+              worst-rho CVs for the 50% / 75% / 95% power levels (DMSS
+              Table 1, panel B).
+            - ``size_cv_*_emp``, ``power_cv_*_emp``: empirical-rho CVs
+              at the cell's :math:`\\hat\\rho^2` (six columns matching
+              the worst-rho layout).
+
+        See Also
+        --------
+        Problem.passthrough_summary : pre-solve structural feature
+            distances (γ-free framework view).
+        Problem.instrument_channels : post-solve channel decomposition
+            for one IV column.
+        ProblemResults.summary_df : compact tabular result summary.
+
+        Notes
+        -----
+        ``NaN`` rows occur when a pair is *trivially degenerate*
+        (identical implied moments at the candidate weighting matrix);
+        the printed-output footer flags these as ``indistinguishable``.
+        Pairs with one identically-zero-markup candidate (notably
+        ``PerfectCompetition``) can show suspiciously small F-stats
+        even when ``TRV`` is sharp; this is a known v0.5 follow-up. CVs
+        clip to NaN when ``rho`` is NaN (degenerate pair) and a
+        ``UserWarning`` fires once per instrument set when
+        :math:`K_{\\text{eff}} > 30` outside the tabulated range.
+
+        References
+        ----------
+        Duarte, M., L. Magnolfi, M. Sølvsten, and C. Sullivan (2024):
+        "Testing Firm Conduct." Working paper.
         """
         import pandas as pd
 
@@ -1147,9 +1204,16 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
     ) -> 'PassthroughSummary':
         """Pair × pass-through-feature distance summary across candidates.
 
-        Thin wrapper delegating to :meth:`pyRVtest.Problem.passthrough_summary`.
-        See that method's docstring for full parameter and return
-        documentation.
+        Post-solve wrapper delegating to
+        :meth:`pyRVtest.Problem.passthrough_summary`. The pass-through
+        feature distances are γ-free structural quantities (they do not
+        depend on the fitted demand parameters), so the post-solve
+        output is identical to the pre-solve output. Exposed on
+        ``ProblemResults`` for ergonomic post-solve cross-reading
+        against :meth:`reliability_summary` and
+        :meth:`instrument_channels`. See
+        :meth:`Problem.passthrough_summary` for full parameter and
+        methodology documentation.
         """
         result: 'PassthroughSummary' = self.problem.passthrough_summary(
             with_models=with_models, detail=detail,
@@ -1163,8 +1227,11 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
     ) -> 'InstrumentChannels':
         """Per-pair channel decomposition for one IV column.
 
-        Thin wrapper delegating to :meth:`pyRVtest.Problem.instrument_channels`.
-        See that method's docstring for full documentation.
+        Post-solve wrapper delegating to
+        :meth:`pyRVtest.Problem.instrument_channels`. See that method's
+        docstring for the methodology, the channel-decomposition
+        formula, and the per-instrument-type interpretation of the
+        structural-side and direct-side blocks.
         """
         result: 'InstrumentChannels' = self.problem.instrument_channels(
             column=column, instrument=instrument,

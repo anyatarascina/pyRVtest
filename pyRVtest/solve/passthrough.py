@@ -786,7 +786,7 @@ def _build_methodology_line(problem: Any) -> str:
 
     return (
         f"Methodology — pass-through: {body}. "
-        f"See docs/math.rst."
+        f"See passthrough_summary() docstring and docs/math.rst."
     )
 
 
@@ -1111,7 +1111,8 @@ def _build_instrument_channels_methodology_line(
         "Direct channel β_m via conditional regression of Δ_m on z controlling "
         "for p (FWL); data-side ‖dp_0/dz‖_obs via regression of observed prices "
         "on z with cost-formulation controls; structural-side ‖P_m^{-1} − P_m'^{-1}‖ "
-        "from the candidate pass-through matrices computed as above."
+        "from the candidate pass-through matrices computed as above. "
+        "See instrument_channels() docstring for the channel decomposition formula."
     )
     if instrument_type is not None:
         iv_note += (

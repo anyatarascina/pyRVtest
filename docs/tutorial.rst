@@ -146,18 +146,37 @@ Step 5 — Inspect the diagnostics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The :class:`~pyRVtest.ProblemResults` object holds more than the
-printed table:
+printed table. Three diagnostic methods cover the DMSS reliability
+view and the DMQSW pass-through framework:
 
 .. code-block:: python
 
+   # DMSS empirical reliability
+   results.reliability_summary()              # per-cell F, rho^2, size/power CVs
+
+   # DMQSW pass-through framework
+   results.passthrough_summary()              # pre-/post-solve γ-free pair distances
+   results.passthrough_matrix(0, market_id=0) # raw P_m for one (model, market)
+   results.instrument_channels(column='rival_z2', instrument='rival_cost')
+
+   # Implied quantities
    results.markups        # implied markups per candidate model
    results.marginal_cost  # implied marginal costs per candidate model
-   results.passthrough_matrix(model=0, market_id=0)
-   results.reliability_summary()    # per-cell F-stat reliability columns
-   results.to_dataframe()           # long-form DataFrame for export
+   results.to_dataframe() # long-form DataFrame for export
+
+The DMQSW framework view in :meth:`~pyRVtest.ProblemResults.passthrough_summary`
+identifies the (Cournot, PerfectCompetition) degenerate pair from
+Step 4 *ex-ante*: the ``offdiag_ratio`` column is numerically zero
+for the pair, signalling that no rival cost shifter — observed or
+hypothetical — can distinguish the two under logit demand. The other
+three columns (``full_pass``, ``row_sum``, ``level_adj``) are nonzero
+for the same pair, telling you which other instrument types could in
+principle break the degeneracy. See :ref:`advanced-passthrough` for
+the worked walkthrough.
 
 See :doc:`api` for the full attribute / method reference and
-:doc:`math` for the formulas behind ``TRV``, ``F``, and ``MCS``.
+:doc:`math` for the formulas behind ``TRV``, ``F``, ``MCS``, and the
+pass-through framework.
 
 Tutorials by topic
 ------------------
@@ -204,6 +223,31 @@ columns, and :class:`~pyRVtest.Vertical` for downstream-upstream
 bilateral oligopoly. Read this when you need to know what each class
 expects, what its FOC looks like, and how to choose between similar
 options.
+
+Pre-test framework reasoning per DMQSW
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The :ref:`advanced-passthrough` section of :doc:`advanced_features`
+walks through the Dearing, Magnolfi, Quint, Sullivan, and Waldfogel
+(2026) pre-test framework on the synthetic example. The narrative
+covers:
+
+* Building the :class:`~pyRVtest.Problem` and inspecting
+  :meth:`~pyRVtest.Problem.passthrough_summary` *before* calling
+  ``solve``, to identify pairs that are structurally indistinguishable
+  under the chosen IV bundle (the (Cournot, PerfectCompetition)
+  ``offdiag_ratio = 0`` result of Step 4 above).
+* Cross-reading the framework view against
+  :meth:`~pyRVtest.ProblemResults.reliability_summary` post-solve to
+  diagnose structural-vs-empirical weakness.
+* Decomposing the per-pair difference in candidates' implied causal
+  effects of one IV column via
+  :meth:`~pyRVtest.Problem.instrument_channels`.
+
+Read this when you want to choose testing instruments deliberately
+based on which structural feature each candidate pair makes salient,
+rather than running the test against an arbitrary IV bundle and
+post-rationalizing.
 
 Beyond the tutorials
 --------------------

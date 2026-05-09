@@ -2179,22 +2179,55 @@ class Problem(Container, StringRepresentation):
     ) -> 'PassthroughSummary':
         """Pair × pass-through-feature distance summary across candidates.
 
-        For each unordered pair of candidate models in ``self._models``
-        and each market, computes four pass-through-feature distances:
-        ``offdiag_ratio`` (Remark 1, rival cost shifters), ``full_pass``
-        (Remark 2 / Remark 4), ``row_sum`` (Remark 5 unit tax), and
-        ``level_adj`` (Remark 5 ad valorem tax). Per-market values are
-        aggregated via median (default) or returned per-market when
-        ``detail='full'``.
+        Pre-solve structural diagnostic from the pass-through framework
+        of Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026,
+        "DMQSW"). For every unordered pair of candidate models in
+        ``self._models`` and every market, computes four pass-through
+        feature distances; aggregates per-market values via median
+        (default) or returns per-market when ``detail='full'``. Also
+        callable post-solve via
+        :meth:`ProblemResults.passthrough_summary`.
+
+        The four features map onto DMQSW's instrument-relevance remarks
+        (different testing-instrument types target different features):
+
+        - ``offdiag_ratio`` (Remark 1): Frobenius norm of the difference
+          in column-normalized off-diagonal pass-through coefficients.
+          Targets rival cost shifters. Zero ⇒ structural degeneracy
+          under rival cost shifters (e.g. Cournot vs. PerfectCompetition
+          under logit demand). γ-free.
+        - ``full_pass`` (Remark 2 / Remark 4): Frobenius norm of
+          :math:`P_m - P_{m'}`. Targets own-and-rival cost shifters and
+          product characteristics under linear-index demand. γ-free under
+          rival exclusion.
+        - ``row_sum`` (Remark 5): difference of row sums of
+          :math:`P_m`. Targets per-unit (specific) tax instruments.
+          Requires only the observed retention factor :math:`\\nu`.
+        - ``level_adj`` (Remark 5): difference of
+          :math:`P_m \\cdot (p - \\Delta_m)`. Targets ad-valorem tax
+          instruments. Requires observed prices and the candidate's
+          implied markup.
+
+        These are *structural feature distances* between candidates'
+        implied pass-through matrices, not finite-sample power
+        predictions. Zero distance under an instrument type ⇒ no
+        instrument of that type can distinguish the pair (the framework
+        can rule out degenerate combinations ex-ante). Nonzero
+        distance ⇒ the pair is structurally distinguishable under that
+        type, but whether a nonzero F-stat materializes in your sample
+        depends on data variation; cross-read against
+        :meth:`ProblemResults.reliability_summary` post-solve.
 
         Parameters
         ----------
         with_models : bool, optional
-            Add a per-model structural block (median diagonal, max
-            off-diagonal, median row sum) to the printed view.
+            Add a per-model structural block (median diagonal,
+            signed-max off-diagonal, median row sum) above the
+            pair-distance table in the printed view.
         detail : {'median', 'full'}, optional
-            Aggregation mode for the pair-distance table. Default
-            'median'; 'full' returns one row per (pair, market).
+            Aggregation mode. ``'median'`` (default) reports the median
+            across markets per pair; ``'full'`` returns one row per
+            ``(pair, market)`` for inspection.
 
         Returns
         -------
@@ -2202,6 +2235,33 @@ class Problem(Container, StringRepresentation):
             Structured result with ``__repr__`` for printing and
             ``to_dataframe()`` for the underlying frame. See
             :class:`pyRVtest.solve.passthrough.PassthroughSummary`.
+
+        See Also
+        --------
+        ProblemResults.passthrough_matrix : raw :math:`P_m` for one
+            model in one market.
+        Problem.instrument_channels : post-solve per-pair channel
+            decomposition for one IV column.
+        ProblemResults.reliability_summary : post-solve empirical
+            reliability table (F-stat and DMSS critical values).
+
+        Notes
+        -----
+        Pass-through matrices are computed numerically via central-
+        difference perturbation through each candidate's markup function
+        (delta=1e-7), with an analytical fast path for ``Vertical``
+        (Villas-Boas 2007) and short-circuit identity / :math:`\\varphi I`
+        for trivial conducts (``PerfectCompetition``, ``ConstantMarkup``,
+        ``UserSuppliedMarkups``, ``RuleOfThumb``). The methodology line
+        in the printed output reflects which paths fired for the
+        candidate set. Theory in ``docs/math.rst``; implementation in
+        :func:`pyRVtest.solve.passthrough.compute_passthrough_numerical`.
+
+        References
+        ----------
+        Dearing, A., L. Magnolfi, D. Quint, C. Sullivan, and
+        S. Waldfogel (2026): "Learning Firm Conduct: Pass-Through as a
+        Foundation for Instrument Relevance." NBER Working Paper 32863.
         """
         from .solve.passthrough import compute_passthrough_summary
         return compute_passthrough_summary(
@@ -2213,25 +2273,68 @@ class Problem(Container, StringRepresentation):
         column: str,
         instrument: Optional[str] = None,
     ) -> 'InstrumentChannels':
-        """Per-pair channel decomposition of dp_m/dz - dp_m'/dz.
+        """Per-pair channel decomposition for one instrument column.
 
-        For one chosen instrument column, returns the structural-side
-        (pass-through-mediated) and direct (markup-derivative) channels
-        of how candidates differ in their causal effect of the instrument
-        on prices.
+        Empirical post-solve diagnostic complementing
+        :meth:`passthrough_summary`. For one chosen instrument column,
+        reports the per-pair building blocks of how candidate models
+        differ in their causal effect of the instrument on prices,
+        :math:`\\partial p_m / \\partial z - \\partial p_{m'} / \\partial z`,
+        decomposed into a pass-through-mediated *indirect* channel and
+        a markup-derivative *direct* channel.
+
+        The decomposition (DMQSW Section 3) is
+
+        .. math::
+
+           \\frac{\\partial p_m}{\\partial z}
+               = P_m \\cdot \\Big(\\frac{\\partial \\Delta_m}{\\partial z}
+                                 + \\frac{\\partial \\bar c}{\\partial z}\\Big),
+
+        where :math:`P_m` is the candidate pass-through matrix,
+        :math:`\\partial \\Delta_m / \\partial z` is the direct channel
+        (markup response to :math:`z`), and :math:`\\partial \\bar c
+        / \\partial z` is the cost-side response. The method reports
+        building blocks rather than collapse to a single per-pair
+        magnitude because combining them depends on the instrument's
+        targeting (column :math:`\\ell` of pass-through for a rival
+        cost shifter; row sums for a unit tax;
+        :math:`P (p - \\Delta_m)` for an ad-valorem tax). Reporting
+        components separately lets the user apply the right projection
+        per instrument type.
+
+        Output blocks:
+
+        - **Data-side**: empirical effect of :math:`z` on prices.
+          ``‖dp_0/dz‖_obs`` is the OLS slope of observed prices on
+          :math:`z` controlling for the cost formulation. Plus sample
+          ``SD(z)`` and range.
+        - **Direct channel**, per candidate: ``β_m`` from OLS regression
+          of model-implied :math:`\\Delta_m` on :math:`z` with :math:`p`
+          as a control (FWL partialling). Analytically zero for
+          cost-shifter and tax instruments (which do not enter the
+          markup function); residual ``β_m`` reflects sample
+          correlation with other markup-function inputs (e.g. product
+          characteristics) and serves as a finite-sample diagnostic.
+        - **Structural-side**, per pair: ``‖P_m^{-1} − P_m'^{-1}‖_F``,
+          γ-free pass-through-difference magnitude (median across
+          markets). The user multiplies by the instrument-specific
+          projection of ``dp_0/dz`` to get the indirect-channel
+          magnitude.
+        - **Direct-side**, per pair: ``|β_m − β_m'|`` from the per-
+          candidate ``β_m`` above.
 
         Parameters
         ----------
         column : str
-            Name of the IV column in ``self.products`` (e.g.
-            ``'rival_z2'``). Must be a field of the products structured
-            array.
+            Name of the IV column in ``self.products``. Must be a field
+            of the products structured array.
         instrument : str, optional
-            Declared primitive instrument type for the methodology line:
-            'rival_cost', 'own_rival_cost', 'unit_tax', 'advalorem_tax',
-            'rival_product_char', 'own_product_char', or 'composite'. Does
-            not change the computation; documents the targeting
-            interpretation.
+            Declared primitive instrument type for the methodology
+            footer: ``'rival_cost'``, ``'own_rival_cost'``,
+            ``'unit_tax'``, ``'advalorem_tax'``, ``'rival_product_char'``,
+            ``'own_product_char'``, or ``'composite'``. Does not change
+            the computation; documents the targeting interpretation.
 
         Returns
         -------
@@ -2239,6 +2342,41 @@ class Problem(Container, StringRepresentation):
             Structured result with ``__repr__`` for printing and
             ``to_dataframe()`` for the per-pair frame. See
             :class:`pyRVtest.solve.passthrough.InstrumentChannels`.
+
+        See Also
+        --------
+        Problem.passthrough_summary : pre-solve γ-free structural
+            feature distance summary across all candidate pairs.
+        ProblemResults.passthrough_matrix : raw :math:`P_m` for one
+            model in one market.
+        ProblemResults.reliability_summary : post-solve empirical
+            reliability table (F-stat and DMSS critical values).
+
+        Notes
+        -----
+        The structural component is the γ-free magnitude of the inverse
+        pass-through difference, not the full indirect channel: the
+        latter requires the instrument-specific projection of
+        ``dp_0/dz``. For a rival cost shifter ``z = w_ℓ``, the relevant
+        magnitude is the column-:math:`\\ell` slice of
+        :math:`P_m - P_{m'}`; for a per-unit tax it is the row sums;
+        for an ad-valorem tax it is :math:`P(p - \\Delta_m)`. The
+        pre-solve :meth:`passthrough_summary` reports those projection-
+        specific feature distances directly.
+
+        Direct-channel coefficients are OLS estimates with finite-sample
+        noise: a small-but-nonzero ``β_m`` for a cost shifter typically
+        reflects sample correlation, not a structural direct effect. For
+        composite instruments (BLP-style sums, differentiation IVs), the
+        same conditional regression identifies ``β_m`` uniformly without
+        special handling, and the structural-side and data-side blocks
+        compute identically.
+
+        References
+        ----------
+        Dearing, A., L. Magnolfi, D. Quint, C. Sullivan, and
+        S. Waldfogel (2026): "Learning Firm Conduct: Pass-Through as a
+        Foundation for Instrument Relevance." NBER Working Paper 32863.
         """
         from .solve.passthrough import compute_instrument_channels
         return compute_instrument_channels(

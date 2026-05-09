@@ -13,12 +13,17 @@ The features covered:
 #. :ref:`Demand adjustment and clustering <advanced-da-cluster>` —
    first-stage and clustering corrections to the test variance.
 #. :ref:`F-stat reliability inspection <advanced-f-reliability>` —
-   confidence intervals on the F-statistic and the per-cell verdict.
+   per-cell DMSS critical values and the strongest reliability claim
+   :math:`F` supports.
 #. :ref:`Problem-level taxes <advanced-taxes>` — unit and ad-valorem
    taxes that affect every candidate model's FOC.
 #. :ref:`Pass-through diagnostics <advanced-passthrough>` — the
-   Villas-Boas matrix and the DMQSW Remark 4 distinguishability
-   metric (``Vertical``-only in v0.4).
+   DMQSW (2026) framework: pre-solve per-pair feature distances
+   (:meth:`~pyRVtest.Problem.passthrough_summary`), the raw
+   pass-through matrix
+   (:meth:`~pyRVtest.ProblemResults.passthrough_matrix`), and
+   post-solve channel decomposition for one IV column
+   (:meth:`~pyRVtest.Problem.instrument_channels`).
 #. :ref:`Endogenous cost components <advanced-endog-cost>` — the DMQSS
    first-stage correction when marginal cost depends on quantity (or
    another endogenous variable).
@@ -266,37 +271,262 @@ v0.6. See :doc:`migrating_to_v0.4` for the rewrite recipe.
 
 .. _advanced-passthrough:
 
-Pass-through diagnostics (Vertical models, v0.4)
-------------------------------------------------
+Pass-through diagnostics (DMQSW framework)
+------------------------------------------
 
-DMQSW's identification framework rests on the model-implied cost
-pass-through matrix
-:math:`\mathcal{P}_{mt} = \partial p_t / \partial mc_t`: rival cost
-shifters target the off-diagonal-to-diagonal ratio,
-product characteristics target the full matrix, and tax instruments
-target row sums.
-:meth:`~pyRVtest.ProblemResults.passthrough_matrix` returns the
-Villas-Boas (2007) :math:`\mathcal{P}_{mt}` for a single model and
-market.
+The DMQSW (2026) identification framework derives instrument relevance
+for the conduct test from candidate models' implied pass-through
+matrices :math:`P_m = (I - \partial \Delta_m / \partial p)^{-1}`.
+Different testing-instrument types target different
+*pass-through-feature distances* between candidate matrices, and the
+test has zero asymptotic power for an instrument-candidate combination
+whose feature distance is structurally zero (DMQSW Remarks 1, 2, 4, 5).
 
-.. note::
+pyRVtest exposes three diagnostic methods that surface the framework:
 
-   :meth:`~pyRVtest.ProblemResults.passthrough_matrix` requires the
-   selected candidate model to be a :class:`~pyRVtest.Vertical`
-   instance — the closed-form Villas-Boas matrix the package computes
-   is for the downstream-upstream Bertrand-Bertrand case. Calling it
-   on a non-Vertical model raises a clear ``ValueError`` /
-   ``NotImplementedError``. Numerical pass-through for Bertrand /
-   Cournot / RuleOfThumb / ConstantMarkup is on the v0.5 roadmap; in
-   the meantime the closed-form expressions for these models are
-   documented in :doc:`math` and in DMQSW.
+* :meth:`~pyRVtest.Problem.passthrough_summary` — pre-solve γ-free
+  pair-by-pair structural feature distances (four DMQSW-keyed metrics
+  plus an optional per-model structural block).
+* :meth:`~pyRVtest.ProblemResults.passthrough_matrix` — raw
+  :math:`P_m` for one candidate in one market (inspection / debugging).
+* :meth:`~pyRVtest.Problem.instrument_channels` — post-solve channel
+  decomposition for one chosen IV column, separating the
+  pass-through-mediated indirect channel from the markup-derivative
+  direct channel.
 
-The shipped-example data has only ``Bertrand`` / ``Cournot`` /
-``PerfectCompetition`` candidates, so the methods are not directly
-demonstrable here. See the
-:func:`pyRVtest.construct_passthrough_matrix` standalone helper if you
-want to compute :math:`\mathcal{P}_{mt}` directly from your own
-inputs (ownership matrix, price-share Jacobian).
+Pass-through matrices are computed *numerically* via central-
+difference perturbation through each candidate's markup function,
+with an analytical fast path for :class:`~pyRVtest.Vertical`
+(Villas-Boas 2007) and short-circuit identity / :math:`\varphi I`
+for trivial conducts (:class:`~pyRVtest.PerfectCompetition`,
+:class:`~pyRVtest.ConstantMarkup`,
+:class:`~pyRVtest.UserSuppliedMarkups`,
+:class:`~pyRVtest.RuleOfThumb`). The methodology footer of every
+diagnostic output reflects which paths fired for the candidate set;
+see :doc:`math`.
+
+Pre-solve: ``passthrough_summary``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Construct the :class:`~pyRVtest.Problem` (do not solve yet), then
+inspect the pair-by-pair feature distances. The four metrics correspond
+to DMQSW Remarks 1, 2, 4, and 5; a structural distance of zero under a
+remark rules out the corresponding instrument type for the pair ex-ante.
+
+.. code-block:: python
+
+   import pyRVtest
+
+   data = pyRVtest.data.load_example()
+   problem = pyRVtest.Problem(
+       cost_formulation=pyRVtest.Formulation('1 + z1 + z2'),
+       instrument_formulation=pyRVtest.Formulation('0 + rival_z1 + rival_z2'),
+       models=[
+           pyRVtest.Bertrand(ownership='firm_ids'),
+           pyRVtest.Cournot(ownership='firm_ids'),
+           pyRVtest.Monopoly(ownership='firm_ids'),
+           pyRVtest.PerfectCompetition(),
+       ],
+       product_data=data,
+       demand_params={'estimate': 'logit',
+                      'formulation_X': pyRVtest.Formulation('1 + x1'),
+                      'formulation_Z': pyRVtest.Formulation('0 + z1')},
+   )
+   print(problem.passthrough_summary())
+
+Output (median across 3000 markets)::
+
+   Per-pair pass-through-feature distances (median across 3000 markets):
+
+                             pair  offdiag_ratio  full_pass  row_sum  level_adj
+              (Bertrand, Cournot)   1.267916e-01   0.173728 0.207784   0.343116
+             (Bertrand, Monopoly)   2.025077e+00   0.800202 0.813289   0.661342
+   (Bertrand, PerfectCompetition)   1.267916e-01   0.685104 0.378482   1.924238
+              (Cournot, Monopoly)   1.799031e+00   0.755743 0.361467   0.489735
+    (Cournot, PerfectCompetition)   1.335208e-09   0.837912 0.837912   2.162204
+   (Monopoly, PerfectCompetition)   1.799031e+00   0.958163 1.134994   2.252656
+
+   Per-feature notes:
+     offdiag_ratio (rival cost shifters): γ-free; column ratios. Zero ⇒
+       structural degeneracy. Magnitude doesn't predict power.
+     full_pass (own+rival cost; product chars under linear-index demand):
+       γ_known scaled or γ=0 by rival exclusion; full pass-through difference.
+     row_sum (unit tax): row sums of pass-through. ν observed; fully computable.
+     level_adj (ad valorem tax): ‖P_m·(p−Δ_m) − P_m'·(p−Δ_m')‖. ν, p observed.
+
+   Methodology — pass-through: central-difference numerical, delta=1e-7
+   (Bertrand / Cournot / Monopoly / PartialCollusion / MixCournotBertrand
+   / CustomConductModel); exact via short-circuit (PerfectCompetition /
+   ConstantMarkup / UserSuppliedMarkups / RuleOfThumb).
+   See passthrough_summary() docstring and docs/math.rst.
+
+Reading the table: the ``(Cournot, PerfectCompetition)`` row shows
+``offdiag_ratio ≈ 1.3e-9``, which is numerical zero. This is the DMQSW
+headline result: under logit demand, both Cournot and Perfect
+Competition have diagonal pass-through matrices, so the off-diagonal
+column features that rival cost shifters target are identical. *Rival
+cost shifters cannot distinguish this pair, period* — even with
+infinite data.
+
+The other three features (``full_pass``, ``row_sum``, ``level_adj``)
+are nonzero for the same pair, indicating that own-and-rival cost
+shifters, product characteristics under linear-index demand, per-unit
+taxes, or ad-valorem taxes *could* distinguish the pair (subject to
+empirical sample variation, which the framework cannot predict
+ex-ante).
+
+The ``with_models=True`` form prepends a per-model structural block
+showing each candidate's median diagonal, signed-max off-diagonal,
+and median row sum — useful for diagnosing which model is driving a
+small pair distance:
+
+.. code-block:: python
+
+   print(problem.passthrough_summary(with_models=True))
+
+Cross-reading the per-model and per-pair blocks shows that Cournot's
+``max_offdiag = 0.000`` and PerfectCompetition's ``max_offdiag =
+0.000`` are what drives the ``(Cournot, PerfectCompetition)``
+``offdiag_ratio`` to zero — they are the only two candidates with
+diagonal pass-through matrices.
+
+Post-solve: ``reliability_summary`` cross-read
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+After ``problem.solve(...)``, the pass-through framework view should
+be cross-read against the empirical reliability table:
+
+.. code-block:: python
+
+   results = problem.solve(demand_adjustment=False)
+   df = results.reliability_summary()
+   keep = ['model_i_label', 'model_j_label', 'F', 'rho_squared', 'strongest_claim_size']
+   print(df[keep].to_string(index=False))
+
+Output::
+
+      model_i_label        model_j_label          F  rho_squared     strongest_claim_size
+           bertrand              cournot   92.84868     0.327266  worst-case size <= 7.5%
+           bertrand             monopoly  170.20543     0.495062  worst-case size <= 7.5%
+           bertrand  perfect_competition    2.55167     0.947320  worst-case size <= 7.5%
+            cournot             monopoly  178.43779     0.217697  worst-case size <= 7.5%
+            cournot  perfect_competition    0.00605     0.975397  worst-case size <= 7.5%
+           monopoly  perfect_competition    1.42474     0.988201  worst-case size <= 7.5%
+
+For the ``(Cournot, perfect_competition)`` pair, the F-statistic is
+essentially zero, confirming the structural degeneracy empirically.
+The cross-read pattern lets the user diagnose which kind of weakness
+is at play:
+
+* ``offdiag_ratio = 0`` **and** ``F`` near zero → structural
+  degeneracy under rival cost shifters. No amount of data will fix
+  this; switch to a different instrument type.
+* ``offdiag_ratio > 0`` **but** ``F`` low → empirical weakness in
+  this sample. The pair is structurally distinguishable; the data
+  just lack the variation to show it. Consider a richer instrument
+  bundle, more markets, or a different cost shifter.
+* ``offdiag_ratio = 0`` **and** ``F`` clearing CVs → suspicious;
+  re-check the candidate set and the IV bundle for misspecification.
+
+Post-solve: ``instrument_channels``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For one chosen IV column, decompose the per-pair difference in
+candidates' implied causal effects into pass-through-mediated and
+markup-derivative channels:
+
+.. code-block:: python
+
+   print(results.instrument_channels(column='rival_z2', instrument='rival_cost'))
+
+Output::
+
+   Post-solve instrument-channel decomposition: column 'rival_z2'
+   (declared type: 'rival_cost'). γ_m fitted from solve.
+
+   Channel components (combine per instrument type):
+     indirect = P_m · (P_m^{-1} − P_m'^{-1}) · (dp_0/dz)
+                       └── structural ──┘   └── data ──┘
+     direct = β_m − β_m'  (empirical OLS partialling on prices)
+
+   Data-side: empirical effect of z on prices
+     ‖dp_0/dz‖_obs = 0.0023     (sample regression slope of p on rival_z2)
+     SD(rival_z2)  = 0.9999
+     range          = [-3.8878, 3.2002]
+
+   Direct channel: per-candidate β_m (OLS slope of Δ_m on z | p)
+                model    beta_m
+             Bertrand  0.522183
+              Cournot -0.066019
+             Monopoly -1.997271
+   PerfectCompetition  0.000000
+
+   Per-pair channel components (median across 3000 markets):
+
+                             pair  structural   direct
+              (Bertrand, Cournot)    0.764726 0.588201
+             (Bertrand, Monopoly)    4.054319 2.519453
+   (Bertrand, PerfectCompetition)    2.014690 0.522183
+              (Cournot, Monopoly)    3.597123 1.931252
+    (Cournot, PerfectCompetition)    3.597123 0.066019
+   (Monopoly, PerfectCompetition)    5.087100 1.997271
+
+The output reports γ-free *building blocks* rather than collapsing to
+a single per-pair number, because combining them depends on the
+instrument's targeting:
+
+* For a **rival cost shifter** :math:`z = w_\ell`, the relevant
+  projection is the column-:math:`\ell` slice of :math:`P_m -
+  P_{m'}`. The full structural-side magnitude
+  :math:`\| P_m^{-1} - P_{m'}^{-1} \|_F` shown in the table is
+  γ-free but includes diagonal and other-column components that
+  are not selected by rival-:math:`\ell` IV variation; the *off-
+  diagonal column* projection is what
+  :meth:`~pyRVtest.Problem.passthrough_summary`'s ``offdiag_ratio``
+  captures (and which is zero for ``(Cournot, PerfectCompetition)``
+  in this example, despite the Frobenius norm being nonzero).
+* For a **per-unit tax** instrument, multiply by ``np.ones(J_t)`` to
+  pick out row sums.
+* For an **ad-valorem tax** instrument, the projection involves
+  :math:`P_m (p - \Delta_m)`.
+* For a **product-characteristic** instrument that enters demand,
+  the direct channel is structurally nonzero and ``β_m`` identifies
+  the markup response; the per-pair ``direct`` column is the
+  relevant magnitude.
+
+For composite IVs (BLP-style sums, differentiation IVs), the same
+conditional regression identifies ``β_m`` uniformly without special
+handling, and the data-side and structural-side blocks compute
+identically.
+
+Pre-test workflow recap
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The diagnostic suite implements a structural pre-test:
+
+1. Build the :class:`~pyRVtest.Problem` with the candidate set you
+   want to test and the IV bundle you have available.
+2. Run :meth:`~pyRVtest.Problem.passthrough_summary` *before solving*.
+   Note any pair with a near-zero feature distance under the
+   instrument types you are using.
+3. If a degenerate pair shows up, decide whether to (a) switch to a
+   different instrument type that the table flags as nonzero, (b)
+   accept the degeneracy and report it (e.g. as a robustness comment),
+   or (c) drop the offending candidate from the menu.
+4. Solve the problem, read
+   :meth:`~pyRVtest.ProblemResults.reliability_summary` together with
+   the framework view to diagnose structural vs. empirical weakness.
+5. For follow-up inspection of one IV column,
+   :meth:`~pyRVtest.Problem.instrument_channels` decomposes the
+   per-pair causal effect into channel components.
+
+The framework view is *γ-free* — it depends on candidate models and
+demand fit but not on the cost-side coefficients :math:`\gamma_m`.
+Use it ex-ante for instrument selection without burning post-selection
+inference. The empirical reliability view in
+:meth:`~pyRVtest.ProblemResults.reliability_summary` is plug-in-
+:math:`\hat\rho^2` at the fitted :math:`\gamma_m`; treat it as the
+honest finite-sample reliability claim.
 
 
 .. _advanced-endog-cost:

@@ -448,11 +448,52 @@ update their code.
   clearing the relevant ``size_cv_075`` / ``power_cv_095`` column.
 * :meth:`ProblemResults.passthrough_comparison` is removed entirely.
   The Dearing et al. (2026) pass-through diagnostic suite in v0.4 final
-  uses ``passthrough_summary`` (γ-free structural-feature distance) and
-  ``causal_effects`` (post-solve channel decomposition); see
-  :doc:`advanced_features`. The rc1 method's ``offdiag_frobenius``
+  is provided by :meth:`Problem.passthrough_summary` (γ-free pair-by-
+  pair structural-feature distance, callable pre- or post-solve) and
+  :meth:`Problem.instrument_channels` (post-solve per-pair channel
+  decomposition for one IV column); see :doc:`advanced_features` for
+  the three-method walkthrough. The rc1 method's ``offdiag_frobenius``
   metric was also paper-renumbered: the off-diagonal-to-diagonal
   feature is Remark 1 in the current DMQSW draft, not Remark 4.
+
+New diagnostic methods in v0.4 final
+------------------------------------
+
+v0.4 final ships the full DMQSW (2026) pass-through framework as
+first-class diagnostic methods on :class:`~pyRVtest.Problem` and
+:class:`~pyRVtest.ProblemResults`:
+
+* :meth:`Problem.passthrough_summary` — pre-solve γ-free pair-by-pair
+  structural-feature distances. Four metrics correspond to DMQSW
+  Remarks 1, 2, 4, and 5: ``offdiag_ratio`` (rival cost shifters),
+  ``full_pass`` (own+rival cost / product chars under linear-index
+  demand), ``row_sum`` (per-unit tax), ``level_adj`` (ad-valorem tax).
+  Optional ``with_models=True`` adds a per-model structural block;
+  ``detail='full'`` returns one row per ``(pair, market)``. Also
+  callable on :class:`~pyRVtest.ProblemResults` post-solve.
+* :meth:`Problem.instrument_channels` — post-solve per-pair channel
+  decomposition for one chosen IV column. Reports the data-side
+  empirical magnitude :math:`\| \mathrm{d} p_0 / \mathrm{d} z \|`, the
+  per-candidate direct-channel coefficient :math:`\beta_m` (FWL
+  partialling), the structural-side magnitude
+  :math:`\| P_m^{-1} - P_{m'}^{-1} \|_F`, and the per-pair
+  ``|β_m − β_m'|`` direct difference. Also accessible on
+  :class:`~pyRVtest.ProblemResults`.
+* The pre-existing :meth:`ProblemResults.passthrough_matrix` is now
+  general — it returns :math:`P_m` for *every* conduct class via
+  numerical central-difference perturbation (with the existing
+  Villas-Boas analytical fast path for :class:`~pyRVtest.Vertical`
+  preserved). The ``Vertical``-only restriction in v0.4 rc1 is
+  removed.
+
+The v0.4 final pass-through machinery is computed *numerically* by
+default (one routine handles every conduct uniformly), with
+analytical fast paths for ``Vertical`` and short-circuit identity /
+:math:`\varphi I` for trivial conducts (``PerfectCompetition``,
+``ConstantMarkup``, ``UserSuppliedMarkups``, ``RuleOfThumb``). Per-
+conduct closed-form expressions are documented in :doc:`math` as
+reference. See the methodology footer in each diagnostic's printed
+output for which paths fired on your candidate set.
 
 Reporting issues
 ----------------
