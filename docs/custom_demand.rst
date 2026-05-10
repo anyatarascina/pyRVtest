@@ -55,15 +55,14 @@ Consequences:
 * Vertical models (``model_upstream`` set, non-zero vertical_integration) raise
   a clear error unless you pass ``hessian_fn``.
 
-* The public :class:`pyRVtest.Problem` constructor currently wires the demand
-  backend from either ``demand_results=`` (a ``pyblp.ProblemResults``) or
-  ``demand_params=`` (a dict). A pre-constructed backend cannot be passed
-  through ``Problem`` directly in v0.4. The example below uses the
-  lower-level :func:`pyRVtest.markups._compute_markups` entry point instead,
-  which accepts ``demand_backend=`` and returns the per-model markup arrays
-  you would otherwise hand to ``Problem(markup_data=...)``. A future release
-  will add ``Problem(demand_backend=...)`` so the high-level API is fully
-  connected.
+* The public :class:`pyRVtest.Problem` constructor accepts a pre-built
+  ``demand_backend=`` directly (since v0.4.0rc3+). Mutual-exclusivity
+  validation raises :class:`ValueError` if you also pass ``demand_results=``
+  or ``demand_params=``. The lower-level
+  :func:`pyRVtest.markups._compute_markups` entry point shown below is
+  still the right path when you want to inspect markups outside the full
+  RV pipeline, but for an end-to-end test the high-level constructor is
+  now the recommended form (see "End-to-end with the constructor" below).
 
 Worked example
 --------------
@@ -211,12 +210,52 @@ Interpretation
   ``z_rival_mc``, the Bertrand model's residual cost regression should
   fit far better than the PC model's.
 
-Running the full RV test would pass ``(markups, markups_down, markups_up)``
-as ``markup_data=`` to :class:`pyRVtest.Problem` along with a cost formulation
-and instrument formulation, then call ``.solve()``. That is the standard
-pyRVtest pipeline; see :doc:`tutorial` for an end-to-end walkthrough. The
-only thing a custom-demand workflow changes is the markup step — everything
-downstream of that is identical.
+End-to-end with the constructor
+-------------------------------
+
+Since v0.4.0rc3+, :class:`pyRVtest.Problem` accepts a
+``demand_backend=`` kwarg, so the lower-level dance above can be skipped
+when you want a full RV test rather than just markup arrays:
+
+.. code-block:: python
+
+    backend = UserSuppliedBackend(jacobian=jacobian, market_ids=market_ids)
+
+    problem = pyRVtest.Problem(
+        cost_formulation=pyRVtest.Formulation('1 + w_cost'),
+        instrument_formulation=pyRVtest.Formulation('0 + z_rival_mc'),
+        models=[
+            pyRVtest.Bertrand(ownership='firm_ids'),
+            pyRVtest.PerfectCompetition(),
+        ],
+        product_data=product_data,
+        demand_backend=backend,
+    )
+    results = problem.solve(demand_adjustment=False)
+
+    print(results)            # standard RV / F / MCS table
+    print(results.markups)    # same markups the lower-level path computed
+
+The constructor validates mutual exclusivity: passing
+``demand_backend=`` together with ``demand_results=`` or
+``demand_params=`` raises :class:`ValueError`. The supplied backend is
+sanity-checked against the runtime-checkable
+:class:`~pyRVtest.backends.DemandBackend` protocol; objects that do not
+satisfy it raise :class:`TypeError`.
+
+The "no demand-adjustment" caveat from the Limitations section above
+still applies. ``UserSuppliedBackend`` does not implement
+:class:`~pyRVtest.backends.SupportsDemandAdjustment`, so calling
+``problem.solve(demand_adjustment=True)`` with a custom backend
+fails with a clear error pointing to the protocol. If you need
+demand adjustment, subclass ``UserSuppliedBackend`` and implement the
+four ``SupportsDemandAdjustment`` methods using your own demand
+estimator's residuals, instruments, weight matrix, and gradients.
+
+Running the same full RV test through the lower-level
+:func:`pyRVtest.markups._compute_markups` route (the example above) is
+still useful when you want to inspect markup arrays outside the
+RV pipeline. For end-to-end testing, prefer the constructor form.
 
 Disclaimer
 ----------
@@ -229,5 +268,6 @@ responses, multiple parameters). The key pattern is the same:
 2. Compute the :math:`\partial s / \partial p` Jacobian in the stacked
    NaN-padded format.
 3. Wrap in ``UserSuppliedBackend``.
-4. Pass to :func:`pyRVtest.markups._compute_markups` (or, in a future
-   release, to :class:`pyRVtest.Problem` directly).
+4. Pass to :class:`pyRVtest.Problem` via ``demand_backend=`` (preferred,
+   end-to-end), or to :func:`pyRVtest.markups._compute_markups` if you
+   only need markups.

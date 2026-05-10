@@ -1078,6 +1078,7 @@ class Problem(Container, StringRepresentation):
             markup_data: Optional[RecArray] = None,
             endogenous_cost_component: Optional[Union[str, Sequence[str]]] = None,
             demand_params: Optional[dict] = None,
+            demand_backend: Optional[Any] = None,
             models: Optional[Sequence[Any]] = None,
             market_side: str = 'product',
             column_names: Optional[Mapping[str, str]] = None,
@@ -1085,6 +1086,32 @@ class Problem(Container, StringRepresentation):
             advalorem_tax: Optional[str] = None,
             advalorem_payer: Optional[str] = None) -> None:
         """Initialize the underlying economy with product and agent data before absorbing fixed effects.
+
+        Demand-side specification (pass at most one):
+
+        demand_results : pyblp.ProblemResults, optional
+            Output of ``pyblp.Problem.solve()``. The package builds a
+            ``PyBLPBackend`` (or ``NestedLogitBackend`` when single-scalar-
+            rho nested logit is detected) from this object.
+        demand_params : dict, optional
+            Inline analytical logit / nested-logit specification. Either a
+            pre-computed parameter dict (``{'alpha': ..., 'beta': ...,
+            'rho': [...], 'x_columns': [...], 'demand_instrument_columns':
+            [...]}``) or an estimator shortcut (``{'estimate': 'logit',
+            'formulation_X': ..., 'formulation_Z': ...}``). Builds a
+            ``LogitBackend`` or ``NestedLogitBackend``.
+        demand_backend : DemandBackend, optional
+            Pre-built backend instance satisfying the runtime-checkable
+            :class:`~pyRVtest.backends.DemandBackend` protocol — typically
+            :class:`~pyRVtest.backends.UserSuppliedBackend` wrapping a
+            researcher's custom demand Jacobian. Used as-is; no auto-
+            routing. Combining ``demand_backend`` with ``demand_results``
+            or ``demand_params`` raises :class:`ValueError`. Backends
+            that do not implement
+            :class:`~pyRVtest.backends.SupportsDemandAdjustment` (e.g.
+            ``UserSuppliedBackend``) cannot be paired with
+            ``demand_adjustment=True`` on :meth:`solve`; subclass and
+            implement the protocol if you need first-stage correction.
 
         Labor-side keyword arguments:
 
@@ -1187,7 +1214,13 @@ class Problem(Container, StringRepresentation):
             else:
                 _validate_product_models(models)
 
-        # Validate demand_params
+        # Validate demand_params / demand_results / demand_backend mutual exclusivity.
+        # Exactly zero or one of the three may be supplied. Zero is the
+        # user_supplied_markups-only path (no backend constructed). One is
+        # the standard demand-estimation path: demand_results for pyblp;
+        # demand_params for analytical logit/nested-logit; demand_backend
+        # for a pre-constructed DemandBackend (e.g. UserSuppliedBackend
+        # wrapping a researcher's custom demand Jacobian).
         if demand_params is not None and demand_results is not None:
             raise ValueError(
                 "Expected exactly one of demand_params (analytical path) or "
@@ -1197,6 +1230,38 @@ class Problem(Container, StringRepresentation):
                 "logit/nested-logit path, or demand_results=<pyblp.ProblemResults> "
                 "for pyblp-driven BLP / nested-logit estimation."
             )
+        if demand_backend is not None and demand_results is not None:
+            raise ValueError(
+                "Expected at most one of demand_backend, demand_results, or "
+                "demand_params to be set. "
+                "Received both demand_backend and demand_results. "
+                "Fix: pass only one. demand_backend overrides the routing "
+                "logic that would otherwise build a backend from demand_results."
+            )
+        if demand_backend is not None and demand_params is not None:
+            raise ValueError(
+                "Expected at most one of demand_backend, demand_results, or "
+                "demand_params to be set. "
+                "Received both demand_backend and demand_params. "
+                "Fix: pass only one. demand_backend overrides the routing "
+                "logic that would otherwise build a backend from demand_params."
+            )
+        # When demand_backend is supplied, sanity-check it implements the
+        # core DemandBackend protocol before silently letting downstream
+        # code fail with an AttributeError.
+        if demand_backend is not None:
+            from .backends.base import DemandBackend
+            if not isinstance(demand_backend, DemandBackend):
+                raise TypeError(
+                    f"Expected demand_backend to satisfy the DemandBackend "
+                    f"protocol (compute_jacobian, compute_hessian, perturbed, "
+                    f"n_parameters, theta_names). "
+                    f"Received an object of type "
+                    f"{type(demand_backend).__name__} that does not. "
+                    f"Fix: subclass pyRVtest.backends.UserSuppliedBackend or "
+                    f"otherwise implement the runtime-checkable protocol; see "
+                    f"pyRVtest/backends/base.py."
+                )
         # demand_params
         # drives _construct_demand_backend, which currently only builds
         # product-side backends (LogitBackend / NestedLogitBackend). The
@@ -1486,6 +1551,11 @@ class Problem(Container, StringRepresentation):
         self._models = models
         self.demand_results = demand_results
         self.demand_params = demand_params
+        # User-supplied DemandBackend instance (e.g. UserSuppliedBackend
+        # wrapping a custom Jacobian). Populated only when caller passes
+        # demand_backend=...; otherwise the backend is built from
+        # demand_results / demand_params in _construct_demand_backend.
+        self._user_demand_backend = demand_backend
         self._product_data_raw = product_data  # kept for demand_params path to access arbitrary columns
         self.markups = markups
         self.endogenous_cost_component = endogenous_cost_component
@@ -2087,26 +2157,35 @@ class Problem(Container, StringRepresentation):
                     )
 
     def _construct_demand_backend(self):
-        """Build the backend from demand_results or demand_params at Problem init time.
+        """Build the backend from demand_results / demand_params / demand_backend at Problem init.
 
-        single construction point for the backend. Returns `None` when
-        neither demand_results nor demand_params is supplied (user_supplied_markups-only
-        path). Otherwise:
-          - `demand_results is not None`: route to ``NestedLogitBackend`` when
-            single-scalar-rho nested logit is detected (precision gain in
-            ``d(D)/d(rho)``; pyblp finite-diff has O(eps^2) error there).
-            Otherwise ``PyBLPBackend`` — plain logit sees no precision gain
-            (pyblp finite-diff of ``D/alpha`` is exact because ``compute_delta``
-            restores shares); per-nest rho and BLP cannot be represented by
-            the analytical backends.
-          - `demand_params is not None` with non-empty nonzero rho -> `NestedLogitBackend`.
-          - `demand_params is not None` with empty or all-zero rho -> `LogitBackend`.
+        Single construction point for the backend. Returns `None` when
+        none of the three are supplied (user_supplied_markups-only path).
+        Otherwise, in priority order:
+          - ``demand_backend is not None``: return the caller's pre-built
+            backend object directly (typically
+            :class:`~pyRVtest.backends.UserSuppliedBackend` wrapping a
+            custom Jacobian). The mutual-exclusivity validation in
+            ``__init__`` ensures only one of the three was supplied.
+          - ``demand_results is not None``: route to ``NestedLogitBackend``
+            when single-scalar-rho nested logit is detected (precision
+            gain in ``d(D)/d(rho)``; pyblp finite-diff has O(eps^2)
+            error there). Otherwise ``PyBLPBackend`` — plain logit sees
+            no precision gain (pyblp finite-diff of ``D/alpha`` is exact
+            because ``compute_delta`` restores shares); per-nest rho and
+            BLP cannot be represented by the analytical backends.
+          - ``demand_params is not None`` with non-empty nonzero rho ->
+            ``NestedLogitBackend``.
+          - ``demand_params is not None`` with empty or all-zero rho ->
+            ``LogitBackend``.
 
         Demand-adjustment state (beta, x_columns, demand_instrument_columns, W_demand)
         is forwarded when present so `SupportsDemandAdjustment` methods work. The raw
         `product_data` (not the structured `Products` recarray) is passed because the
         backends need access to arbitrary columns like `nesting_ids`, `x1`, etc.
         """
+        if self._user_demand_backend is not None:
+            return self._user_demand_backend
         if self.demand_results is not None:
             return self._backend_from_demand_results(self.demand_results)
 

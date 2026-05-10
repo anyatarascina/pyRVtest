@@ -100,9 +100,14 @@ pyRVtest/
 
 The canonical data flow:
 
-1. User constructs a backend (typically `PyBLPBackend.from_pyblp_results(...)`,
-   `LogitBackend(...)`, or `UserSuppliedBackend(...)`) or passes a pre-existing
-   `pyblp.ProblemResults` into `Problem`.
+1. User specifies the demand side. Three options: pass
+   `demand_results=<pyblp.ProblemResults>` for pyblp-fit demand;
+   `demand_params={...}` for inline analytical logit / nested logit;
+   or `demand_backend=<DemandBackend>` for a pre-built backend (e.g.
+   `UserSuppliedBackend` wrapping a researcher's custom Jacobian).
+   `Problem.__init__` validates that exactly one of the three is set
+   (or none, for the user_supplied_markups-only path) and routes through
+   `_construct_demand_backend` to a single `self._demand_backend` object.
 2. User specifies conduct candidates as a list of `ConductModel` instances
    (`Bertrand(...)`, `Cournot(...)`, `Vertical(...)`, etc.) via the `models=`
    kwarg on `Problem`. The legacy `model_formulations=` accepting
