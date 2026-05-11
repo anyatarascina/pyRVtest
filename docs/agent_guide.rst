@@ -161,7 +161,7 @@ Concrete classes:
 Dearing simple-markup models
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026), "Learning
+Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024), "Learning
 Firm Conduct: Pass-Through as a Foundation for Instrument Relevance,"
 motivate two families of simple-markup models that live alongside the
 mechanical conduct classes.
@@ -265,7 +265,7 @@ Per-unit taxes are the leading special case: passing
 ``Problem(unit_tax='tax_col')`` and
 ``Formulation('0 + w', known_coefficients={'tax_col': 1.0})`` produce
 identical marginal-cost estimates (the test suite pins the parity).
-Dearing et al. (2026) work with a broader class of such shifters.
+Dearing et al. (2024) work with a broader class of such shifters.
 
 Known-coefficient shifters apply uniformly to every model — they are a
 DGP primitive, not a behavioral choice, so there is no per-model
@@ -518,7 +518,7 @@ Use these as a starting point for your own Z matrix; glue them into a
 Pass-through diagnostics
 ------------------------
 
-Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026, "DMQSW")
+Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024, "DMQSW")
 develop the pass-through framework for instrument relevance: under a
 chosen testing-instrument type, two candidate conduct models are
 distinguishable iff a γ-free pass-through-feature distance is nonzero

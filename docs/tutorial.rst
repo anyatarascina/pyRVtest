@@ -97,7 +97,7 @@ What each argument does:
   cost. ``Problem`` residualizes prices, markups, and instruments on
   these before computing the test statistics.
 * ``instrument_formulation`` — the testing instruments, here the rival
-  cost shifters from the dataset (a Dearing et al. 2026 falsification
+  cost shifters from the dataset (a Dearing et al. 2024 falsification
   instrument set). Pass a list of :class:`~pyRVtest.Formulation` if
   you want the test run on multiple instrument sets.
 * ``models`` — the list of candidate :class:`~pyRVtest.ConductModel`
@@ -136,7 +136,7 @@ Reading the result:
 * Bertrand (model 0) is rejected: MCS p-value 0.0.
 * Cournot (model 1) survives the MCS at p = 0.675 even though it is
   not the truth. The TRV(Cournot, PC) cell is insignificant at 0.42.
-  This is the Dearing et al. (2026) degeneracy: under logit demand,
+  This is the Dearing et al. (2024) degeneracy: under logit demand,
   both Cournot and PerfectCompetition have diagonal pass-through
   matrices, so rival cost shifters cannot distinguish them. To falsify
   Cournot relative to PC here, the researcher would need a different
@@ -232,7 +232,7 @@ of every conduct model class that ships with ``pyRVtest``: standard
 oligopoly (:class:`~pyRVtest.Bertrand`, :class:`~pyRVtest.Cournot`,
 :class:`~pyRVtest.Monopoly`, :class:`~pyRVtest.PerfectCompetition`,
 :class:`~pyRVtest.MixCournotBertrand`,
-:class:`~pyRVtest.PartialCollusion`), the Dearing et al. (2026)
+:class:`~pyRVtest.PartialCollusion`), the Dearing et al. (2024)
 simple-markup models (:class:`~pyRVtest.RuleOfThumb`,
 :class:`~pyRVtest.ConstantMarkup`),
 :class:`~pyRVtest.UserSuppliedMarkups` for hand-supplied markup

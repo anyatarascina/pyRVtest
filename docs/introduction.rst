@@ -29,7 +29,7 @@ demand-estimation error and clustering are available.
 The package implements the procedure developed in
 :ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2023)`
 (hereafter DMSS), with later extensions in
-:ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026)`
+:ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024)`
 (hereafter DMQSW), which characterizes when an instrument set has
 power to distinguish given candidate models, and
 :ref:`references: Duarte, Magnolfi, Quint, Sølvsten, and Sullivan (2026)`

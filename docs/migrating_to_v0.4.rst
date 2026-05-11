@@ -248,7 +248,7 @@ cost shifters with researcher-supplied (non-estimated) coefficients:
     - \tau_{\text{unit}} - \sum_k \gamma_k \cdot x_k
 
 where :math:`(x_k, \gamma_k)` are the known-coefficient column and value.
-Per-unit taxes are the leading special case; Dearing et al. (2026) work with
+Per-unit taxes are the leading special case; Dearing et al. (2024) work with
 broader classes.
 
 .. code-block:: python
@@ -447,7 +447,7 @@ update their code.
   are unchanged; the strongest claim string is equivalent to the F
   clearing the relevant ``size_cv_075`` / ``power_cv_095`` column.
 * :meth:`ProblemResults.passthrough_comparison` is removed entirely.
-  The Dearing et al. (2026) pass-through diagnostic suite in v0.4 final
+  The Dearing et al. (2024) pass-through diagnostic suite in v0.4 final
   is provided by :meth:`Problem.passthrough_summary` (γ-free pair-by-
   pair structural-feature distance, callable pre- or post-solve) and
   :meth:`Problem.instrument_channels` (post-solve per-pair channel
@@ -459,7 +459,7 @@ update their code.
 New diagnostic methods in v0.4 final
 ------------------------------------
 
-v0.4 final ships the full DMQSW (2026) pass-through framework as
+v0.4 final ships the full DMQSW (2024) pass-through framework as
 first-class diagnostic methods on :class:`~pyRVtest.Problem` and
 :class:`~pyRVtest.ProblemResults`:
 

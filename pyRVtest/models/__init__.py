@@ -28,7 +28,7 @@ Step 5b wires ``Problem(models=[...])`` into the pipeline; step 5c
 preserves ``ModelFormulation(model_downstream='bertrand', ...)`` as a
 deprecation alias that constructs the right class internally.
 
-Step 12 adds Dearing et al. (2026) simple-markup models:
+Step 12 adds Dearing et al. (2024) simple-markup models:
 ``RuleOfThumb(phi)`` and ``ConstantMarkup(markup)`` in
 ``pyRVtest.models.constant``. Step 14
 adds the labor-side models (``Monopsony``, ``BertrandWages``,
@@ -84,7 +84,7 @@ __all__ = [
     'CustomConductModel',
     'UserSuppliedMarkups',
     'Vertical',
-    # Dearing et al. (2026) simple-markup models.
+    # Dearing et al. (2024) simple-markup models.
     'RuleOfThumb',
     'ConstantMarkup',
     # labor-side conduct models.

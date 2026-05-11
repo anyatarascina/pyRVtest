@@ -8,7 +8,7 @@ across:
    gives :math:`\\varphi I` exactly. These are short-circuit cases.
 2. Bertrand 2x2 logit hand-computed agreement: the numerical core
    matches the paper's Example 2 closed form for Bertrand at given
-   shares (Dearing, Magnolfi, Quint, Sullivan, Waldfogel 2026).
+   shares (Dearing, Magnolfi, Quint, Sullivan, Waldfogel 2024).
 3. Cournot 2x2 logit hand-computed agreement (Example 2): the numerical
    core matches the diagonal pass-through structure for Cournot under
    plain logit.
@@ -180,7 +180,7 @@ class TestHandDerivedLogit:
     @pytest.mark.parametrize('s_1,s_2', [(0.20, 0.30), (0.30, 0.40), (0.10, 0.50)])
     def test_cournot_logit_pass_through_diagonal(self, s_1, s_2):
         """Cournot under logit: pass-through is diagonal (Example 2 in
-        Dearing et al. 2026). Rival cost shifters do not move own price."""
+        Dearing et al. 2024). Rival cost shifters do not move own price."""
         D, H, s = _logit_demand_2x2(s_1, s_2)
         O = np.eye(2)
         # Cournot markup formula: -(O ⊙ D^{-1}) s.

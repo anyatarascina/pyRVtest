@@ -1,9 +1,9 @@
-"""Tests for Dearing et al. (2026) simple-markup conduct models.
+"""Tests for Dearing et al. (2024) simple-markup conduct models.
 
 Covers :class:`pyRVtest.RuleOfThumb` and :class:`pyRVtest.ConstantMarkup`,
 shipped in v0.4 step 12.
 
-Source: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026),
+Source: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024),
 "Learning Firm Conduct: Pass-Through as a Foundation for Instrument
 Relevance," Example 1 (RuleOfThumb, pp. 7-8) and Example 7
 (ConstantMarkup, pp. 23-24).

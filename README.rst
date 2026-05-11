@@ -11,8 +11,8 @@ The code implements the following features:
 * Implements the RV test using the variance estimator of `Duarte, Magnolfi, Sølvsten, and Sullivan (2023) <https://arxiv.org/abs/2301.06720>`_, including options to adjust for demand estimation error and clustering.
 * Computes the effective F-statistic proposed in `Duarte, Magnolfi, Sølvsten, and Sullivan (2023) <https://arxiv.org/abs/2301.06720>`_ to diagnose instrument strength with respect to worst-case size and best-case power of the test, and reports appropriate critical values.
 * Reports `Hansen, Lunde, and Nason (2011) <https://www.jstor.org/stable/41057463?seq=1#metadata_info_tab_contents>`_ MCS p-values for testing more than two models.
-* Ships a class-based ``ConductModel`` API: standard oligopoly (``Bertrand``, ``Cournot``, ``Monopoly``, ``PerfectCompetition``, ``MixCournotBertrand``), generalizations (``PartialCollusion``, ``Vertical``), Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026) simple-markup models (``RuleOfThumb(phi)``, ``ConstantMarkup(markup)``), and customization escape hatches (``UserSuppliedMarkups`` for precomputed markup columns, ``CustomConductModel`` for arbitrary markup callables).
-* Ships the full Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026) pass-through framework as a diagnostic suite on ``Problem`` and ``ProblemResults``: ``passthrough_summary`` (pre-solve γ-free pair-by-pair structural-feature distances against four DMQSW-keyed metrics), ``passthrough_matrix`` (raw per-candidate pass-through matrix, computed numerically for every conduct class with analytical fast paths for ``Vertical`` and trivial conducts), and ``instrument_channels`` (post-solve channel decomposition for one chosen IV column). Under non-constant marginal cost (``endogenous_cost_component`` set), ``instrument_channels`` automatically applies DMQSS Appendix B's z^e residualization, producing a single unified diagnostic that collapses the Dearing condition and the DMQSS Appendix A.4 distinctness check.
+* Ships a class-based ``ConductModel`` API: standard oligopoly (``Bertrand``, ``Cournot``, ``Monopoly``, ``PerfectCompetition``, ``MixCournotBertrand``), generalizations (``PartialCollusion``, ``Vertical``), Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024) simple-markup models (``RuleOfThumb(phi)``, ``ConstantMarkup(markup)``), and customization escape hatches (``UserSuppliedMarkups`` for precomputed markup columns, ``CustomConductModel`` for arbitrary markup callables).
+* Ships the full Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024) pass-through framework as a diagnostic suite on ``Problem`` and ``ProblemResults``: ``passthrough_summary`` (pre-solve γ-free pair-by-pair structural-feature distances against four DMQSW-keyed metrics), ``passthrough_matrix`` (raw per-candidate pass-through matrix, computed numerically for every conduct class with analytical fast paths for ``Vertical`` and trivial conducts), and ``instrument_channels`` (post-solve channel decomposition for one chosen IV column). Under non-constant marginal cost (``endogenous_cost_component`` set), ``instrument_channels`` automatically applies DMQSS Appendix B's z^e residualization, producing a single unified diagnostic that collapses the Dearing condition and the DMQSS Appendix A.4 distinctness check.
 * Supports ``endogenous_cost_component`` as either a single column name (single endogenous cost variable, the original v0.4 case) or a list of column names (multi-endogenous variables — quadratic cost ``['q', 'q_sq']``, scale + scope ``['log_q', 'log_Q_minus']``, etc., per DMQSS Appendix A.4). Combinable with ``demand_adjustment=True`` and ``costs_type='log'``.
 * **Experimental** — Supports labor-side conduct testing via ``Problem(market_side='labor')`` with ``Monopsony``, ``BertrandWages``, and ``CournotEmployment`` model classes. The labor API is considered experimental in v0.4: the sign convention, column-name defaults, and validation behavior may adjust based on coauthor review (``pyRVtest/models/labor.py`` is flagged for a labor-market-conduct-manuscript sign check). ``NashBargaining`` raises ``NotImplementedError`` and the full ``LaborSupplyBackend`` math (Jacobian, Hessian, demand-adjustment participation) is deferred to v0.5.
 * Provides instrument construction helpers (``pyRVtest.instruments.product``: BLP, differentiation IVs, rival sums; ``pyRVtest.instruments.labor``: Hausman, Bartik).
@@ -51,7 +51,7 @@ A complete pyRVtest run on a synthetic dataset shipped with the package
 (2 single-product firms × 3000 markets, simulated under perfect
 competition with logit demand). Tests four candidate conduct models
 (Bertrand, Cournot, Monopoly, Perfect Competition) using rival cost
-shifters as testing instruments per :ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026)`.
+shifters as testing instruments per :ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024)`.
 
 .. code-block:: python
 
@@ -108,7 +108,7 @@ The truth in this dataset is Perfect Competition. Reading the output:
 * **Cournot** (model 1) has MCS p-value 0.675 — surviving the
   confidence set despite not being the truth. The TRV(Cournot, PC) cell
   is the only insignificant comparison (0.419), and its F-stat is
-  effectively zero. This is the Dearing et al. (2026) degeneracy
+  effectively zero. This is the Dearing et al. (2024) degeneracy
   result: under logit demand, both Cournot and PC have diagonal
   pass-through matrices (zero off-diagonal pass-through of rival
   costs), so rival cost shifters cannot distinguish them. To falsify
@@ -143,7 +143,7 @@ Duarte, M., L. Magnolfi, M. Sølvsten, C. Sullivan, and A. Tarascina (2023): “
 
 * For pass-through diagnostics, simple-markup models (``RuleOfThumb``, ``ConstantMarkup``), and the instrument-relevance / falsification framework:
 
-  Dearing, A., L. Magnolfi, D. Quint, C. Sullivan, and S. Waldfogel (2026): `“Learning Firm Conduct: Pass-Through as a Foundation for Instrument Relevance,” <https://www.nber.org/papers/w32863>`_ NBER Working Paper No. 32863.
+  Dearing, A., L. Magnolfi, D. Quint, C. Sullivan, and S. Waldfogel (2024): `“Learning Firm Conduct: Pass-Through as a Foundation for Instrument Relevance,” <https://www.nber.org/papers/w32863>`_ NBER Working Paper No. 32863, August 2024.
 
 * For the endogenous-cost-component first-stage correction (non-linear cost):
 

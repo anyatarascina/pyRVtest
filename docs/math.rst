@@ -25,7 +25,7 @@ First-order condition
 Each candidate conduct model implies a first-order condition that maps
 prices, markups, and (if present) taxes and cost-scaling to marginal
 cost. With unit tax :math:`\tau_t` and ad-valorem retention factor
-:math:`\nu_t`, the FOC of :ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026)`
+:math:`\nu_t`, the FOC of :ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024)`
 equation (3) is
 
 .. math::
@@ -268,7 +268,7 @@ ownership matrix, :math:`\odot` the Hadamard product.
 Pass-through framework for instrument relevance
 -----------------------------------------------
 
-The Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026, "DMQSW")
+The Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024, "DMQSW")
 framework derives instrument relevance for the conduct test from
 candidate models' implied pass-through matrices. Two diagnostic
 methods surface the framework view in the package:

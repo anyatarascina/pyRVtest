@@ -18,7 +18,7 @@ The features covered:
 #. :ref:`Problem-level taxes <advanced-taxes>` — unit and ad-valorem
    taxes that affect every candidate model's FOC.
 #. :ref:`Pass-through diagnostics <advanced-passthrough>` — the
-   DMQSW (2026) framework: pre-solve per-pair feature distances
+   DMQSW (2024) framework: pre-solve per-pair feature distances
    (:meth:`~pyRVtest.Problem.passthrough_summary`), the raw
    pass-through matrix
    (:meth:`~pyRVtest.ProblemResults.passthrough_matrix`), and
@@ -88,7 +88,7 @@ When to use multiple instrument sets:
 
 * Comparing the test's verdict under different bundles of testing
   instruments (e.g., rival cost shifters vs. BLP-style rival
-  characteristics) per :ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026)`.
+  characteristics) per :ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024)`.
 * Sensitivity to which excluded instruments are dropped.
 * Combining a "narrow" (high-power) set with a "wide" (more robust to
   weak-instrument concerns) set in the same run.
@@ -274,7 +274,7 @@ v0.6. See :doc:`migrating_to_v0.4` for the rewrite recipe.
 Pass-through diagnostics (DMQSW framework)
 ------------------------------------------
 
-The DMQSW (2026) identification framework derives instrument relevance
+The DMQSW (2024) identification framework derives instrument relevance
 for the conduct test from candidate models' implied pass-through
 matrices :math:`P_m = (I - \partial \Delta_m / \partial p)^{-1}`.
 Different testing-instrument types target different

@@ -66,7 +66,7 @@ removed names because rc1 was not a public release.
 
 ### Added (rc1 → final)
 
-The Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026, "DMQSW")
+The Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024, "DMQSW")
 pass-through diagnostic suite is now first-class on `Problem` and
 `ProblemResults`. Three coordinated methods:
 
@@ -439,7 +439,7 @@ v0.4 modulo one-line deprecation warnings.
   kept as a thin backward-compat bridge that raises `DeprecationWarning`.
   Full migration guide in `docs/migrating_to_v0.4.rst` with one-to-one
   recipes for every `ModelFormulation` shape.
-- **Dearing et al. (2026) simple-markup conduct models** (step 12).
+- **Dearing et al. (2024) simple-markup conduct models** (step 12).
   `RuleOfThumb(phi)` implements the Dearing Example 1 rule
   :math:`p = \varphi \cdot mc` as an ergonomic wrapper over the
   existing `cost_scaling` machinery, which v0.4 step 12a extends to
@@ -571,7 +571,7 @@ v0.4 modulo one-line deprecation warnings.
   `prices_effective = advalorem_tax_adj * p / (1 + cost_scaling) -
   unit_tax - sum(gamma_k * x_k)`, applied uniformly to every model
   (these are DGP-level primitives, not behavioral choices). Per-unit
-  taxes are the leading special case; Dearing et al. (2026) work with
+  taxes are the leading special case; Dearing et al. (2024) work with
   a broader class of such shifters. Validation at Formulation
   construction time (dict type, finite numeric coefficients, no
   overlap with the formula); column-existence check at

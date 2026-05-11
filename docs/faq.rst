@@ -105,7 +105,7 @@ Three common causes:
 **Why does Cournot survive the MCS when the truth is Perfect
 Competition?**
 
-This is the Dearing et al. (2026) degeneracy: under logit demand both
+This is the Dearing et al. (2024) degeneracy: under logit demand both
 Cournot and Perfect Competition have diagonal pass-through matrices
 (zero off-diagonal pass-through of rival costs), so rival cost
 shifters cannot distinguish them as testing instruments. The README

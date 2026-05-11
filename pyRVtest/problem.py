@@ -677,7 +677,7 @@ class Models(object):
         The name of the column containing the cost scaling parameter.
     constant_markup: `ndarray, optional`
         Per-product dollar markup :math:`\\zeta_j` for models that specify a
-        fixed additive markup (Dearing et al. 2026, Example 7). ``None`` for
+        fixed additive markup (Dearing et al. 2024, Example 7). ``None`` for
         models that compute markups from first-order conditions.
     custom_model: `dict, optional`
         A custom formula used to compute markups, optionally specified by the user.
@@ -1827,7 +1827,7 @@ class Problem(Container, StringRepresentation):
         cost_scaling = self.models["cost_scaling"]
         # sum of known-coefficient cost shifters (gamma_k *
         # x_k). Applied uniformly to every model m: known-coefficient
-        # shifters are DGP-level (Dearing et al. 2026), not model-level
+        # shifters are DGP-level (Dearing et al. 2024), not model-level
         # behavioral choices, so they do not carry a salience flag.
         # Summed once outside the model loop for efficiency.
         known_coef_sum = None
@@ -2378,7 +2378,7 @@ class Problem(Container, StringRepresentation):
         """Pair × pass-through-feature distance summary across candidates.
 
         Pre-solve structural diagnostic from the pass-through framework
-        of Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026,
+        of Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024,
         "DMQSW"). For every unordered pair of candidate models in
         ``self._models`` and every market, computes four pass-through
         feature distances; aggregates per-market values via median

@@ -156,7 +156,7 @@ model_core = [
     ),
 ]
 
-# Dearing et al. (2026) simple-markup models added in v0.4 step 12.
+# Dearing et al. (2024) simple-markup models added in v0.4 step 12.
 # Shown separately in the markup table and in their own testing problem.
 dearing_models = [
     pyRVtest.RuleOfThumb(phi=2.0),        # phi=2: price = 2 * mc (50%-of-price markup)
@@ -246,7 +246,7 @@ usm_results = usm_problem.solve(demand_adjustment=False, clustering_adjustment=T
 print("\nUserSuppliedMarkups sanity check (TRV vs. Bertrand should be ≈ 0):")
 print(usm_results)
 
-# %% Dearing et al. (2026) simple-markup models — focused test against Bertrand
+# %% Dearing et al. (2024) simple-markup models — focused test against Bertrand
 # Tests RuleOfThumb and ConstantMarkup against multi-product Bertrand;
 # under the true DGP (Bertrand), all three should be rejected.
 dearing_problem = pyRVtest.Problem(
@@ -323,7 +323,7 @@ vertical_results = vertical_problem.solve(
 )
 
 # Inspect the per-(model, market) Villas-Boas passthrough matrix
-# directly — the basis for the Dearing et al. (2026) distinguishability
+# directly — the basis for the Dearing et al. (2024) distinguishability
 # diagnostics.
 P0 = vertical_results.passthrough_matrix(model_index=0)
 print("\nPer-market passthrough matrices for vertical model 0 "

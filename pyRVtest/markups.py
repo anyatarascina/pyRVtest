@@ -364,7 +364,7 @@ def evaluate_first_order_conditions(
         elif model_type == 'perfect_competition':
             markups[index, :] = np.zeros((len(shares), 1))
         elif model_type == 'constant_markup':
-            # Dearing et al. (2026) Example 7. The markup
+            # Dearing et al. (2024) Example 7. The markup
             # is a model primitive (per-product dollar markup), supplied
             # as a scalar or as a column of product_data and broadcast
             # into a per-row (N, 1) array upstream of this call.

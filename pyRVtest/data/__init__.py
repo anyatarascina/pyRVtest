@@ -96,7 +96,7 @@ def load_example() -> 'pd.DataFrame':
     - ``z1``, ``z2``: exogenous own cost shifters.
     - ``rival_z1``, ``rival_z2``: rival cost shifters (sum of rivals'
       values within each market). Used as testing instruments per
-      Dearing et al. (2026).
+      Dearing et al. (2024).
 
     Returns
     -------

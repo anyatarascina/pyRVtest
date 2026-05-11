@@ -16,7 +16,9 @@ setup(
     author_email='chris.sullivan.econ@gmail.com',
     url='https://github.com/anyatarascina/pyRVtest',
     packages=find_packages(),
-    python_requires='>=3.7',
+    # CI exercises Python 3.11 only (.github/workflows/ci.yml); 3.7/3.8
+    # are EOL and not tested. 3.9+ is the supported floor.
+    python_requires='>=3.9',
     install_requires=read('requirements.txt').splitlines(),
     extras_require={
         'docs': [

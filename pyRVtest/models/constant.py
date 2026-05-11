@@ -1,7 +1,7 @@
-"""Dearing et al. (2026) simple-markup conduct models.
+"""Dearing et al. (2024) simple-markup conduct models.
 
 Implements three closely related simple-markup conduct models from
-Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026), "Learning
+Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024), "Learning
 Firm Conduct: Pass-Through as a Foundation for Instrument Relevance."
 
 Models
@@ -42,7 +42,7 @@ user-supplied markup without the column-name requirement.
 References
 ----------
 
-Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026), "Learning
+Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024), "Learning
 Firm Conduct: Pass-Through as a Foundation for Instrument Relevance."
 
 """
@@ -68,7 +68,7 @@ _NDArray: TypeAlias = NDArray[Any]
 class RuleOfThumb(ConductModel):
     r"""Rule-of-thumb markup: :math:`p = \varphi \cdot mc`.
 
-    Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026), Example 1
+    Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024), Example 1
     (pp. 7-8). Firms set price as a fixed multiple :math:`\varphi \geq 1`
     of marginal cost, which rearranges to the implied markup
     :math:`\Delta = (\varphi - 1) / \varphi \cdot p`. Equivalently, the
@@ -167,7 +167,7 @@ class RuleOfThumb(ConductModel):
 class ConstantMarkup(ConductModel):
     r"""Fixed per-product dollar markup: :math:`\Delta_{jt} = \zeta_j`.
 
-    Dearing et al. (2026), Example 7, pp. 23-24. Each product carries a
+    Dearing et al. (2024), Example 7, pp. 23-24. Each product carries a
     fixed dollar markup that is the same across markets. Unlike the
     rule-of-thumb family, the markup does NOT come from a first-order
     condition — it is a model primitive supplied by the researcher.

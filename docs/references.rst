@@ -6,7 +6,7 @@ package in research, please cite the methodology papers your usage
 exercises (see the *Citing the package* section of the README):
 
 * Duarte, Magnolfi, Sølvsten, and Sullivan (2023) — RV test, F-statistic, MCS, demand-adjustment correction.
-* Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026) — pass-through diagnostics, simple-markup models, instrument-relevance framework.
+* Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024) — pass-through diagnostics, simple-markup models, instrument-relevance framework.
 * Duarte, Magnolfi, Quint, Sølvsten, and Sullivan (2026) — endogenous-cost-component first-stage correction (non-linear cost).
 
 Methodology Papers
@@ -16,9 +16,9 @@ Duarte, Magnolfi, Sølvsten, and Sullivan (2023)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Duarte, Marco, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan (2023): `"Testing Firm Conduct," <https://arxiv.org/abs/2301.06720>`_ Working paper.
 
-Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2026)
+Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Dearing, Adam, Lorenzo Magnolfi, Daniel Quint, Christopher Sullivan, and Sarah Waldfogel (2026): `"Learning Firm Conduct: Pass-Through as a Foundation for Instrument Relevance," <https://www.nber.org/papers/w32863>`_ NBER Working Paper No. 32863.
+Dearing, Adam, Lorenzo Magnolfi, Daniel Quint, Christopher Sullivan, and Sarah Waldfogel (2024): `"Learning Firm Conduct: Pass-Through as a Foundation for Instrument Relevance," <https://www.nber.org/papers/w32863>`_ NBER Working Paper No. 32863, August 2024.
 
 Duarte, Magnolfi, Quint, Sølvsten, and Sullivan (2026)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

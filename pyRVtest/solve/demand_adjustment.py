@@ -224,7 +224,7 @@ def compute_demand_adjustment(
             finite_diff_models.append(m)
         elif models_downstream[m] in ('perfect_competition', 'constant_markup'):
             # Markup is either structurally zero (perfect_competition) or a
-            # demand-parameter-free constant (constant_markup, Dearing 2026
+            # demand-parameter-free constant (constant_markup, Dearing 2024
             # Example 7); gradient w.r.t. theta is zero. Skip.
             pass
         else:
