@@ -13,6 +13,31 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Performance (rc9 → rc10)
+
+- **Batched downstream-markups in `_compute_markups`.** The per-(model,
+  market) inner loop dispatched ``evaluate_first_order_conditions`` once
+  per market, each call doing tiny 2×2 ``np.linalg.solve`` / ``inv``
+  calls. rc10 adds a `_compute_batchable_downstream_markups` helper that
+  groups markets by ``J_t`` and dispatches one batched LAPACK call per
+  J-group for the conducts in `_BATCHABLE_DOWNSTREAM`
+  (``bertrand`` / ``cournot`` / ``monopoly`` / ``perfect_competition`` /
+  ``constant_markup``). Falls back to the per-market scalar loop for
+  vertical / mix / custom / user-supplied. Numerically identical to
+  the scalar path (same LAPACK; verified to ``atol=1e-12`` by
+  `TestScalarBatchedParity`).
+  On the shipped synthetic PT diagnostics: ~0.1s off
+  `passthrough_summary` and ~0.07s off `instrument_channels`. The
+  bigger win is in `Problem.solve(demand_adjustment=True)`, where
+  `_compute_markups` is called ``n_theta + 1`` times per solve.
+- **Test scaffolding for `_compute_markups`.** Added
+  `tests/test_compute_markups_direct.py` (27 tests): hand-formula
+  parity for each batchable conduct, mixed candidate sets, random-
+  fixture scalar-vs-batched parity, variable-J fixtures, batchability
+  decision matrix. Pins the function for refactor safety —
+  previously only exercised through `Problem.solve` and snapshot
+  tests, so a markup bug only surfaced as a downstream regression.
+
 ### Performance (rc8 → rc9)
 
 Three more independent optimizations on top of rc8. Cumulative since the

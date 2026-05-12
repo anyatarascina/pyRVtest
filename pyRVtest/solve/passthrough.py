@@ -933,7 +933,7 @@ def _metric_full_pass_batched(
 ) -> _NDArray:
     """Frobenius norm of P_i - P_j, per market."""
     diff = P_i_batch - P_j_batch                                    # (M, J, J)
-    return np.sqrt(np.sum(diff * diff, axis=(1, 2)))
+    return np.asarray(np.sqrt(np.sum(diff * diff, axis=(1, 2))))
 
 
 def _metric_offdiag_ratio_batched(
@@ -959,7 +959,7 @@ def _metric_offdiag_ratio_batched(
     # Zero out the diagonal of every per-market matrix.
     diag_idx = np.arange(J)
     diff[:, diag_idx, diag_idx] = 0.0
-    return np.sqrt(np.sum(diff * diff, axis=(1, 2)))
+    return np.asarray(np.sqrt(np.sum(diff * diff, axis=(1, 2))))
 
 
 def _metric_row_sum_batched(
@@ -969,7 +969,7 @@ def _metric_row_sum_batched(
     """L2 norm of row-sum difference, per market."""
     diff = P_i_batch - P_j_batch                                    # (M, J, J)
     row_diff = diff.sum(axis=2)                                     # (M, J)
-    return np.sqrt(np.sum(row_diff * row_diff, axis=1))
+    return np.asarray(np.sqrt(np.sum(row_diff * row_diff, axis=1)))
 
 
 def _metric_level_adj_batched(
@@ -983,7 +983,7 @@ def _metric_level_adj_batched(
     Pi_v = np.matmul(P_i_batch, vi)[..., 0]                          # (M, J)
     Pj_v = np.matmul(P_j_batch, vj)[..., 0]
     diff = Pi_v - Pj_v
-    return np.sqrt(np.sum(diff * diff, axis=1))
+    return np.asarray(np.sqrt(np.sum(diff * diff, axis=1)))
 
 
 _PASSTHROUGH_FEATURE_METRICS_BATCHED: Dict[str, Any] = {

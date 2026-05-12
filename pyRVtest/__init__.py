@@ -21,20 +21,21 @@ import numpy as _np
 import pyblp as _pyblp
 
 
-def _parse_major_minor(version_str: str) -> tuple:
+def _parse_major_minor(version_str: str) -> "tuple[int, int]":
     """Best-effort (major, minor) tuple from a PEP 440 version string.
 
     Tolerates suffixes like ``1.2.0rc1`` / ``2.4.4.dev0``; only the
     leading numeric major.minor is used for the gate.
     """
     parts = version_str.split('+', 1)[0].split('-', 1)[0].split('.')
-    out = []
-    for p in parts[:2]:
-        digits = ''.join(ch for ch in p if ch.isdigit())
-        out.append(int(digits) if digits else 0)
-    while len(out) < 2:
-        out.append(0)
-    return tuple(out)
+
+    def _digits_or_zero(s: str) -> int:
+        digits = ''.join(ch for ch in s if ch.isdigit())
+        return int(digits) if digits else 0
+
+    major = _digits_or_zero(parts[0]) if len(parts) >= 1 else 0
+    minor = _digits_or_zero(parts[1]) if len(parts) >= 2 else 0
+    return (major, minor)
 
 
 if _parse_major_minor(_np.__version__) >= (2, 0) and _parse_major_minor(_pyblp.__version__) < (1, 2):

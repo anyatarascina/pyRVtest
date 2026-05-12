@@ -121,6 +121,165 @@ def _construct_passthrough_from_hessian(d2s_dp2_t, retailer_response_matrix, ret
     return inv(G) @ H
 
 
+# ---------------------------------------------------------------------------
+# rc10 perf: batched downstream-markup path.
+#
+# For the "simple" conducts whose markup formulas are a single per-market
+# closed form with no upstream / mix / custom hook (bertrand, cournot,
+# monopoly, perfect_competition, constant_markup), all markets in the
+# same J-bucket can be processed in a constant number of LAPACK calls
+# instead of one per market. Mirrors the rc8 batched central-difference
+# work in solve/passthrough.py. Falls back to the per-market scalar
+# loop for everything else.
+# ---------------------------------------------------------------------------
+
+
+_BATCHABLE_DOWNSTREAM = frozenset({
+    'bertrand', 'cournot', 'monopoly', 'perfect_competition', 'constant_markup',
+})
+
+
+def _is_batchable_downstream_model(
+        model_downstream: Optional[str],
+        model_upstream: Optional[str],
+        mix_flag: Optional[Array],
+        custom_model_specification: Optional[Any],
+) -> bool:
+    """True iff the (downstream, upstream, mix, custom) tuple uses only
+    pure per-market closed-form math and so can go down the batched path.
+
+    The decision tree must match the conduct types listed in
+    ``_BATCHABLE_DOWNSTREAM``. Anything else (vertical / mix /
+    custom) falls back to the per-market scalar loop in
+    ``_compute_markups`` so the existing math is preserved verbatim.
+    """
+    if model_downstream not in _BATCHABLE_DOWNSTREAM:
+        return False
+    if model_upstream is not None:
+        return False
+    if mix_flag is not None:
+        return False
+    if custom_model_specification is not None:
+        return False
+    return True
+
+
+def _compute_batchable_downstream_markups(
+        model_type: str,
+        ownership_downstream_i: Optional[Array],
+        constant_markup_i: Optional[Array],
+        markets: Array,
+        market_index_map: Dict[Any, Array],
+        market_shares_map: Dict[Any, Array],
+        market_response_map: Dict[Any, Array],
+        N: int,
+) -> Array:
+    """Batched downstream-markups for one batchable conduct.
+
+    Groups markets by J_t, stacks per-market (ownership, response,
+    shares) into ``(M_g, J, J)`` / ``(M_g, J)`` arrays, dispatches one
+    batched LAPACK call per J-group, then scatters results into a
+    single ``(N, 1)`` output array.
+
+    For ``perfect_competition`` / ``constant_markup`` the result is
+    independent of (D, s) and is produced as a single one-shot copy
+    without any per-J grouping.
+
+    Numerically identical to the per-market scalar loop in
+    :func:`evaluate_first_order_conditions` for the same model_type
+    (same LAPACK routines, same input slices). Pinned with
+    :class:`tests.test_compute_markups_direct` and verified via
+    :func:`tests.test_compute_markups_direct._expected_*_markups`
+    against hand-derived formulas to atol=1e-12.
+    """
+    out = np.zeros((N, 1), dtype=options.dtype)
+
+    if model_type == 'perfect_competition':
+        # Markup is identically zero across all rows.
+        return out
+
+    if model_type == 'constant_markup':
+        # Per-product dollar markup is a model primitive (Dearing et al.
+        # 2024 Example 7). The (N, 1) constant_markup column IS the
+        # answer — no per-market computation needed.
+        if constant_markup_i is None:
+            raise ValueError(
+                "Expected constant_markup to be supplied when "
+                "model_type='constant_markup'. Received None — internal "
+                "wiring bug."
+            )
+        cm = np.asarray(constant_markup_i, dtype=options.dtype)
+        if cm.ndim == 1:
+            cm = cm.reshape(-1, 1)
+        out[:] = cm
+        return out
+
+    # bertrand / cournot / monopoly: group markets by J_t, batch.
+    if ownership_downstream_i is None and model_type != 'monopoly':
+        # Bertrand and Cournot need ownership. Monopoly is technically
+        # ownership-free (every product claims every other), but the
+        # per-row ownership padding is passed in anyway by Models, so
+        # this branch is defensive.
+        raise ValueError(
+            f"Expected ownership_downstream to be supplied for "
+            f"model_type={model_type!r}. Received None."
+        )
+
+    # Bucket per-market arrays by J_t (slicing + NaN-column trimming
+    # already produces the (J_t, J_t) ownership matrix; same for the
+    # response matrix). Use Python lists then np.stack to avoid the
+    # per-iteration overhead of pre-allocating differently-shaped
+    # buckets.
+    by_J: Dict[int, Dict[str, list]] = {}
+    by_J_indices: Dict[int, list] = {}
+    for t in markets:
+        idx_t = market_index_map[t]
+        J_t = len(idx_t)
+        if ownership_downstream_i is not None:
+            own_t = ownership_downstream_i[idx_t]
+            own_t = own_t[:, ~np.isnan(own_t).all(axis=0)]
+        else:
+            own_t = np.ones((J_t, J_t))  # monopoly fallback
+        D_t = market_response_map[t]
+        s_t = market_shares_map[t]
+        if s_t.ndim == 1:
+            s_t = s_t.reshape(-1)
+        else:
+            s_t = s_t.reshape(-1)
+        bucket = by_J.setdefault(J_t, {'O': [], 'D': [], 's': []})
+        bucket['O'].append(own_t)
+        bucket['D'].append(D_t)
+        bucket['s'].append(s_t)
+        by_J_indices.setdefault(J_t, []).append(idx_t)
+
+    for J_t, bucket in by_J.items():
+        O_batch = np.stack(bucket['O'])               # (M_g, J_t, J_t)
+        D_batch = np.stack(bucket['D'])               # (M_g, J_t, J_t)
+        s_batch = np.stack(bucket['s'])               # (M_g, J_t)
+        s_col = s_batch[..., np.newaxis]              # (M_g, J_t, 1)
+        if model_type == 'bertrand':
+            markup_batch = -np.linalg.solve(O_batch * D_batch, s_col)
+        elif model_type == 'cournot':
+            inv_D = np.linalg.inv(D_batch)
+            markup_batch = -np.matmul(O_batch * inv_D, s_col)
+        elif model_type == 'monopoly':
+            markup_batch = -np.linalg.solve(D_batch, s_col)
+        else:
+            # Defensive: should not reach here given _is_batchable
+            # gate above.
+            raise ValueError(
+                f"Unreachable: batched path entered for "
+                f"model_type={model_type!r}."
+            )
+
+        # Scatter back into out. markup_batch is (M_g, J_t, 1); strip
+        # the trailing axis and assign per-market.
+        for m_in_bucket, idx_t in enumerate(by_J_indices[J_t]):
+            out[idx_t, 0] = markup_batch[m_in_bucket, :, 0]
+
+    return out
+
+
 def _compute_markups(
         product_data: RecArray, pyblp_results: Mapping, model_downstream: Optional[Array],
         ownership_downstream: Optional[Array], model_upstream: Optional[Array] = None,
@@ -268,6 +427,30 @@ def _compute_markups(
         if user_supplied_markups[i] is not None:
             markups[i] = user_supplied_markups[i]
             markups_downstream[i] = user_supplied_markups[i]
+            continue
+
+        # rc10 perf: route batchable conduct configurations through a
+        # batched LAPACK path. "Batchable" means the FOC math is a
+        # pure per-market closed form with no upstream / mix / custom
+        # spec — i.e., one of the conducts in _BATCHABLE_DOWNSTREAM
+        # below. Fall back to the per-market scalar loop for anything
+        # else.
+        if _is_batchable_downstream_model(
+            model_downstream[i],
+            model_upstream[i],
+            mix_flag[i],
+            custom_model_specification[i],
+        ):
+            markups_downstream[i] = _compute_batchable_downstream_markups(
+                model_type=model_downstream[i],
+                ownership_downstream_i=ownership_downstream[i],
+                constant_markup_i=constant_markup[i],
+                markets=markets,
+                market_index_map=market_index_map,
+                market_shares_map=market_shares_map,
+                market_response_map=market_response_map,
+                N=N,
+            )
         else:
             for t in markets:
                 index_t = market_index_map[t]
