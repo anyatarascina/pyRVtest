@@ -727,10 +727,14 @@ class LogitBackend:
         Rho columns use the analytical derivative
         ``_nested_logit_jacobian_derivative(alpha, rho, s_t, nesting_t, l)``.
         """
-        mids = np.asarray(self._product_data['market_ids']).flatten()
-        idx = np.where(mids == market_id)[0]
-        shares = np.asarray(self._product_data['shares']).flatten()
-        s_t = shares[idx]
+        # rc11 perf: reuse the per-market index cache built once on first
+        # use (rc9). Previously every call did its own
+        # np.asarray(self._product_data['...']) + np.where, which for
+        # 3000-market data was ~0.24s of overhead inside the
+        # demand_adjustment path (jacobian_gradient_all_markets dictcomp).
+        idx = self._ensure_market_indices()[market_id]
+        assert self._shares_arr is not None  # populated by _ensure_market_indices
+        s_t = self._shares_arr[idx]
         J_t = idx.shape[0]
         L = len(self._rho)
         grad = np.zeros((J_t, J_t, 1 + L))

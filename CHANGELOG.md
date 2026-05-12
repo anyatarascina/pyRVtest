@@ -13,6 +13,20 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Performance (rc10 → rc11)
+
+- **`LogitBackend.jacobian_gradient` uses the rc9 per-market index
+  cache.** Previously every call did its own
+  ``np.asarray(self._product_data['market_ids']).flatten()`` +
+  ``np.where`` + ``np.asarray(self._product_data['shares']).flatten()``
+  — 3000 calls' worth of pandas / scan overhead inside the
+  ``compute_demand_adjustment`` per-market dictcomp. rc9 had added
+  the cache but only wired ``compute_jacobian`` /
+  ``compute_hessian`` to it; rc11 hooks ``jacobian_gradient`` in too.
+  On the shipped synthetic, ``Problem.solve(demand_adjustment=True)``
+  drops from ~1.16s to ~1.02s (~12% off rc10). Cumulative versus
+  the rc5 audit baseline: 2.71s → ~1.02s (~2.7× faster).
+
 ### Performance (rc9 → rc10)
 
 - **Batched downstream-markups in `_compute_markups`.** The per-(model,
