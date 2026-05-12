@@ -74,6 +74,35 @@ _NDArray: TypeAlias = NDArray[Any]
 # ===========================================================================
 
 
+def _build_market_index_map(
+        product_market_ids: _NDArray,
+        market_ids: List[Hashable],
+) -> Dict[Hashable, _NDArray]:
+    """Build ``{market_id: per-market row indices}`` in a single O(N log N) pass.
+
+    The straightforward form ``{t: np.where(product_market_ids == t)[0]
+    for t in market_ids}`` does an O(N) scan per market, giving O(M·N)
+    work. For typical PT diagnostic inputs (M close to N when products
+    per market is small) that quadratic is a real bottleneck. The
+    argsort + changepoint form below is O(N log N), with a much smaller
+    constant factor.
+    """
+    pmi = np.asarray(product_market_ids)
+    order = np.argsort(pmi, kind='stable')
+    sorted_ids = pmi[order]
+    change_points = np.concatenate(
+        ([0], np.where(np.diff(sorted_ids) != 0)[0] + 1, [len(sorted_ids)])
+    )
+    by_id: Dict[Hashable, _NDArray] = {}
+    for k in range(len(change_points) - 1):
+        seg = order[change_points[k]:change_points[k + 1]]
+        by_id[sorted_ids[change_points[k]]] = seg
+    # Preserve caller-requested ordering: rebuild dict in market_ids
+    # order so downstream code that iterates the dict in insertion
+    # order (rare but possible) sees the canonical order.
+    return {t: by_id[t] for t in market_ids}
+
+
 # rc8 perf: batched conduct types that have closed-form markup formulas
 # expressible as a single numpy linalg call per perturbation direction.
 # Adding a class to this set requires writing a batched markup formula
@@ -493,6 +522,7 @@ def build_passthrough(
         delta: float = 1e-7,
         _precomputed_markups: Optional[Tuple[List[_NDArray], List[Optional[_NDArray]]]] = None,
         _precomputed_demand_derivatives: Optional[Dict[Hashable, Tuple[_NDArray, Optional[_NDArray]]]] = None,
+        _precomputed_market_indices: Optional[Dict[Hashable, _NDArray]] = None,
 ) -> Union[_NDArray, Dict[Hashable, _NDArray]]:
     r"""Compute the pass-through matrix for one candidate conduct model.
 
@@ -664,7 +694,13 @@ def build_passthrough(
 
     results: Dict[Hashable, _NDArray] = {}
     for t in markets_to_compute:
-        index_t = np.where(product_market_ids == t)[0]
+        # rc9 perf: pre-built per-market indices when the high-level
+        # diagnostic computed them once. Otherwise fall back to an
+        # O(N) scan per market.
+        if _precomputed_market_indices is not None and t in _precomputed_market_indices:
+            index_t = _precomputed_market_indices[t]
+        else:
+            index_t = np.where(product_market_ids == t)[0]
         j_t = len(index_t)
 
         # Trivial-closed-form short circuits for the non-vertical case.
@@ -1181,6 +1217,14 @@ def compute_passthrough_summary(
             H_t = _backend.compute_hessian(market_id=t)
             demand_derivs[t] = (D_t, H_t)
 
+    # rc9 perf: per-market indices computed once and threaded into every
+    # build_passthrough call. Pre-rc9 build_passthrough's per-market
+    # loop did its own ``np.where(product_market_ids == t)`` for each
+    # (model, market) cell — ``n_models × n_markets`` O(N) scans.
+    # Hoisting + the groupby form below converts the build to a single
+    # O(N log N) pass instead of ``n_markets × O(N) = O(N²)``.
+    market_index_map = _build_market_index_map(product_market_ids, market_ids)
+
     # Per-(model, market) pass-through matrices, computed once.
     per_model_passthrough: Dict[int, Dict[Hashable, _NDArray]] = {}
     for m in range(n_models):
@@ -1190,6 +1234,7 @@ def compute_passthrough_summary(
             problem, model_index=m,
             _precomputed_markups=(markups_full, markups_downstream),
             _precomputed_demand_derivatives=(demand_derivs or None),
+            _precomputed_market_indices=market_index_map,
         )
         assert isinstance(full_dict, dict)
         per_model_passthrough[m] = full_dict
@@ -1197,10 +1242,10 @@ def compute_passthrough_summary(
     # Candidate labels (class name; could expand later).
     labels = [type(c).__name__ for c in problem._models]
 
-    # Per-market data extracted once.
+    # Per-market data extracted once. Reuse the index map built above.
     market_data: Dict[Hashable, Dict[str, _NDArray]] = {}
     for t in market_ids:
-        idx = np.where(product_market_ids == t)[0]
+        idx = market_index_map[t]
         market_data[t] = {
             'idx': idx,
             'p': prices[idx],
@@ -1670,6 +1715,13 @@ def compute_instrument_channels(
             H_t = _backend.compute_hessian(market_id=t)
             demand_derivs[t] = (D_t, H_t)
 
+    # rc9 perf: precompute per-market indices once and thread through
+    # build_passthrough. Same rationale as compute_passthrough_summary.
+    product_market_ids_arr = problem.products.market_ids.flatten()
+    market_index_map = _build_market_index_map(
+        product_market_ids_arr, list(problem.unique_market_ids),
+    )
+
     # Pre-compute pass-through per (model, market).
     per_model_passthrough: Dict[int, Dict[Hashable, _NDArray]] = {}
     for m in range(n_models):
@@ -1677,6 +1729,7 @@ def compute_instrument_channels(
             problem, model_index=m,
             _precomputed_markups=(markups_full, markups_downstream),
             _precomputed_demand_derivatives=(demand_derivs or None),
+            _precomputed_market_indices=market_index_map,
         )
         assert isinstance(full_dict, dict)
         per_model_passthrough[m] = full_dict
@@ -1714,11 +1767,9 @@ def compute_instrument_channels(
         })
     per_candidate_df = pd.DataFrame(per_candidate_rows)
 
-    # Per-market index map.
-    product_market_ids = problem.products.market_ids.flatten()
-    market_idx: Dict[Hashable, _NDArray] = {
-        t: np.where(product_market_ids == t)[0] for t in market_ids
-    }
+    # Per-market index map. Reuse the one built above for the
+    # build_passthrough loop instead of running np.where again.
+    market_idx: Dict[Hashable, _NDArray] = market_index_map
 
     # Per-pair structural-side and direct-side magnitudes. We report these
     # as separate components rather than collapse into a single "indirect"

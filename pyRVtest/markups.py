@@ -228,10 +228,30 @@ def _compute_markups(
     market_response_map: Dict[Any, Array] = {}
     need_per_market_loop = any(usm is None for usm in user_supplied_markups)
     if need_per_market_loop:
-        market_ids_arr = np.asarray(product_data.market_ids)
+        market_ids_arr = np.asarray(product_data.market_ids).ravel()
         shares_arr = np.asarray(product_data.shares)
+        # rc9 perf: groupby in one O(N log N) pass instead of one
+        # O(N) np.where per market. Same trick as
+        # _build_market_index_map in solve/passthrough.py — kept local
+        # here to avoid the import cycle.
+        order = np.argsort(market_ids_arr, kind='stable')
+        sorted_ids = market_ids_arr[order]
+        change_points = np.concatenate(
+            ([0], np.where(np.diff(sorted_ids) != 0)[0] + 1, [len(sorted_ids)])
+        )
+        by_id: Dict[Any, Array] = {}
+        for k in range(len(change_points) - 1):
+            seg = order[change_points[k]:change_points[k + 1]]
+            # Coerce to a Python scalar so the dict key is hashable
+            # regardless of the underlying numpy dtype (object arrays
+            # from recarrays sometimes produce 0-d ndarrays here).
+            key = sorted_ids[change_points[k]]
+            if isinstance(key, np.ndarray):
+                key = key.item()
+            by_id[key] = seg
         for t in markets:
-            idx_t = np.where(market_ids_arr == t)[0]
+            t_key = t.item() if isinstance(t, np.ndarray) else t
+            idx_t = by_id[t_key]
             market_index_map[t] = idx_t
             market_shares_map[t] = shares_arr[idx_t]
             # Response cache is only safe to populate when ds_dp is

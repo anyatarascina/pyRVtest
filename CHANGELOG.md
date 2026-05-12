@@ -13,6 +13,37 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Performance (rc8 → rc9)
+
+Three more independent optimizations on top of rc8. Cumulative since the
+audit baseline (`rc5 → rc9`): `passthrough_summary` 12.5s → ~0.75s
+(~94% reduction); `instrument_channels` 11.6s → ~0.9s (~92%). Values
+bit-identical at every step.
+
+- **Per-market indices hoisted out of `build_passthrough`.** Pre-rc9
+  `build_passthrough`'s per-market loop did its own
+  ``np.where(product_market_ids == t)`` for each (model, market) cell —
+  ``n_models × n_markets`` O(N) scans. rc9 adds a private
+  ``_precomputed_market_indices`` parameter and threads the dict from
+  `compute_passthrough_summary` / `compute_instrument_channels`.
+- **`_build_market_index_map` helper.** Replaces the
+  ``{t: np.where(pmi == t)[0] for t in market_ids}`` dictcomp (which
+  does ``n_markets × O(N)`` scans, i.e. O(N²) when products per
+  market is small) with a single ``np.argsort`` + changepoint pass,
+  O(N log N) total. Applied in both `compute_passthrough_summary`
+  and `compute_instrument_channels`, plus inside `_compute_markups`
+  (the same trick is duplicated locally there to avoid an import
+  cycle).
+- **Logit backend per-market index cache.** Pre-rc9 the
+  ``compute_jacobian(market_id=t)`` and ``compute_hessian(market_id=t)``
+  methods each did their own ``np.asarray(self._product_data['...'])``
+  + ``np.where`` per call — 3000 such calls on the synthetic, each
+  doing a fresh O(N) scan. rc9 caches the (mids, shares) plain
+  ndarrays and a ``{market_id: idx}`` dict (built with the same
+  groupby trick) on first use. Cache invariant under
+  ``perturbed()`` since neither mids nor observed shares change with
+  ``alpha`` / ``rho``.
+
 ### Performance (rc7 → rc8)
 
 Three independent optimizations to the PT diagnostic pipeline. Cumulative

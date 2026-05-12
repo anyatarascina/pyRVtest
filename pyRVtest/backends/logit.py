@@ -586,6 +586,33 @@ class LogitBackend:
             np.asarray(W_demand) if W_demand is not None else None
         )
         self._jacobian_cache: Optional[Array] = None
+        # rc9 perf: cache the (mids, shares) plain ndarrays and the
+        # per-market index dict on first use. Previously every
+        # compute_hessian / compute_jacobian(market_id=t) call did its
+        # own np.asarray(self._product_data['...']).flatten() and
+        # O(N) np.where scan; for 3000 markets that overhead dominated
+        # the actual LAPACK math.
+        self._mids_arr: Optional[Array] = None
+        self._shares_arr: Optional[Array] = None
+        self._market_index_cache: Optional[Dict[Any, Array]] = None
+
+    def _ensure_market_indices(self) -> Dict[Any, Array]:
+        if self._market_index_cache is None:
+            self._mids_arr = np.asarray(self._product_data['market_ids']).flatten()
+            self._shares_arr = np.asarray(self._product_data['shares']).flatten()
+            mids = self._mids_arr
+            # One O(N) groupby pass instead of one O(N) scan per market.
+            order = np.argsort(mids, kind='stable')
+            sorted_mids = mids[order]
+            change_points = np.concatenate(
+                ([0], np.where(np.diff(sorted_mids) != 0)[0] + 1, [len(sorted_mids)])
+            )
+            cache: Dict[Any, Array] = {}
+            for k in range(len(change_points) - 1):
+                seg = order[change_points[k]:change_points[k + 1]]
+                cache[sorted_mids[change_points[k]]] = seg
+            self._market_index_cache = cache
+        return self._market_index_cache
 
     @property
     def n_parameters(self) -> int:
@@ -603,16 +630,15 @@ class LogitBackend:
         full = self._jacobian_cache
         if market_id is None:
             return full
-        mids = np.asarray(self._product_data['market_ids']).flatten()
-        idx = np.where(mids == market_id)[0]
+        idx = self._ensure_market_indices()[market_id]
         block = full[idx]
         block = block[:, ~np.isnan(block).all(axis=0)]
         return block
 
     def compute_hessian(self, market_id: Any) -> Array:
-        mids = np.asarray(self._product_data['market_ids']).flatten()
-        idx = np.where(mids == market_id)[0]
-        shares = np.asarray(self._product_data['shares']).flatten()[idx]
+        idx = self._ensure_market_indices()[market_id]
+        assert self._shares_arr is not None  # populated by _ensure_market_indices
+        shares = self._shares_arr[idx]
         return compute_analytical_hessian(self._alpha, [], shares, [])
 
     @contextmanager
