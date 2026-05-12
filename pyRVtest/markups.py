@@ -4,7 +4,7 @@ import contextlib
 import os
 from pathlib import Path
 import pickle
-from typing import Any, Callable, Mapping, Optional, Union
+from typing import Any, Callable, Dict, Mapping, Optional, Union
 
 import numpy as np
 from numpy.linalg import inv
@@ -204,12 +204,44 @@ def _compute_markups(
     # demand Jacobian comes from the backend when provided,
     # or from pyblp_results for the legacy no-backend path (used only by
     # build_markups() public API when the user passes a pyblp results
-    # object directly).
+    # object directly). May be left undefined when every model uses
+    # user_supplied_markups (in which case the per-market loop below is
+    # never entered).
+    ds_dp = None
     if demand_backend is not None:
         ds_dp = demand_backend.compute_jacobian()
     elif pyblp_results is not None:
         with contextlib.redirect_stdout(open(os.devnull, 'w')):
             ds_dp = pyblp_results.compute_demand_jacobians()
+
+    # rc8 perf: pre-extract recarray fields once, and precompute per-market
+    # index / shares / response slices once. The previous loop called
+    # ``np.where(product_data.market_ids == t)`` for every (model, market)
+    # pair — an O(N) scan repeated number_models × len(markets) times.
+    # The slices only depend on the market id, so caching is a pure win.
+    # recarray field access is also slow (goes through __getattribute__),
+    # so we extract the plain ndarray here once. Skip the response cache
+    # when ds_dp is None (the all-user-supplied-markups case never enters
+    # the per-market loop, so the cache would be unused anyway).
+    market_index_map: Dict[Any, Array] = {}
+    market_shares_map: Dict[Any, Array] = {}
+    market_response_map: Dict[Any, Array] = {}
+    need_per_market_loop = any(usm is None for usm in user_supplied_markups)
+    if need_per_market_loop:
+        market_ids_arr = np.asarray(product_data.market_ids)
+        shares_arr = np.asarray(product_data.shares)
+        for t in markets:
+            idx_t = np.where(market_ids_arr == t)[0]
+            market_index_map[t] = idx_t
+            market_shares_map[t] = shares_arr[idx_t]
+            # Response cache is only safe to populate when ds_dp is
+            # available. If a model needs the loop but ds_dp is None
+            # (no backend, no pyblp_results), the inner loop will
+            # crash on market_response_map[t] — same failure mode as
+            # the pre-rc8 code crashing on ``ds_dp[index_t]``.
+            if ds_dp is not None:
+                resp_t = ds_dp[idx_t]
+                market_response_map[t] = resp_t[:, ~np.isnan(resp_t).all(axis=0)]
 
     # compute markups market-by-market
     for i in range(number_models):
@@ -218,15 +250,9 @@ def _compute_markups(
             markups_downstream[i] = user_supplied_markups[i]
         else:
             for t in markets:
-                index_t = np.where(product_data.market_ids == t)[0]
-                # np.asarray coerces pandas Series (from DataFrame product_data)
-                # to ndarray so downstream `.flatten()` / `.reshape()` calls work.
-                # Problem always passes a structured recarray so this is a no-op
-                # for the in-package call path; matters only for direct users of
-                # _compute_markups with a DataFrame.
-                shares_t = np.asarray(product_data.shares[index_t])
-                retailer_response_matrix = ds_dp[index_t]
-                retailer_response_matrix = retailer_response_matrix[:, ~np.isnan(retailer_response_matrix).all(axis=0)]
+                index_t = market_index_map[t]
+                shares_t = market_shares_map[t]
+                retailer_response_matrix = market_response_map[t]
 
                 # compute downstream markups for model i market t
                 markups_downstream[i], retailer_ownership_matrix = evaluate_first_order_conditions(

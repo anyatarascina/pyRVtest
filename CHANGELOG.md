@@ -13,6 +13,52 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Performance (rc7 → rc8)
+
+Three independent optimizations to the PT diagnostic pipeline. Cumulative
+since the audit baseline (`rc5 → rc8`): `passthrough_summary` 12.5s →
+2.4s (~81% reduction); `instrument_channels` 11.6s → 2.5s (~78%). Values
+bit-identical at every step.
+
+- **`_compute_markups`: per-market quantities computed once, not per
+  (model × market).** The function was calling
+  ``np.where(product_data.market_ids == t)`` and slicing
+  ``product_data.shares`` inside the model loop, so for 4 candidates
+  × 3000 markets the O(N) scan + recarray field access fired 12000
+  times instead of 3000. rc8 precomputes ``market_indices``,
+  ``market_shares``, ``market_response`` once at the top and reads
+  from those dicts inside the loop. ~1.1s wall-time off
+  `passthrough_summary` on the shipped synthetic.
+- **`build_passthrough`: recarray access hoisted.** The per-market loop
+  was doing ``problem.products.shares[index_t]`` per (model, market),
+  going through ``records.__getattribute__`` each time. rc8 extracts
+  the plain ndarray once before the loop. Small but measurable.
+- **Batched central-difference for Bertrand / Cournot / Monopoly /
+  PartialCollusion.** ``compute_passthrough_numerical`` was a Python
+  loop over (model, market, perturbation-direction) doing tiny 2×2
+  ``np.linalg.solve`` / ``inv`` calls — Python dispatch overhead
+  dominated the actual linalg. rc8 adds
+  ``_compute_passthrough_numerical_batched``: for the batchable
+  conduct types in ``_BATCHABLE_MODEL_TYPES``, ``build_passthrough``
+  collects per-market (ownership, response, hessian, shares),
+  groups by ``J_t``, and dispatches one batched ``np.linalg.solve``
+  / ``inv`` per (perturbation direction × J-group) instead of one
+  per (market × direction). For 3000 markets × J=2: a constant
+  number of LAPACK dispatches replaces 12000. Falls back to the
+  scalar path for ``MixCournotBertrand``, ``CustomConductModel``, and
+  vertical models. ~0.8s wall-time off `passthrough_summary`.
+- **Batched feature metrics.** ``compute_passthrough_summary`` was
+  calling ``_metric_*(P_i, P_j, p_t, D_i, D_j)`` once per
+  (pair, market) — 6 × 3000 × 4 = 72000 small numpy calls on the
+  shipped synthetic. rc8 adds batched variants in
+  ``_PASSTHROUGH_FEATURE_METRICS_BATCHED`` taking stacked
+  ``(M, J, J)`` / ``(M, J)`` inputs and returning ``(M,)`` outputs.
+  The diagnostic groups markets by ``J_t`` and dispatches one
+  batched call per (pair × metric × J-group). Order-stable: per-
+  market values are still emitted in ``market_ids`` order so
+  `detail='full'` rows match pre-rc8. ~0.7s wall-time off
+  `passthrough_summary`.
+
 ### Performance (rc6 → rc7)
 
 - **PT diagnostics: per-market demand derivatives now computed once,

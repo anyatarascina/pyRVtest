@@ -74,6 +74,125 @@ _NDArray: TypeAlias = NDArray[Any]
 # ===========================================================================
 
 
+# rc8 perf: batched conduct types that have closed-form markup formulas
+# expressible as a single numpy linalg call per perturbation direction.
+# Adding a class to this set requires writing a batched markup formula
+# in :func:`_compute_passthrough_numerical_batched` (just below).
+_BATCHABLE_MODEL_TYPES = frozenset({'bertrand', 'cournot', 'monopoly'})
+
+
+def _compute_passthrough_numerical_batched(
+        model_type: str,
+        ownership_batch: _NDArray,
+        response_batch: _NDArray,
+        hessian_batch: _NDArray,
+        shares_batch: _NDArray,
+        delta: float = 1e-7,
+) -> _NDArray:
+    r"""Batched central-difference pass-through for same-J markets.
+
+    Computes :math:`P_m = (I - \partial \Delta_m / \partial p)^{-1}` for a
+    batch of ``M`` markets that all have the same product count ``J``,
+    in a fixed number of vectorized numpy calls. Equivalent to the
+    per-market loop in :func:`compute_passthrough_numerical` but a
+    constant number of LAPACK dispatches instead of ``O(M * J)``.
+
+    Only the three batchable conduct types in
+    :data:`_BATCHABLE_MODEL_TYPES` (``'bertrand'``, ``'cournot'``,
+    ``'monopoly'``) are supported. Trivial-closed-form conducts
+    (``PerfectCompetition`` / ``ConstantMarkup`` / ``RuleOfThumb`` /
+    ``UserSuppliedMarkups``) are short-circuited at the call site in
+    :func:`build_passthrough` before reaching here. Mix /
+    PartialCollusion / CustomConductModel fall back to the per-market
+    :func:`compute_passthrough_numerical`.
+
+    Parameters
+    ----------
+    model_type : str
+        One of ``'bertrand'``, ``'cournot'``, ``'monopoly'``.
+    ownership_batch : ndarray, shape ``(M, J, J)``
+        Per-market ownership matrices stacked along axis 0.
+    response_batch : ndarray, shape ``(M, J, J)``
+        Per-market demand Jacobians.
+    hessian_batch : ndarray, shape ``(M, J, J, J)``
+        Per-market demand Hessians. Indexed
+        ``hessian[m, i, j, k] = d^2 s_i / dp_j dp_k`` (market m).
+    shares_batch : ndarray, shape ``(M, J)``
+        Per-market observed shares.
+    delta : float, optional
+        Central-difference step.
+
+    Returns
+    -------
+    ndarray, shape ``(M, J, J)``
+        Stacked per-market pass-through matrices, same order as input.
+    """
+    M, J = shares_batch.shape
+
+    # Shape-check the inputs (debug-time guard; numpy would broadcast
+    # silently otherwise).
+    assert ownership_batch.shape == (M, J, J), ownership_batch.shape
+    assert response_batch.shape == (M, J, J), response_batch.shape
+    assert hessian_batch.shape == (M, J, J, J), hessian_batch.shape
+
+    jac_delta = np.zeros((M, J, J))
+
+    for k in range(J):
+        # Perturbation in direction k: dp = delta * e_k. Broadcasting:
+        # hessian_batch[..., k] is (M, J, J); response_batch[..., k] is (M, J).
+        dD_k = hessian_batch[..., k] * delta              # (M, J, J)
+        ds_k = response_batch[..., k] * delta             # (M, J)
+
+        D_plus = response_batch + dD_k                    # (M, J, J)
+        D_minus = response_batch - dD_k
+        s_plus = shares_batch + ds_k                      # (M, J)
+        s_minus = shares_batch - ds_k
+
+        # Per-conduct batched markup formula. The s vector is reshaped
+        # to (M, J, 1) so numpy's batched solve / matmul see "M batched
+        # right-hand sides of length J".
+        s_plus_col = s_plus[..., np.newaxis]              # (M, J, 1)
+        s_minus_col = s_minus[..., np.newaxis]
+
+        if model_type == 'bertrand':
+            # markup = -solve(O * D, s)
+            Delta_plus = -np.linalg.solve(
+                ownership_batch * D_plus, s_plus_col,
+            )[..., 0]
+            Delta_minus = -np.linalg.solve(
+                ownership_batch * D_minus, s_minus_col,
+            )[..., 0]
+        elif model_type == 'cournot':
+            # markup = -(O * inv(D)) @ s
+            inv_D_plus = np.linalg.inv(D_plus)
+            inv_D_minus = np.linalg.inv(D_minus)
+            Delta_plus = -np.matmul(
+                ownership_batch * inv_D_plus, s_plus_col,
+            )[..., 0]
+            Delta_minus = -np.matmul(
+                ownership_batch * inv_D_minus, s_minus_col,
+            )[..., 0]
+        elif model_type == 'monopoly':
+            # markup = -solve(D, s)
+            Delta_plus = -np.linalg.solve(D_plus, s_plus_col)[..., 0]
+            Delta_minus = -np.linalg.solve(D_minus, s_minus_col)[..., 0]
+        else:
+            raise ValueError(
+                f"Expected model_type in {sorted(_BATCHABLE_MODEL_TYPES)}. "
+                f"Received {model_type!r}. "
+                f"Fix: call _compute_passthrough_numerical_batched only for "
+                f"the batchable conduct types listed in "
+                f"_BATCHABLE_MODEL_TYPES, or add a batched markup formula "
+                f"for this conduct."
+            )
+
+        jac_delta[..., k] = (Delta_plus - Delta_minus) / (2.0 * delta)
+
+    # Batched (I - jac_delta)^{-1}.
+    I_batch = np.broadcast_to(np.eye(J), (M, J, J))
+    return np.asarray(np.linalg.inv(I_batch - jac_delta))
+
+
 def compute_passthrough_numerical(
         conduct_model: Any,
         ownership: _NDArray,
@@ -503,6 +622,10 @@ def build_passthrough(
 
     ownership_downstream = problem.models['ownership_downstream'][model_index]
     product_market_ids = problem.products.market_ids.flatten()
+    # rc8 perf: extract recarray fields once (pandas/recarray attribute
+    # access goes through __getattribute__ and is slow when called
+    # 3000+ times inside the per-market loop below).
+    all_shares = np.asarray(problem.products.shares).flatten()
     def _model_field(name: str) -> Any:
         # ``problem.models`` is a structured recarray in production but
         # some test fixtures pass a plain dict. Both support ``key in obj``
@@ -521,6 +644,23 @@ def build_passthrough(
     needs_hessian = is_vertical or not isinstance(
         candidate, (PerfectCompetition, ConstantMarkup, RuleOfThumb, UserSuppliedMarkups)
     )
+
+    # rc8 perf: when the conduct has a batchable closed-form markup
+    # (Bertrand / Cournot / Monopoly — PartialCollusion piggybacks on
+    # Bertrand via its kappa-modified ownership and gets included for
+    # free), collect per-market inputs and dispatch one batched LAPACK
+    # call per perturbation direction instead of one scalar call per
+    # (market, direction). Saves the Python-overhead × 9000 cost that
+    # dominates the per-market scalar path for small J_t.
+    candidate_model_type = getattr(candidate, '_model_name', '')
+    use_batched_path = (
+        not is_vertical
+        and needs_hessian  # excludes the trivial-closed-form short circuits
+        and candidate_model_type in _BATCHABLE_MODEL_TYPES
+        and custom_model_full is None
+        and mix_flag_full is None
+    )
+    _batch_inputs: Dict[int, List[Dict[str, Any]]] = {}  # J_t -> per-market input dicts
 
     results: Dict[Hashable, _NDArray] = {}
     for t in markets_to_compute:
@@ -603,7 +743,7 @@ def build_passthrough(
             J_t = D_t.shape[0]
             d2s_dp2_t = np.zeros((J_t, J_t, J_t))
 
-        shares_t = np.asarray(problem.products.shares[index_t]).flatten()
+        shares_t = all_shares[index_t]
 
         # Per-row constant_markup slice (RuleOfThumb / ConstantMarkup
         # path). The Models recarray holds an (N, 1) array per model when
@@ -623,19 +763,52 @@ def build_passthrough(
         else:
             custom_spec = None
 
-        passthrough_t = compute_passthrough_numerical(
-            candidate,
-            ownership=ownership_t,
-            response=D_t,
-            hessian=d2s_dp2_t,
-            shares=shares_t,
-            markups=markups_t,
-            delta=delta,
-            custom_model_specification=custom_spec,
-            constant_markup=cm_t,
-            mix_flag=mf_t,
-        )
-        results[t] = passthrough_t
+        if use_batched_path:
+            # Defer the actual numerical core; bucket by J_t so we can
+            # batch same-shape markets in a single LAPACK call below.
+            _batch_inputs.setdefault(int(D_t.shape[0]), []).append({
+                't': t,
+                'ownership': ownership_t,
+                'response': D_t,
+                'hessian': d2s_dp2_t,
+                'shares': shares_t,
+            })
+        else:
+            passthrough_t = compute_passthrough_numerical(
+                candidate,
+                ownership=ownership_t,
+                response=D_t,
+                hessian=d2s_dp2_t,
+                shares=shares_t,
+                markups=markups_t,
+                delta=delta,
+                custom_model_specification=custom_spec,
+                constant_markup=cm_t,
+                mix_flag=mf_t,
+            )
+            results[t] = passthrough_t
+
+    # rc8 perf: discharge any batched buckets we accumulated above.
+    # Each bucket is one batched LAPACK dispatch.
+    if use_batched_path and _batch_inputs:
+        for J_size, bucket in _batch_inputs.items():
+            n_in_bucket = len(bucket)
+            ownership_batch = np.stack([m['ownership'] for m in bucket])
+            response_batch = np.stack([m['response'] for m in bucket])
+            hessian_batch = np.stack([m['hessian'] for m in bucket])
+            shares_batch = np.stack([np.asarray(m['shares']).reshape(-1) for m in bucket])
+            P_batch = _compute_passthrough_numerical_batched(
+                candidate_model_type,
+                ownership_batch=ownership_batch,
+                response_batch=response_batch,
+                hessian_batch=hessian_batch,
+                shares_batch=shares_batch,
+                delta=delta,
+            )
+            for k_in_bucket, m_in in enumerate(bucket):
+                results[m_in['t']] = P_batch[k_in_bucket]
+            del ownership_batch, response_batch, hessian_batch, shares_batch
+            del n_in_bucket
 
     if market_id is not None:
         return results[market_id]
@@ -699,6 +872,89 @@ _PASSTHROUGH_FEATURE_METRICS: Dict[str, Any] = {
     'full_pass': _metric_full_pass,
     'row_sum': _metric_row_sum,
     'level_adj': _metric_level_adj,
+}
+
+
+# rc8 perf: batched feature metrics.
+#
+# The scalar variants above each take per-market (P_i, P_j, p_t, D_i, D_j)
+# and return a scalar. compute_passthrough_summary used to loop over
+# (n_pairs × n_markets) and call each metric one market at a time —
+# 6 × 3000 × 4 = 72000 small numpy calls on the shipped synthetic.
+#
+# The batched variants below accept stacked inputs:
+#   P_i_batch, P_j_batch : (M, J, J)
+#   p_batch              : (M, J)
+#   D_i_batch, D_j_batch : (M, J)
+# and return an (M,) vector of per-market metric values. Same math,
+# same numerical result; just dispatched once per (pair, metric) group
+# instead of once per (pair, market, metric).
+
+
+def _metric_full_pass_batched(
+        P_i_batch: _NDArray, P_j_batch: _NDArray, p_batch: _NDArray,
+        D_i_batch: _NDArray, D_j_batch: _NDArray,
+) -> _NDArray:
+    """Frobenius norm of P_i - P_j, per market."""
+    diff = P_i_batch - P_j_batch                                    # (M, J, J)
+    return np.sqrt(np.sum(diff * diff, axis=(1, 2)))
+
+
+def _metric_offdiag_ratio_batched(
+        P_i_batch: _NDArray, P_j_batch: _NDArray, p_batch: _NDArray,
+        D_i_batch: _NDArray, D_j_batch: _NDArray,
+) -> _NDArray:
+    """Off-diagonal column-ratio Frobenius distance, per market.
+
+    Mirrors :func:`_metric_offdiag_ratio` (Remark 1 target) but
+    vectorized across the market axis.
+    """
+    M, J, _ = P_i_batch.shape
+    if J <= 1:
+        return np.zeros(M)
+    diag_i = np.diagonal(P_i_batch, axis1=1, axis2=2).astype(float)  # (M, J)
+    diag_j = np.diagonal(P_j_batch, axis1=1, axis2=2).astype(float)
+    # Avoid division by zero (per the scalar variant's contract).
+    safe_diag_i = np.where(np.abs(diag_i) > 1e-12, diag_i, np.inf)
+    safe_diag_j = np.where(np.abs(diag_j) > 1e-12, diag_j, np.inf)
+    ratio_i = P_i_batch / safe_diag_i[:, np.newaxis, :]              # (M, J, J)
+    ratio_j = P_j_batch / safe_diag_j[:, np.newaxis, :]
+    diff = ratio_i - ratio_j
+    # Zero out the diagonal of every per-market matrix.
+    diag_idx = np.arange(J)
+    diff[:, diag_idx, diag_idx] = 0.0
+    return np.sqrt(np.sum(diff * diff, axis=(1, 2)))
+
+
+def _metric_row_sum_batched(
+        P_i_batch: _NDArray, P_j_batch: _NDArray, p_batch: _NDArray,
+        D_i_batch: _NDArray, D_j_batch: _NDArray,
+) -> _NDArray:
+    """L2 norm of row-sum difference, per market."""
+    diff = P_i_batch - P_j_batch                                    # (M, J, J)
+    row_diff = diff.sum(axis=2)                                     # (M, J)
+    return np.sqrt(np.sum(row_diff * row_diff, axis=1))
+
+
+def _metric_level_adj_batched(
+        P_i_batch: _NDArray, P_j_batch: _NDArray, p_batch: _NDArray,
+        D_i_batch: _NDArray, D_j_batch: _NDArray,
+) -> _NDArray:
+    """L2 norm of (P · (p − Δ)) difference, per market."""
+    # (p - D_i) and (p - D_j) are (M, J); right-multiply by P gives (M, J).
+    vi = (p_batch - D_i_batch)[..., np.newaxis]                     # (M, J, 1)
+    vj = (p_batch - D_j_batch)[..., np.newaxis]
+    Pi_v = np.matmul(P_i_batch, vi)[..., 0]                          # (M, J)
+    Pj_v = np.matmul(P_j_batch, vj)[..., 0]
+    diff = Pi_v - Pj_v
+    return np.sqrt(np.sum(diff * diff, axis=1))
+
+
+_PASSTHROUGH_FEATURE_METRICS_BATCHED: Dict[str, Any] = {
+    'offdiag_ratio': _metric_offdiag_ratio_batched,
+    'full_pass': _metric_full_pass_batched,
+    'row_sum': _metric_row_sum_batched,
+    'level_adj': _metric_level_adj_batched,
 }
 
 
@@ -953,20 +1209,61 @@ def compute_passthrough_summary(
     # Per-pair distance computation.
     pair_rows: List[Dict[str, Any]] = []
     metric_names = list(_PASSTHROUGH_FEATURE_METRICS.keys())
+
+    # rc8 perf: group markets by J_t so we can dispatch one batched
+    # numpy call per (pair, metric, J-group) instead of one call per
+    # (pair, market, metric). For uniform-J data (the common case)
+    # there is one bucket; for variable-J data the per-J grouping
+    # preserves market_ids ordering inside each bucket and re-merges
+    # at the end so output rows still come out in market_ids order.
+    market_J: Dict[Hashable, int] = {
+        t: int(np.asarray(per_model_passthrough[0][t], dtype=float).shape[0])
+        for t in market_ids
+    }
+    markets_by_J: Dict[int, List[Hashable]] = {}
+    for t in market_ids:
+        markets_by_J.setdefault(market_J[t], []).append(t)
+
+    # Per-model stacked passthrough / markups for each J-bucket, computed once.
+    # Keyed (m, J_t) -> (M_g, J_t, J_t) for passthrough, (M_g, J_t) for markups.
+    pmt_stacks: Dict[Tuple[int, int], _NDArray] = {}
+    mk_stacks: Dict[Tuple[int, int], _NDArray] = {}
+    p_stacks: Dict[int, _NDArray] = {}
+    for J_t, t_list in markets_by_J.items():
+        p_stacks[J_t] = np.stack([market_data[t]['p'].astype(float) for t in t_list])
+        for m in range(n_models):
+            pmt_stacks[(m, J_t)] = np.stack([
+                np.asarray(per_model_passthrough[m][t], dtype=float)
+                for t in t_list
+            ])
+            mk_stacks[(m, J_t)] = np.stack([
+                np.asarray(markups_full[m][market_data[t]['idx']], dtype=float).flatten()
+                for t in t_list
+            ])
+
     for i in range(n_models):
         for j in range(i + 1, n_models):
+            # Per-market value lists in market_ids order. We fill them
+            # bucket-by-bucket, then assemble at the end.
             per_market_metrics: Dict[str, List[float]] = {m: [] for m in metric_names}
-            for t in market_ids:
-                P_i = np.asarray(per_model_passthrough[i][t], dtype=float)
-                P_j = np.asarray(per_model_passthrough[j][t], dtype=float)
-                idx = market_data[t]['idx']
-                p_t = market_data[t]['p']
-                D_i = np.asarray(markups_full[i][idx], dtype=float).flatten()
-                D_j = np.asarray(markups_full[j][idx], dtype=float).flatten()
-                for name, metric_fn in _PASSTHROUGH_FEATURE_METRICS.items():
-                    per_market_metrics[name].append(
-                        metric_fn(P_i, P_j, p_t, D_i, D_j),
+            # Scratch storage indexed by t for the bucket-merge below.
+            per_t_metric: Dict[str, Dict[Hashable, float]] = {m: {} for m in metric_names}
+            for J_t, t_list in markets_by_J.items():
+                P_i_batch = pmt_stacks[(i, J_t)]
+                P_j_batch = pmt_stacks[(j, J_t)]
+                p_batch = p_stacks[J_t]
+                D_i_batch = mk_stacks[(i, J_t)]
+                D_j_batch = mk_stacks[(j, J_t)]
+                for name, metric_batch_fn in _PASSTHROUGH_FEATURE_METRICS_BATCHED.items():
+                    vals_batch = metric_batch_fn(
+                        P_i_batch, P_j_batch, p_batch, D_i_batch, D_j_batch,
                     )
+                    for k_in_bucket, t in enumerate(t_list):
+                        per_t_metric[name][t] = float(vals_batch[k_in_bucket])
+            # Re-emit in market_ids order so downstream median /
+            # 'full' detail behavior is order-stable.
+            for name in metric_names:
+                per_market_metrics[name] = [per_t_metric[name][t] for t in market_ids]
 
             if detail == 'median':
                 row = {
