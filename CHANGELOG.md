@@ -13,6 +13,25 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Performance (rc5 → rc6)
+
+- **PT diagnostics now compute per-model markups once, not n_models+1
+  times.** `compute_passthrough_summary` and `compute_instrument_channels`
+  used to call `_perturb_and_build_markups` once at the top, then call
+  `build_passthrough(model_index=m)` in a loop — and *each* of those
+  inner calls would re-invoke `_perturb_and_build_markups` for its own
+  markups, multiplying the assembly cost by `n_models`. rc6 adds a
+  `_precomputed_markups=(markups_full, markups_downstream)` hook on
+  `build_passthrough` and threads the tuple through from the
+  diagnostics. On the shipped 3000-market synthetic with 4 candidate
+  models (Bertrand / Cournot / Monopoly / PerfectCompetition):
+  `passthrough_summary` 12.5s → 6.0s, `instrument_channels` 11.6s →
+  5.1s (~½ wall time, 5 markups-assembly calls → 1). Values are
+  bit-identical: the hook only suppresses redundant rebuilds.
+  Regression tests in `TestMarkupsAssemblyCallCount` pin the call
+  count at exactly 1. Public API unchanged; the parameter is
+  underscore-prefixed and not documented for direct use.
+
 ### Fixed (rc4 → rc5)
 
 - **Log-cost positivity guard now rejects the boundary case.** Pre-rc5

@@ -261,6 +261,66 @@ class TestRepr:
         assert (summary.pair_distances['offdiag_ratio'] != 999).all()
 
 
+class TestMarkupsAssemblyCallCount:
+    """Pin the markups-assembly call count.
+
+    rc6 audit follow-through (Finding 4): compute_passthrough_summary
+    used to call build_passthrough(model_index=m) for each model, and
+    each build_passthrough internally called _perturb_and_build_markups.
+    For ``n_models`` candidates this multiplied the markups assembly
+    cost by ``1 + n_models``. The precomputed-markups hook threads a
+    single assembly result through all per-model build_passthrough
+    calls; total assembly count is now ``1`` regardless of n_models.
+    """
+
+    def test_passthrough_summary_calls_markups_assembly_once(self, synthetic_problem):
+        """Calling passthrough_summary on a problem with N models should
+        trigger exactly one _perturb_and_build_markups call, not N+1."""
+        problem = synthetic_problem
+        n_calls = {'count': 0}
+        orig = type(problem)._perturb_and_build_markups
+
+        def counter(self):
+            n_calls['count'] += 1
+            return orig(self)
+
+        type(problem)._perturb_and_build_markups = counter
+        try:
+            problem.passthrough_summary()
+        finally:
+            type(problem)._perturb_and_build_markups = orig
+
+        assert n_calls['count'] == 1, (
+            f"Expected exactly 1 markups-assembly call across the whole "
+            f"passthrough_summary path (cached). "
+            f"Received {n_calls['count']} calls — the precomputed-markups "
+            f"hook in build_passthrough has regressed."
+        )
+
+    def test_instrument_channels_calls_markups_assembly_once(self, synthetic_problem):
+        """Same pinning for the post-solve channels diagnostic."""
+        problem = synthetic_problem
+        n_calls = {'count': 0}
+        orig = type(problem)._perturb_and_build_markups
+
+        def counter(self):
+            n_calls['count'] += 1
+            return orig(self)
+
+        type(problem)._perturb_and_build_markups = counter
+        try:
+            problem.instrument_channels(column='rival_z2', instrument=0)
+        finally:
+            type(problem)._perturb_and_build_markups = orig
+
+        assert n_calls['count'] == 1, (
+            f"Expected exactly 1 markups-assembly call across the whole "
+            f"instrument_channels path (cached). "
+            f"Received {n_calls['count']} calls — the precomputed-markups "
+            f"hook in build_passthrough has regressed."
+        )
+
+
 class TestEdgeCases:
     """Edge-case input handling."""
 

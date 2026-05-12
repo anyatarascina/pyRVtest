@@ -37,7 +37,7 @@ math.rst documents the closed forms the numerics approximate.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Hashable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Hashable, List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.linalg import inv
@@ -372,6 +372,7 @@ def build_passthrough(
         model_index: int,
         market_id: Optional[Hashable] = None,
         delta: float = 1e-7,
+        _precomputed_markups: Optional[Tuple[List[_NDArray], List[Optional[_NDArray]]]] = None,
 ) -> Union[_NDArray, Dict[Hashable, _NDArray]]:
     r"""Compute the pass-through matrix for one candidate conduct model.
 
@@ -396,6 +397,18 @@ def build_passthrough(
         Central-difference step for the numerical path. Default
         ``1e-7``. Ignored for the Vertical analytical fast path and for
         the trivial-closed-form classes.
+    _precomputed_markups : tuple of (list, list), optional
+        Internal optimization hook. ``(markups_full, markups_downstream)``
+        as returned by ``problem._perturb_and_build_markups()``. When
+        supplied, ``build_passthrough`` skips its own
+        ``_perturb_and_build_markups`` call and uses the lists provided.
+        The high-level diagnostics
+        (:func:`compute_passthrough_summary`,
+        :func:`compute_instrument_channels`) compute markups once and
+        thread them through to every per-model ``build_passthrough`` call;
+        on the 3000-market synthetic this is the dominant cost. Public
+        callers should leave this at ``None``; the underscore prefix
+        signals that the parameter is not part of the stable API.
 
     Returns
     -------
@@ -451,7 +464,12 @@ def build_passthrough(
         markets_to_compute = list(unique_market_ids)
 
     # --- compute downstream markups once (backend-routed) ---
-    markups_full, markups_downstream, _ = problem._perturb_and_build_markups()
+    # When the caller is a high-level diagnostic that has already paid for
+    # the markups assembly, skip the redundant rebuild.
+    if _precomputed_markups is not None:
+        markups_full, markups_downstream = _precomputed_markups
+    else:
+        markups_full, markups_downstream, _ = problem._perturb_and_build_markups()
     markups_down = markups_downstream[model_index]
     if markups_down is None:
         # Defensive fallback; markups_full has the combined value for
@@ -848,8 +866,13 @@ def compute_passthrough_summary(
 
     market_ids = list(problem.unique_market_ids)
 
-    # Compute markups per candidate (per-observation) once.
-    markups_full, _, _ = problem._perturb_and_build_markups()
+    # Compute markups per candidate (per-observation) once and thread the
+    # full tuple through every per-model build_passthrough call below.
+    # Pre-rc6 the inner build_passthrough call would re-invoke
+    # _perturb_and_build_markups, multiplying the markups-assembly cost
+    # by n_models. On large markets (audit measured ~50s at T=3000,
+    # n_models=4) the redundant rebuilds dominate.
+    markups_full, markups_downstream, _ = problem._perturb_and_build_markups()
 
     # Observed prices per observation; product_market_ids gives row → market mapping.
     prices = np.asarray(problem.products.prices, dtype=float).flatten()
@@ -860,7 +883,10 @@ def compute_passthrough_summary(
     for m in range(n_models):
         # build_passthrough returns dict[market_id, ndarray] when called
         # without market_id — narrowing the union type for mypy.
-        full_dict = build_passthrough(problem, model_index=m)
+        full_dict = build_passthrough(
+            problem, model_index=m,
+            _precomputed_markups=(markups_full, markups_downstream),
+        )
         assert isinstance(full_dict, dict)
         per_model_passthrough[m] = full_dict
 
@@ -1280,12 +1306,17 @@ def compute_instrument_channels(
             controls_for_data_side = q_tilde
 
     # Markups per candidate (per-observation, may be (M, N, 1) shape).
-    markups_full, _, _ = problem._perturb_and_build_markups()
+    # Capture downstream too so the inner build_passthrough calls below
+    # don't redo the markups assembly (audit Finding 4 / rc6).
+    markups_full, markups_downstream, _ = problem._perturb_and_build_markups()
 
     # Pre-compute pass-through per (model, market).
     per_model_passthrough: Dict[int, Dict[Hashable, _NDArray]] = {}
     for m in range(n_models):
-        full_dict = build_passthrough(problem, model_index=m)
+        full_dict = build_passthrough(
+            problem, model_index=m,
+            _precomputed_markups=(markups_full, markups_downstream),
+        )
         assert isinstance(full_dict, dict)
         per_model_passthrough[m] = full_dict
 
