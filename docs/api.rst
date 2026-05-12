@@ -218,7 +218,6 @@ Result inspection methods:
 .. autosummary::
    :toctree: _api
 
-   ProblemResults.passthrough_matrix
    ProblemResults.reliability_summary
    ProblemResults.to_dataframe
    ProblemResults.summary_df
@@ -248,18 +247,70 @@ human-readable summary:
   footers in the printed output.
 
 
+Pass-through and instrument-relevance diagnostics
+-------------------------------------------------
+
+The DMQSW (Dearing, Magnolfi, Quint, Sullivan, and Waldfogel 2024)
+framework identifies when an instrument set has *structural* power
+to distinguish a pair of candidate conduct models, separately from
+finite-sample F-stat strength. Two pre-solve diagnostics report the
+key quantities; one post-solve helper exposes the underlying matrix.
+The tutorial walk-through lives in
+:ref:`Pass-through diagnostics <advanced-passthrough>`;
+the underlying math is in :doc:`math`.
+
+**Pre-solve diagnostics on the** :class:`Problem`:
+
+.. autosummary::
+   :toctree: _api
+
+   Problem.passthrough_summary
+   Problem.instrument_channels
+
+**Post-solve mirrors on** :class:`ProblemResults`:
+
+The same methods are available on :class:`ProblemResults` for users
+who want to inspect pass-through *after* ``solve`` rather than as a
+pre-solve sanity check. Both signatures and outputs match the
+:class:`Problem`-level versions; calling them on
+:class:`ProblemResults` is purely an ergonomic alias.
+
+.. autosummary::
+   :toctree: _api
+
+   ProblemResults.passthrough_summary
+   ProblemResults.instrument_channels
+   ProblemResults.passthrough_matrix
+
+**Low-level building block:**
+
+.. autosummary::
+   :toctree: _api
+
+   build_passthrough
+
+``build_passthrough(problem, model_index, market_id=None)`` returns
+the per-candidate pass-through matrix
+:math:`P_m = (I - \partial \Delta_m / \partial p)^{-1}` for one
+market (or all markets). For the trivial-closed-form conducts
+(``PerfectCompetition`` / ``ConstantMarkup`` / ``UserSuppliedMarkups``
+give :math:`P = I`; ``RuleOfThumb(\varphi)`` gives
+:math:`P = \varphi I`) the answer is short-circuited; for ``Vertical``
+the Villas-Boas closed form is used; everything else goes through a
+batched central-difference numerical core
+(:func:`pyRVtest.solve.passthrough.compute_passthrough_numerical`).
+
+
 Convenience functions
 ---------------------
 
-Helpers for ownership matrices, markups, passthrough, and reading
-pickled results.
+Helpers for ownership matrices, markups, and reading pickled results.
 
 .. autosummary::
    :toctree: _api
 
    build_ownership
    build_markups
-   build_passthrough
    construct_passthrough_matrix
    evaluate_first_order_conditions
    read_pickle

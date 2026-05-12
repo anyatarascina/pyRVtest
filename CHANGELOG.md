@@ -13,6 +13,21 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Docs (rc12 → rc13)
+
+- **API reference foregrounds the Dearing methods.** Audit 2 Finding
+  B3: ``Problem.passthrough_summary``, ``Problem.instrument_channels``,
+  and the ``ProblemResults`` mirrors were missing from
+  ``docs/api.rst`` entirely; ``passthrough_matrix`` was buried under
+  "Result inspection methods" alongside generic dataframe exports;
+  ``build_passthrough`` was under "Convenience functions" alongside
+  ownership helpers. rc13 adds a dedicated **"Pass-through and
+  instrument-relevance diagnostics"** section between Results and
+  Convenience functions, with three subgroups: pre-solve diagnostics
+  on ``Problem``, post-solve mirrors on ``ProblemResults``, and the
+  low-level ``build_passthrough`` building block. Cross-linked to
+  the ``advanced-passthrough`` tutorial section and ``docs/math.rst``.
+
 ### Docs (rc11 → rc12)
 
 Audit follow-through on the remaining "actionable now" items from the

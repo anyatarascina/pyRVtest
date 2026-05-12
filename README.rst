@@ -33,7 +33,7 @@ You will also need to make sure that you have all package dependencies installed
 
 .. code-block::
 
-    pip install git+https://github.com/anyatarascina/pyRVtest@v0.4.0rc12
+    pip install git+https://github.com/anyatarascina/pyRVtest@v0.4.0rc13
 
 The v0.4 series will be uploaded to PyPI once it leaves release-candidate status.
 
