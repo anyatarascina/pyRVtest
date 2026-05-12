@@ -320,6 +320,38 @@ class TestMarkupsAssemblyCallCount:
             f"hook in build_passthrough has regressed."
         )
 
+    def test_passthrough_summary_calls_hessian_once_per_market(self, synthetic_problem):
+        """rc7 hoist: each market's Hessian is computed once, not once per
+        non-trivial model.
+
+        With n_markets=3000 and n_non_trivial_models=3 (Bertrand / Cournot /
+        Monopoly out of 4 candidates; PerfectCompetition short-circuits),
+        pre-rc7 this hit 9000 compute_hessian calls. Post-rc7, the demand
+        derivatives are precomputed once per market and threaded through.
+        """
+        problem = synthetic_problem
+        backend = problem._demand_backend
+        n_calls = {'count': 0}
+        orig = backend.compute_hessian
+
+        def counter(market_id):
+            n_calls['count'] += 1
+            return orig(market_id=market_id)
+
+        backend.compute_hessian = counter
+        try:
+            problem.passthrough_summary()
+        finally:
+            backend.compute_hessian = orig
+
+        n_markets = len(problem.unique_market_ids)
+        assert n_calls['count'] == n_markets, (
+            f"Expected exactly {n_markets} Hessian calls "
+            f"(one per market, regardless of model count). "
+            f"Received {n_calls['count']} calls — the demand-derivative "
+            f"hoist in compute_passthrough_summary has regressed."
+        )
+
 
 class TestEdgeCases:
     """Edge-case input handling."""

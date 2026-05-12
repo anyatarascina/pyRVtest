@@ -13,6 +13,23 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Performance (rc6 → rc7)
+
+- **PT diagnostics: per-market demand derivatives now computed once,
+  not once per non-trivial model.** Profiling rc6 showed that even after
+  the markups cache, `build_passthrough` was still calling
+  `backend.compute_hessian(market_id=t)` for every (model, market) pair.
+  The Hessian (and the Jacobian slice) depend only on demand, not on
+  the candidate conduct, so they can be hoisted out of the per-model
+  loop. rc7 adds a `_precomputed_demand_derivatives` parameter on
+  `build_passthrough` and threads a single dict from the high-level
+  diagnostics. On the shipped synthetic with 4 candidates
+  (Bertrand/Cournot/Monopoly/PerfectCompetition; 3 non-trivial),
+  Hessian calls drop from 9000 → 3000 and Jacobian-slice work from
+  9001 → 3001. Net wall: `passthrough_summary` 6.0s → 5.0s,
+  `instrument_channels` 5.1s → 4.3s. Values bit-identical. Pinned with
+  `test_passthrough_summary_calls_hessian_once_per_market`.
+
 ### Performance (rc5 → rc6)
 
 - **PT diagnostics now compute per-model markups once, not n_models+1

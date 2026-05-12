@@ -30,5 +30,5 @@ setup(
     description='Code to perform econometric test of firm conduct',
     long_description=read('README.rst').split('docs-start')[1].strip(),
     include_package_data=True,
-    version='0.4.0rc6'
+    version='0.4.0rc7'
 )

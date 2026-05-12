@@ -373,6 +373,7 @@ def build_passthrough(
         market_id: Optional[Hashable] = None,
         delta: float = 1e-7,
         _precomputed_markups: Optional[Tuple[List[_NDArray], List[Optional[_NDArray]]]] = None,
+        _precomputed_demand_derivatives: Optional[Dict[Hashable, Tuple[_NDArray, Optional[_NDArray]]]] = None,
 ) -> Union[_NDArray, Dict[Hashable, _NDArray]]:
     r"""Compute the pass-through matrix for one candidate conduct model.
 
@@ -409,6 +410,17 @@ def build_passthrough(
         on the 3000-market synthetic this is the dominant cost. Public
         callers should leave this at ``None``; the underscore prefix
         signals that the parameter is not part of the stable API.
+    _precomputed_demand_derivatives : dict, optional
+        Internal optimization hook. ``{market_id: (D_t, H_t)}`` where
+        ``D_t`` is the per-market demand Jacobian and ``H_t`` is the
+        Hessian (or ``None`` for trivial-conduct short-circuits that
+        don't need it). When supplied, ``build_passthrough`` skips per-
+        market ``backend.compute_jacobian`` / ``backend.compute_hessian``
+        calls and reads from the dict. Demand derivatives only depend on
+        demand state, not on the candidate conduct, so hoisting them out
+        of the per-model loop eliminates ``n_models``-fold recomputation
+        — particularly important for the Hessian, which isn't cached at
+        the backend level. Public callers should leave this at ``None``.
 
     Returns
     -------
@@ -526,8 +538,16 @@ def build_passthrough(
                 results[t] = float(candidate.phi) * np.eye(j_t)
                 continue
 
-        # Jacobian: backend strips NaN-padded columns on the per-market call.
-        D_t = backend.compute_jacobian(market_id=t)
+        # Jacobian / Hessian: if the high-level diagnostic already paid
+        # for them, read from the precomputed dict. Otherwise hit the
+        # backend. Note that demand derivatives depend only on demand
+        # state, not on the candidate conduct, so hoisting them out of
+        # the per-model loop eliminates n_models-fold recomputation.
+        if _precomputed_demand_derivatives is not None and t in _precomputed_demand_derivatives:
+            D_t, _precomputed_H_t = _precomputed_demand_derivatives[t]
+        else:
+            D_t = backend.compute_jacobian(market_id=t)
+            _precomputed_H_t = None  # signal "compute fresh below if needed"
 
         # Ownership: slice to this market and drop NaN-padded columns.
         ownership_t = ownership_downstream[index_t]
@@ -541,7 +561,10 @@ def build_passthrough(
             # wholesale prices. Kept as the analytical fast path; the
             # numerical core would have to perturb the upstream FOC as
             # well, which is redundant work.
-            d2s_dp2_t = backend.compute_hessian(market_id=t)
+            d2s_dp2_t = (
+                _precomputed_H_t if _precomputed_H_t is not None
+                else backend.compute_hessian(market_id=t)
+            )
             if d2s_dp2_t is None:
                 raise HessianUnavailableError(
                     f"Expected the demand backend to provide a Hessian for "
@@ -559,7 +582,10 @@ def build_passthrough(
 
         # Non-Vertical: numerical core.
         if needs_hessian:
-            d2s_dp2_t = backend.compute_hessian(market_id=t)
+            d2s_dp2_t = (
+                _precomputed_H_t if _precomputed_H_t is not None
+                else backend.compute_hessian(market_id=t)
+            )
             if d2s_dp2_t is None:
                 raise HessianUnavailableError(
                     f"Expected the demand backend to provide a Hessian for "
@@ -878,6 +904,27 @@ def compute_passthrough_summary(
     prices = np.asarray(problem.products.prices, dtype=float).flatten()
     product_market_ids = problem.products.market_ids.flatten()
 
+    # Hoist per-market demand derivatives out of the model loop. The
+    # Jacobian and Hessian depend only on demand, not on the candidate
+    # conduct, so caching them across models saves (n_models - 1) ×
+    # markets calls. The Jacobian is already cached at the backend
+    # level for built-in backends, but the slice-per-market work is
+    # noticeable for large T; the Hessian is not cached, so this is
+    # the dominant rc6 → rc7 saving. Skip Hessian work for trivial
+    # closed-form candidates (PC / ConstantMarkup / etc.).
+    _backend = problem._demand_backend
+    _all_trivial = all(
+        not (isinstance(c, Vertical) or problem.models['models_upstream'][k] is not None)
+        and isinstance(c, (PerfectCompetition, ConstantMarkup, RuleOfThumb, UserSuppliedMarkups))
+        for k, c in enumerate(problem._models)
+    )
+    demand_derivs: Dict[Hashable, Tuple[_NDArray, Optional[_NDArray]]] = {}
+    if _backend is not None and not _all_trivial:
+        for t in market_ids:
+            D_t = _backend.compute_jacobian(market_id=t)
+            H_t = _backend.compute_hessian(market_id=t)
+            demand_derivs[t] = (D_t, H_t)
+
     # Per-(model, market) pass-through matrices, computed once.
     per_model_passthrough: Dict[int, Dict[Hashable, _NDArray]] = {}
     for m in range(n_models):
@@ -886,6 +933,7 @@ def compute_passthrough_summary(
         full_dict = build_passthrough(
             problem, model_index=m,
             _precomputed_markups=(markups_full, markups_downstream),
+            _precomputed_demand_derivatives=(demand_derivs or None),
         )
         assert isinstance(full_dict, dict)
         per_model_passthrough[m] = full_dict
@@ -1310,12 +1358,28 @@ def compute_instrument_channels(
     # don't redo the markups assembly (audit Finding 4 / rc6).
     markups_full, markups_downstream, _ = problem._perturb_and_build_markups()
 
+    # Hoist per-market demand derivatives out of the model loop (rc7).
+    # Same rationale as compute_passthrough_summary above.
+    _backend = problem._demand_backend
+    _all_trivial = all(
+        not (isinstance(c, Vertical) or problem.models['models_upstream'][k] is not None)
+        and isinstance(c, (PerfectCompetition, ConstantMarkup, RuleOfThumb, UserSuppliedMarkups))
+        for k, c in enumerate(problem._models)
+    )
+    demand_derivs: Dict[Hashable, Tuple[_NDArray, Optional[_NDArray]]] = {}
+    if _backend is not None and not _all_trivial:
+        for t in problem.unique_market_ids:
+            D_t = _backend.compute_jacobian(market_id=t)
+            H_t = _backend.compute_hessian(market_id=t)
+            demand_derivs[t] = (D_t, H_t)
+
     # Pre-compute pass-through per (model, market).
     per_model_passthrough: Dict[int, Dict[Hashable, _NDArray]] = {}
     for m in range(n_models):
         full_dict = build_passthrough(
             problem, model_index=m,
             _precomputed_markups=(markups_full, markups_downstream),
+            _precomputed_demand_derivatives=(demand_derivs or None),
         )
         assert isinstance(full_dict, dict)
         per_model_passthrough[m] = full_dict
