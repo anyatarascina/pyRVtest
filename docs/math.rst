@@ -86,7 +86,7 @@ F-statistic diagnostic
 
 The DMSS scaled F-statistic diagnoses whether the RV test itself has
 acceptable size and power for the given instrument set and pair of
-models. Per :ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2023)`,
+models. Per :ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2024)`,
 
 .. math::
 
@@ -144,9 +144,9 @@ the DMSS variance-difference structure
 :math:`F` can fall to small or zero values even when the
 corresponding ``TRV`` is sharply significant. The ``TRV`` and MCS
 p-values remain reliable in this regime; only the F-stat *diagnostic*
-appears uninformative. Tracked in
-``.claude/plans/v0.5-followups.md`` item 5; see also
-:doc:`faq` ("F-stat is NaN, negative, or near zero").
+appears uninformative. Deferred to v0.5 (see the
+`GitHub issue tracker <https://github.com/anyatarascina/pyRVtest/issues>`_);
+see also :doc:`faq` ("F-stat is NaN, negative, or near zero").
 
 
 Model Confidence Set

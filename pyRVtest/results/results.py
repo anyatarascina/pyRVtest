@@ -953,7 +953,8 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         References
         ----------
         Duarte, M., L. Magnolfi, M. Sølvsten, and C. Sullivan (2024):
-        "Testing Firm Conduct." Working paper.
+        "Testing Firm Conduct." *Quantitative Economics*, 15(3),
+        571-606. DOI: 10.3982/QE2319.
         """
         import pandas as pd
 

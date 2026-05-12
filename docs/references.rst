@@ -5,16 +5,16 @@ This page lists references cited in the documentation. If you use the
 package in research, please cite the methodology papers your usage
 exercises (see the *Citing the package* section of the README):
 
-* Duarte, Magnolfi, Sølvsten, and Sullivan (2023) — RV test, F-statistic, MCS, demand-adjustment correction.
+* Duarte, Magnolfi, Sølvsten, and Sullivan (2024) — RV test, F-statistic, MCS, demand-adjustment correction.
 * Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024) — pass-through diagnostics, simple-markup models, instrument-relevance framework.
 * Duarte, Magnolfi, Quint, Sølvsten, and Sullivan (2026) — endogenous-cost-component first-stage correction (non-linear cost).
 
 Methodology Papers
 __________________
 
-Duarte, Magnolfi, Sølvsten, and Sullivan (2023)
+Duarte, Magnolfi, Sølvsten, and Sullivan (2024)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Duarte, Marco, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan (2023): `"Testing Firm Conduct," <https://arxiv.org/abs/2301.06720>`_ Working paper.
+Duarte, Marco, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan (2024): `"Testing Firm Conduct," <https://onlinelibrary.wiley.com/doi/10.3982/QE2319>`_ *Quantitative Economics*, 15(3), 571-606.
 
 Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -27,7 +27,7 @@ quantity, under scale economies), and corrections for
 demand-estimation error and clustering are available.
 
 The package implements the procedure developed in
-:ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2023)`
+:ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2024)`
 (hereafter DMSS), with later extensions in
 :ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024)`
 (hereafter DMQSW), which characterizes when an instrument set has

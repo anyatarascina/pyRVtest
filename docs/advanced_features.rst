@@ -102,7 +102,7 @@ Demand adjustment and clustering
 When the demand parameters are estimated rather than fixed, the
 moment-difference variance underlying the RV statistic and the F-stat
 should account for first-stage estimation uncertainty. Following
-:ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2023)`
+:ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2024)`
 Appendix C (linear cost) and DMQSS Appendix B (non-linear cost), the
 demand-adjusted variance adds a term capturing
 :math:`\partial\bar g_m / \partial\theta` evaluated at the demand

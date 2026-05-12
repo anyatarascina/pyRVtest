@@ -31,7 +31,7 @@ Hansen, Lunde, and Nason (2011). Users then read off which conduct models are
 or are not rejected at their chosen significance level.
 
 The key reference for the econometrics is Duarte, Magnolfi, Sølvsten,
-and Sullivan (2023) ("Testing Firm Conduct"), Appendix C. pyRVtest implements their
+and Sullivan (2024) ("Testing Firm Conduct"), Appendix C. pyRVtest implements their
 first-stage-correction eq. 77 for demand-side parameter estimation
 uncertainty, plus a clustered variance option for market-level
 clustering.
@@ -92,7 +92,7 @@ from these submodules. The canonical contents are in
 The DMSS framework in three paragraphs
 --------------------------------------
 
-Duarte, Magnolfi, Sølvsten, and Sullivan (2023) propose a GMM moment-based framework for testing
+Duarte, Magnolfi, Sølvsten, and Sullivan (2024) propose a GMM moment-based framework for testing
 conduct. For each candidate model :math:`m` you compute implied marginal
 costs :math:`\hat c_m = p - \mu_m(\hat\theta)` where :math:`\mu_m` is the
 model's implied markup and :math:`\hat\theta` are the estimated demand
@@ -826,11 +826,12 @@ Further reading
 * :doc:`custom_demand` — worked example of
   :class:`~pyRVtest.backends.UserSuppliedBackend`.
 * :doc:`api` — complete API reference generated from docstrings.
-* The ``.claude/plans/v0.4-refactor.md`` file in the repository is the
-  authoritative source for architectural decisions. The 25 migration
-  steps are numbered and cross-referenced throughout the code in
-  docstrings and commit messages (``step 1``, ``step 4d``, ``step 11``,
-  etc.).
-* The ``.claude/handovers/`` directory holds session-by-session
-  handover notes. The most recent one is a good starting point for
-  catching up on what has changed since this guide was last updated.
+* The CHANGELOG (``CHANGELOG.md`` at the repository root) records
+  per-release additions, fixes, and performance changes. The v0.4
+  refactor is decomposed into numbered migration steps that are
+  cross-referenced throughout the code in docstrings and commit
+  messages (``step 1``, ``step 4d``, ``step 11``, etc.).
+* The repository's
+  `GitHub issue tracker <https://github.com/anyatarascina/pyRVtest/issues>`_
+  is the public roadmap for bugs, feature requests, and follow-ups
+  deferred from the current release.

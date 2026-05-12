@@ -3,13 +3,13 @@ pyRVtest
 
 .. docs-start
 
-This code was written to perform the procedure for testing firm conduct developed in `"Testing Firm Conduct" <https://arxiv.org/abs/2301.06720>`_ by Marco Duarte, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan. It builds on the PyBLP source code (see `Conlon and Gortmaker (2020) <https://onlinelibrary.wiley.com/doi/full/10.1111/1756-2171.12352>`_) - to do so.
+This code was written to perform the procedure for testing firm conduct developed in `"Testing Firm Conduct" <https://onlinelibrary.wiley.com/doi/10.3982/QE2319>`_ by Marco Duarte, Lorenzo Magnolfi, Mikkel Sølvsten, and Christopher Sullivan (*Quantitative Economics* 15(3), 2024). It builds on the PyBLP source code (see `Conlon and Gortmaker (2020) <https://onlinelibrary.wiley.com/doi/full/10.1111/1756-2171.12352>`_) - to do so.
 
 The code implements the following features:
 
 * Computes `Rivers and Vuong (2002) <https://onlinelibrary.wiley.com/doi/full/10.1111/1368-423X.t01-1-00071>`_ (RV) test statistics to test a menu of two or more models of firm conduct allowing for the possibility that firms or consumers face per-unit or ad-valorem taxes.
-* Implements the RV test using the variance estimator of `Duarte, Magnolfi, Sølvsten, and Sullivan (2023) <https://arxiv.org/abs/2301.06720>`_, including options to adjust for demand estimation error and clustering.
-* Computes the effective F-statistic proposed in `Duarte, Magnolfi, Sølvsten, and Sullivan (2023) <https://arxiv.org/abs/2301.06720>`_ to diagnose instrument strength with respect to worst-case size and best-case power of the test, and reports appropriate critical values.
+* Implements the RV test using the variance estimator of `Duarte, Magnolfi, Sølvsten, and Sullivan (2024) <https://onlinelibrary.wiley.com/doi/10.3982/QE2319>`_, including options to adjust for demand estimation error and clustering.
+* Computes the effective F-statistic proposed in `Duarte, Magnolfi, Sølvsten, and Sullivan (2024) <https://onlinelibrary.wiley.com/doi/10.3982/QE2319>`_ to diagnose instrument strength with respect to worst-case size and best-case power of the test, and reports appropriate critical values.
 * Reports `Hansen, Lunde, and Nason (2011) <https://www.jstor.org/stable/41057463?seq=1#metadata_info_tab_contents>`_ MCS p-values for testing more than two models.
 * Ships a class-based ``ConductModel`` API: standard oligopoly (``Bertrand``, ``Cournot``, ``Monopoly``, ``PerfectCompetition``, ``MixCournotBertrand``), generalizations (``PartialCollusion``, ``Vertical``), Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024) simple-markup models (``RuleOfThumb(phi)``, ``ConstantMarkup(markup)``), and customization escape hatches (``UserSuppliedMarkups`` for precomputed markup columns, ``CustomConductModel`` for arbitrary markup callables).
 * Ships the full Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024) pass-through framework as a diagnostic suite on ``Problem`` and ``ProblemResults``: ``passthrough_summary`` (pre-solve γ-free pair-by-pair structural-feature distances against four DMQSW-keyed metrics), ``passthrough_matrix`` (raw per-candidate pass-through matrix, computed numerically for every conduct class with analytical fast paths for ``Vertical`` and trivial conducts), and ``instrument_channels`` (post-solve channel decomposition for one chosen IV column). Under non-constant marginal cost (``endogenous_cost_component`` set), ``instrument_channels`` automatically applies DMQSS Appendix B's z^e residualization, producing a single unified diagnostic that collapses the Dearing condition and the DMQSS Appendix A.4 distinctness check.
@@ -18,7 +18,7 @@ The code implements the following features:
 * Provides instrument construction helpers (``pyRVtest.instruments.product``: BLP, differentiation IVs, rival sums; ``pyRVtest.instruments.labor``: Hausman, Bartik).
 * Compatible with PyBLP `Conlon and Gortmaker (2020) <https://onlinelibrary.wiley.com/doi/full/10.1111/1756-2171.12352>`_, so that demand can be estimated with PyBLP, and the estimates are an input to the test for conduct. A ``DemandBackend`` protocol also supports user-supplied demand systems; see ``docs/custom_demand.rst``.
 
-For a full list of references, see the references in `Duarte, Magnolfi, Sølvsten, and Sullivan (2023) <https://arxiv.org/abs/2301.06720>`_.
+For a full list of references, see the references in `Duarte, Magnolfi, Sølvsten, and Sullivan (2024) <https://onlinelibrary.wiley.com/doi/10.3982/QE2319>`_.
 
 
 Install
@@ -33,7 +33,7 @@ You will also need to make sure that you have all package dependencies installed
 
 .. code-block::
 
-    pip install git+https://github.com/anyatarascina/pyRVtest@v0.4.0rc11
+    pip install git+https://github.com/anyatarascina/pyRVtest@v0.4.0rc12
 
 The v0.4 series will be uploaded to PyPI once it leaves release-candidate status.
 
@@ -153,7 +153,7 @@ Duarte, M., L. Magnolfi, M. Sølvsten, C. Sullivan, and A. Tarascina (2023): “
 
 * For the Rivers-Vuong test, F-statistic, MCS p-values, and demand-adjustment correction:
 
-  Duarte, M., L. Magnolfi, M. Sølvsten, and C. Sullivan (2023): `“Testing Firm Conduct,” <https://arxiv.org/abs/2301.06720>`_ Working paper.
+  Duarte, M., L. Magnolfi, M. Sølvsten, and C. Sullivan (2024): `“Testing Firm Conduct,” <https://onlinelibrary.wiley.com/doi/10.3982/QE2319>`_ *Quantitative Economics*, 15(3), 571-606.
 
 * For pass-through diagnostics, simple-markup models (``RuleOfThumb``, ``ConstantMarkup``), and the instrument-relevance / falsification framework:
 
@@ -174,11 +174,15 @@ BibTeX:
         year={2023}
     }
 
-    @article{dmss2023,
+    @article{dmss2024,
         author={Marco Duarte and Lorenzo Magnolfi and Mikkel S{\o}lvsten and Christopher Sullivan},
         title={Testing Firm Conduct},
-        howpublished={\url{https://arxiv.org/abs/2301.06720}},
-        year={2023}
+        journal={Quantitative Economics},
+        volume={15},
+        number={3},
+        pages={571--606},
+        year={2024},
+        doi={10.3982/QE2319}
     }
 
     @techreport{dmqsw2024,

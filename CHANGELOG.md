@@ -13,6 +13,31 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Docs (rc11 → rc12)
+
+Audit follow-through on the remaining "actionable now" items from the
+two May 2026 audit reports.
+
+- **DMSS citation updated to Quantitative Economics 2024.** Audit 1
+  Finding 7 noted that the package's main citation still pointed at
+  the arXiv working paper. The paper is now published as
+  `Duarte, M., L. Magnolfi, M. Sølvsten, and C. Sullivan (2024):
+  "Testing Firm Conduct," Quantitative Economics, 15(3), 571-606,
+  DOI: 10.3982/QE2319`. All citation spots updated (README prose +
+  BibTeX, docs/references.rst, docs/agent_guide.rst, docs/math.rst,
+  docs/introduction.rst, docs/advanced_features.rst,
+  docs/notebooks/testing_firm_conduct.ipynb,
+  pyRVtest/results/results.py docstring). The arXiv URL is dropped
+  from the citation block; the Wiley DOI is now the canonical link.
+  Sphinx ``:ref:`` cross-references retargeted to match the new
+  ``... and Sullivan (2024)`` section heading in references.rst.
+- **Public docs no longer reference `.claude/` internal paths.** Audit
+  2 Finding B4 — ``docs/agent_guide.rst`` "Further reading" pointed
+  at ``.claude/plans/v0.4-refactor.md`` and ``.claude/handovers/``;
+  ``docs/math.rst`` pointed at ``.claude/plans/v0.5-followups.md``.
+  Replaced with pointers to ``CHANGELOG.md`` and the public GitHub
+  issue tracker.
+
 ### Performance (rc10 → rc11)
 
 - **`LogitBackend.jacobian_gradient` uses the rc9 per-market index
