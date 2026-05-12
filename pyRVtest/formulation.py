@@ -29,7 +29,7 @@ class Formulation(_PyblpFormulation):  # type: ignore[misc]  # pyblp has no stub
     estimated into the cost function and residualized out), known-
     coefficient shifters enter with a coefficient supplied by the
     researcher. Dearing, Magnolfi, Quint, Sullivan, and Waldfogel
-    (2026) work with a general class of such shifters; per-unit taxes
+    (2024) work with a general class of such shifters; per-unit taxes
     are the leading special case.
 
     Parameters

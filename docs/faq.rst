@@ -15,8 +15,12 @@ supported pin combinations are ``numpy < 2 + pyblp < 1.2`` and
 
 **Which Python versions are supported?**
 
-Python 3.7+ at install time. The development environment targets 3.9
-(framework Python on macOS); CI runs across the supported range.
+pyRVtest v0.4 requires Python ``>=3.9``. CI currently exercises
+Python 3.11 under two dependency environments: ``numpy < 2`` with
+``pyblp < 1.2``, and ``numpy >= 2`` with ``pyblp >= 1.2``. Python 3.7
+and 3.8 reached end-of-life upstream and are not supported. Python
+3.10 and 3.12 are not in the CI matrix but should work; please file
+an issue if you encounter version-specific behavior.
 
 
 Setting up a Problem

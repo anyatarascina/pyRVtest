@@ -25,16 +25,24 @@ Install
 _______
 
 First, you will need to download and install python, which you can do from this `link <https://www.python.org/>`_.
+pyRVtest v0.4 requires Python ``>=3.9``.
 
 You will also need to make sure that you have all package dependencies installed.
 
-To install the pyRVtest package, use pip:
+**Release candidate (v0.4):** PyPI still serves the older v0.3 line; the v0.4 release candidate is installed from the GitHub tag:
+
+.. code-block::
+
+    pip install git+https://github.com/anyatarascina/pyRVtest@v0.4.0rc5
+
+The v0.4 series will be uploaded to PyPI once it leaves release-candidate status.
+
+**Older v0.3 release:** still available from PyPI for users on the
+prior public API:
 
 .. code-block::
 
     pip install pyRVtest
-
-This should automatically install the python packages on which pyRVtest depends: numpy, pandas, statsmodels, pyblp
 
 To update to a newer version of the package use:
 
@@ -42,6 +50,12 @@ To update to a newer version of the package use:
 .. code-block::
 
     pip install --upgrade pyRVtest
+
+Dependencies (auto-installed): ``numpy``, ``pandas``, ``statsmodels``,
+``pyblp``, ``patsy``, ``scipy``, ``sympy``, ``jinja2``. Note: ``numpy
+>= 2`` requires ``pyblp >= 1.2``; pyRVtest enforces this at import
+time with a clean ``ImportError`` if the resolved combination is
+inconsistent.
 
 
 Quick start
@@ -167,13 +181,14 @@ BibTeX:
         year={2023}
     }
 
-    @techreport{dmqsw2026,
+    @techreport{dmqsw2024,
         author={Adam Dearing and Lorenzo Magnolfi and Daniel Quint and Christopher Sullivan and Sarah Waldfogel},
         title={Learning Firm Conduct: Pass-Through as a Foundation for Instrument Relevance},
         institution={National Bureau of Economic Research},
         type={NBER Working Paper},
         number={32863},
-        year={2026}
+        month={August},
+        year={2024}
     }
 
     @article{dmqss2026,

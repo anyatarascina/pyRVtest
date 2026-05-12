@@ -1727,10 +1727,12 @@ class Problem(Container, StringRepresentation):
             (optional, default is ``'linear'``) Form of the marginal-cost regression. ``'linear'`` regresses implied
             marginal cost on cost shifters in levels (the standard DMSS specification). ``'log'`` regresses log
             marginal cost on cost shifters; pyRVtest takes the log of implied marginal cost before residualization,
-            and the test statistic is computed in that transformed space. Only effective when
-            ``demand_adjustment=False``; emits a ``UserWarning`` and falls back to linear costs when combined with
-            ``demand_adjustment=True``. Raises ``ValueError`` if any implied marginal cost is non-positive under
-            ``'log'``.
+            and the test statistic is computed in that transformed space. Composes with
+            ``demand_adjustment=True``: the log transform is applied before the demand-adjustment stage and the
+            gradient is rescaled by the chain-rule factor :math:`1/(p - \Delta_m)` so the variance term uses the
+            correct log-cost moment derivative. Raises ``ValueError`` if any implied marginal cost is non-positive
+            under ``'log'`` (``log`` is undefined for ``<= 0``; ``log(0) = -inf`` would propagate silently to NaN
+            downstream).
         mc_correction: Optional[Array]
             *Deprecated since v0.4; will be removed in v0.6.* Additive correction applied to implied marginal
             cost after the cost-type transformation but before the residualization step. Must be shape
@@ -1850,13 +1852,15 @@ class Problem(Container, StringRepresentation):
         # gradient_markups; we hold on to the unlogged values for that.
         marginal_cost_level = marginal_cost
         if costs_type == "log":
-            if np.any(marginal_cost_level < 0):
+            if np.any(marginal_cost_level <= 0):
                 raise ValueError(
-                    "Expected all implied marginal costs to be positive when "
-                    "costs_type='log' (log is undefined for <= 0). "
-                    "Received at least one negative marginal cost (price - markup < 0). "
+                    "Expected all implied marginal costs to be strictly positive "
+                    "when costs_type='log' (log is undefined for <= 0; log(0) = -inf "
+                    "silently propagates to NaN downstream). "
+                    "Received at least one non-positive marginal cost "
+                    "(price - markup <= 0). "
                     "Fix: switch to costs_type='linear', or inspect the candidate "
-                    "conduct models whose markups exceed price."
+                    "conduct models whose markups meet or exceed price."
                 )
             marginal_cost = np.log(marginal_cost_level)
 
@@ -2458,8 +2462,9 @@ class Problem(Container, StringRepresentation):
         References
         ----------
         Dearing, A., L. Magnolfi, D. Quint, C. Sullivan, and
-        S. Waldfogel (2026): "Learning Firm Conduct: Pass-Through as a
-        Foundation for Instrument Relevance." NBER Working Paper 32863.
+        S. Waldfogel (2024): "Learning Firm Conduct: Pass-Through as a
+        Foundation for Instrument Relevance." NBER Working Paper No.
+        32863, August 2024.
         """
         from .solve.passthrough import compute_passthrough_summary
         return compute_passthrough_summary(
@@ -2573,8 +2578,9 @@ class Problem(Container, StringRepresentation):
         References
         ----------
         Dearing, A., L. Magnolfi, D. Quint, C. Sullivan, and
-        S. Waldfogel (2026): "Learning Firm Conduct: Pass-Through as a
-        Foundation for Instrument Relevance." NBER Working Paper 32863.
+        S. Waldfogel (2024): "Learning Firm Conduct: Pass-Through as a
+        Foundation for Instrument Relevance." NBER Working Paper No.
+        32863, August 2024.
         """
         from .solve.passthrough import compute_instrument_channels
         return compute_instrument_channels(

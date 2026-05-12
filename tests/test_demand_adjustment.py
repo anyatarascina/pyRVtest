@@ -473,6 +473,56 @@ def test_log_cost_demand_adjustment_runs_end_to_end():
     assert not np.isclose(r_lin.F[0][0, 1], r_log.F[0][0, 1], atol=1e-3)
 
 
+def test_log_cost_zero_marginal_cost_raises():
+    """costs_type='log' rejects markup == price (zero implied marginal cost).
+
+    Pre-rc5 the positivity guard used ``< 0``; the boundary case where
+    ``price - markup == 0`` slipped through and ``np.log(0) = -inf``
+    propagated silently to NaN TRV / F. rc5 tightens the guard to
+    ``<= 0`` so the boundary now raises a clean ValueError instead.
+
+    Minimal user-supplied-markup fixture from the auditor's reproducer:
+    one candidate model whose stored markups equal price exactly.
+    """
+    import pandas as pd
+    rng = np.random.default_rng(seed=4242)
+    T, J = 50, 2
+    N = T * J
+    market_ids = np.repeat(np.arange(T), J)
+    firm_ids = np.tile(np.arange(J), T)
+    prices = rng.uniform(1.0, 2.0, size=N)
+    # Synthetic shares (don't need to be equilibrium for the guard test).
+    shares = np.tile([0.3, 0.4], T)
+    df = pd.DataFrame({
+        'market_ids': market_ids,
+        'firm_ids': firm_ids,
+        'prices': prices,
+        'shares': shares,
+        # Two candidate-markup columns: one degenerate (markup == price,
+        # implied mc = 0) and one healthy.
+        'markup_degenerate': prices.copy(),
+        'markup_healthy': 0.5 * prices,
+        'cost_shifter': rng.uniform(0.5, 1.5, size=N),
+        'iv1': rng.normal(size=N),
+        'iv2': rng.normal(size=N),
+    })
+
+    pyRVtest.options.verbose = False
+    problem = pyRVtest.Problem(
+        cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
+        instrument_formulation=pyRVtest.Formulation('0 + iv1 + iv2'),
+        product_data=df,
+        demand_results=None,
+        models=[
+            pyRVtest.UserSuppliedMarkups(markups='markup_degenerate', ownership='firm_ids'),
+            pyRVtest.UserSuppliedMarkups(markups='markup_healthy', ownership='firm_ids'),
+        ],
+    )
+
+    with pytest.raises(ValueError, match='strictly positive'):
+        problem.solve(costs_type='log')
+
+
 # ---------------------------------------------------------------------------
 # Option B: hand-derived H / gradient_markups on a minimal fixture.
 # ---------------------------------------------------------------------------

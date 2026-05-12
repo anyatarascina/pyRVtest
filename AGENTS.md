@@ -330,7 +330,7 @@ by purpose:
   the closed-form-callable case).
 - **v0.4 Dearing simple-markup models:** `RuleOfThumb`,
   `ConstantMarkup` (Dearing, Magnolfi, Quint, Sullivan, and Waldfogel
-  2026, Examples 1 and 7). Use `RuleOfThumb(phi=2)` for the special
+  2024, Examples 1 and 7). Use `RuleOfThumb(phi=2)` for the special
   case (the earlier `Keystone()` alias was dropped in commit `e7ea1e3`).
 - **v0.4 labor-side models:** `Monopsony`, `BertrandWages`,
   `CournotEmployment`, `NashBargaining` (raises `NotImplementedError`

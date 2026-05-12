@@ -13,6 +13,48 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Fixed (rc4 → rc5)
+
+- **Log-cost positivity guard now rejects the boundary case.** Pre-rc5
+  the `costs_type='log'` guard at `problem.py:1853` used `< 0`, so the
+  case `price - markup == 0` slipped through and `np.log(0) = -inf`
+  propagated silently to `NaN` TRV / F. rc5 tightens the guard to
+  `<= 0` and raises a clean `ValueError`. New regression
+  `test_log_cost_zero_marginal_cost_raises` covers the boundary.
+- **`solve()` docstring no longer contradicts the code.** The rc3
+  docstring still said `costs_type='log'` "emits a UserWarning and
+  falls back to linear costs when combined with `demand_adjustment=True`."
+  The code has supported the combination since rc3 via the chain-rule
+  rescaling; the docstring is updated to match.
+- **Dearing citation sweep, take 2.** rc4 swept most "Dearing 2026"
+  instances to "Dearing 2024" but missed the README BibTeX entry
+  (`dmqsw2026` → `dmqsw2024`, `year={2026}` → `year={2024}`), the
+  bare "Dearing 2026" form in `AGENTS.md`, two changelog entries,
+  `pyRVtest/formulation.py`, `docs/tutorial.rst`,
+  `docs/migrating_to_v0.4.rst`, and the line-wrapped
+  `S. Waldfogel (2026)` in two `pyRVtest/problem.py` docstrings. rc5
+  catches all of these (verified with the auditor's grep).
+- **`docs/notebooks/speed_test.py` renamed to `speed_benchmark.py`.**
+  Pytest's default `*_test.py` collection pattern was picking up the
+  file and executing a PyBLP simulation at import time, which crashed
+  collection on stress stacks. Rename takes it out of collection
+  without breaking the standalone-script use.
+- **FAQ Python claim aligned with `setup.py`.** FAQ said "Python 3.7+"
+  while rc4's `setup.py` declared `>=3.9`. FAQ updated to state the
+  3.9 floor and the actual CI matrix (Python 3.11 × {numpy<2 +
+  pyblp<1.2, numpy>=2 + pyblp>=1.2}).
+- **Dependency-envelope gate at import time.** `requirements.txt`
+  cannot express "if numpy >= 2 then pyblp >= 1.2" via PEP 508
+  markers, so a user installing fresh under Python 3.12+ could
+  pip-resolve to `numpy 2 + pyblp 1.1.x` (the combination produces
+  silent NaN / wrong-sign diagnostics from older pyblp LAPACK paths).
+  `pyRVtest/__init__.py` now detects the bad combination and raises
+  a clear `ImportError` with the fix.
+- **README install section.** Reordered to lead with the GitHub-tag
+  install command (the canonical v0.4 path until PyPI alignment),
+  with the older v0.3 PyPI install kept as a fallback for users on
+  the prior API. Python 3.9+ floor stated explicitly.
+
 ### Changed (rc1 → final)
 
 - **`F_reliability_summary` → `reliability_summary`.** The reliability
@@ -52,7 +94,7 @@ removed names because rc1 was not a public release.
 - **`ProblemResults.passthrough_comparison`.** Removed entirely along
   with the private `_PASSTHROUGH_METRICS` and `_passthrough_distance`
   helpers and `tests/test_passthrough_comparison.py`. The Dearing et al.
-  (2026) pass-through diagnostic suite in v0.4 final is provided by
+  (2024) pass-through diagnostic suite in v0.4 final is provided by
   `passthrough_summary` (γ-free structural-feature distance, ex-ante)
   and `instrument_channels` (post-solve channel decomposition); see
   the new "Added" subsection below and `docs/advanced_features.rst`.
@@ -477,7 +519,7 @@ v0.4 modulo one-line deprecation warnings.
   `(market_id, unordered model pair)` and a scalar pairwise distance
   between pass-through matrices; three metrics are supported —
   `'frobenius'` (default), `'offdiag_frobenius'` (implements the Dearing
-  et al. (2026) Remark 4 distinguishability condition — invariant to
+  et al. (2024) Remark 4 distinguishability condition — invariant to
   diagonal-only differences in pass-through), and `'max_abs'`. The
   chosen metric is recorded on `frame.attrs['metric']`.
   `passthrough_matrix` is a thin ergonomic wrapper over

@@ -246,7 +246,7 @@ Pre-test framework reasoning per DMQSW
 
 The :ref:`advanced-passthrough` section of :doc:`advanced_features`
 walks through the Dearing, Magnolfi, Quint, Sullivan, and Waldfogel
-(2026) pre-test framework on the synthetic example. The narrative
+(2024) pre-test framework on the synthetic example. The narrative
 covers:
 
 * Building the :class:`~pyRVtest.Problem` and inspecting

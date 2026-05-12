@@ -8,6 +8,47 @@ helper functions ``build_markups``, ``build_ownership``,
 and ``read_pickle``.
 """
 
+# v0.4.0rc5: PEP 508 cannot express "numpy 2 requires pyblp >= 1.2"
+# directly in requirements.txt because environment markers cannot
+# reference one dependency's version from another. CI exercises only
+# the two consistent matrix variants (numpy<2 + pyblp<1.2 and
+# numpy>=2 + pyblp>=1.2). A fresh install under Python 3.12+ can
+# still pip-resolve to numpy 2 + pyblp 1.1.x, where pyblp's older
+# LAPACK paths produce silent NaN / wrong-sign diagnostics. Detect
+# the bad combination here and raise a clear ImportError with the
+# fix the user actually needs.
+import numpy as _np
+import pyblp as _pyblp
+
+
+def _parse_major_minor(version_str: str) -> tuple:
+    """Best-effort (major, minor) tuple from a PEP 440 version string.
+
+    Tolerates suffixes like ``1.2.0rc1`` / ``2.4.4.dev0``; only the
+    leading numeric major.minor is used for the gate.
+    """
+    parts = version_str.split('+', 1)[0].split('-', 1)[0].split('.')
+    out = []
+    for p in parts[:2]:
+        digits = ''.join(ch for ch in p if ch.isdigit())
+        out.append(int(digits) if digits else 0)
+    while len(out) < 2:
+        out.append(0)
+    return tuple(out)
+
+
+if _parse_major_minor(_np.__version__) >= (2, 0) and _parse_major_minor(_pyblp.__version__) < (1, 2):
+    raise ImportError(
+        f"pyRVtest detected an unsupported dependency combination: "
+        f"numpy=={_np.__version__} with pyblp=={_pyblp.__version__}. "
+        f"numpy >= 2.0 requires pyblp >= 1.2 (the first pyblp release "
+        f"with numpy-2 LAPACK compatibility). "
+        f"Fix: either downgrade numpy (pip install 'numpy<2'), or "
+        f"upgrade pyblp (pip install 'pyblp>=1.2'). "
+        f"See requirements.txt for the supported matrix."
+    )
+del _np, _pyblp, _parse_major_minor
+
 from . import data, options
 from . import backends, estimators, instruments, models, solve
 from .estimators import LogitEstimator, NestedLogitEstimator

@@ -266,7 +266,7 @@ Dearing simple-markup models (RuleOfThumb, ConstantMarkup)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 v0.4 adds two simple-markup models from Dearing, Magnolfi, Quint, Sullivan,
-and Waldfogel (2026):
+and Waldfogel (2024):
 
 * :class:`~pyRVtest.RuleOfThumb` — :math:`p = \varphi \cdot mc` for a fixed
   multiple :math:`\varphi \geq 1`. Ergonomic wrapper over ``cost_scaling``,

@@ -3,6 +3,12 @@ patsy>=0.5.1
 scipy>=1.2.0
 sympy>=1.1.0
 statsmodels>=0.12.2
+# Compatibility: numpy >= 2.0 needs pyblp >= 1.2 (the first pyblp
+# release with numpy-2 LAPACK compatibility). PEP 508 can't encode
+# "if numpy >= 2 then pyblp >= 1.2" in this file, so the gate is
+# enforced at import time in pyRVtest/__init__.py with a clean
+# ImportError. CI exercises only the two consistent combinations:
+# numpy<2 + pyblp<1.2  AND  numpy>=2 + pyblp>=1.2.
 pyblp>=1.0.0
 # v0.4.0rc1 follow-up: pandas 2.3+ routes DataFrame.to_latex through the
 # Styler API, which needs jinja2 unconditionally. Without this, the
