@@ -7,6 +7,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Dict, Hashable, List, Mapping, Optional, Sequence, Tuple, Union
 
 if TYPE_CHECKING:
+    import pandas as pd
     from .solve.passthrough import InstrumentChannels, PassthroughSummary
 
 import numpy as np
@@ -2585,6 +2586,51 @@ class Problem(Container, StringRepresentation):
         from .solve.passthrough import compute_instrument_channels
         return compute_instrument_channels(
             self, column=column, instrument=instrument,
+        )
+
+    def passthrough_reliability(
+        self,
+        *,
+        market_id: Optional[Hashable] = None,
+        cond_warn: float = 1e6,
+        cond_severe: float = 1e12,
+        cond_undefined: float = 1e16,
+    ) -> 'pd.DataFrame':
+        """Per-(model, market) numerical reliability diagnostic for PT matrices.
+
+        Lets the user distinguish *structural* pass-through degeneracy
+        (which the :meth:`passthrough_summary` distance metric is
+        designed to detect) from *numerical* instability in the
+        derivative or its inverse. Reports condition number, rank,
+        method, and a four-level status per candidate model and
+        market.
+
+        Pure diagnostic — does not change any computed pass-through
+        value. See
+        :func:`pyRVtest.solve.passthrough.compute_passthrough_reliability`
+        for the column-by-column contract and threshold semantics.
+
+        Parameters
+        ----------
+        market_id : hashable, optional
+            Restrict to a single market; default scans all markets.
+        cond_warn, cond_severe, cond_undefined : float, optional
+            Condition-number thresholds for the four-level status
+            field. Defaults ``1e6 / 1e12 / 1e16`` correspond to
+            "lose ~6 / ~12 / ~16 digits of precision."
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per (candidate model, market). Columns:
+            ``model_index``, ``model``, ``market_id``, ``pt_method``,
+            ``pt_condition_number``, ``pt_rank``, ``pt_status``,
+            ``pt_warning``.
+        """
+        from .solve.passthrough import compute_passthrough_reliability
+        return compute_passthrough_reliability(
+            self, market_id=market_id, cond_warn=cond_warn,
+            cond_severe=cond_severe, cond_undefined=cond_undefined,
         )
 
     def _prepare_orthogonal_variables(self, M: int, N: int, markups_effective: list, marginal_cost: Array):

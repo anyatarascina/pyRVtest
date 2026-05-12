@@ -62,6 +62,7 @@ __all__ = [
     'build_passthrough',
     'compute_instrument_channels',
     'compute_passthrough_numerical',
+    'compute_passthrough_reliability',
     'compute_passthrough_summary',
 ]
 
@@ -1124,6 +1125,244 @@ def _build_methodology_line(problem: Any) -> str:
         f"Methodology — pass-through: {body}. "
         f"See passthrough_summary() docstring and docs/math.rst."
     )
+
+
+# ===========================================================================
+# rc14: Pass-through reliability vocabulary (Audit 2 Findings C2 + C3).
+# ===========================================================================
+#
+# Three concerns the audit flagged on the PT layer:
+#
+#   1. cond(I - dDelta/dp) can be large for some (model, market) cells,
+#      meaning the inverse is numerically unstable. The reported P_m may
+#      then be a poor estimate of the analytical pass-through matrix.
+#   2. A reported PT distance of zero is ambiguous between true
+#      structural degeneracy (the diagnostic's intended signal),
+#      near-zero diagnostic denominator, and ill-conditioned numerical
+#      derivative.
+#   3. Vertical / analytical short-circuits and numerical-central-
+#      difference paths have different reliability profiles, and the
+#      user has no way to tell which one fired.
+#
+# This module adds a passive diagnostic — it does not change any
+# computed value. ``compute_passthrough_reliability`` walks
+# (model, market) cells, calls the existing ``build_passthrough`` for
+# each model (so the per-market P matrices match the live diagnostic
+# outputs exactly), and reports condition number / rank / status /
+# method per cell. Threshold policy (cond_warn, cond_severe,
+# cond_undefined) is documented on the user-facing method.
+#
+# cond identity: cond(P) = cond((I - dDelta/dp)^{-1}) = cond(I - dDelta/dp)
+# for the non-vertical paths. For the Vertical Villas-Boas form
+# P = inv(G) * H, cond(P) is bounded by cond(G) * cond(H); we report
+# cond(P) as the user-visible quantity and document the interpretation.
+
+_PT_RELIABILITY_COLUMNS: List[str] = [
+    'model_index', 'model', 'market_id',
+    'pt_method', 'pt_condition_number', 'pt_rank',
+    'pt_status', 'pt_warning',
+]
+
+
+def _classify_condition_number(
+        cond_val: float,
+        rank: int,
+        J: int,
+        cond_warn: float,
+        cond_severe: float,
+        cond_undefined: float,
+) -> Tuple[str, str]:
+    """Map (cond, rank, J) to a (status, warning_text) pair.
+
+    Returns one of four status strings:
+    - 'robust'          : cond < cond_warn, rank == J.
+    - 'ill-conditioned' : cond_warn <= cond < cond_severe.
+    - 'near-degenerate' : cond_severe <= cond < cond_undefined.
+    - 'undefined'       : cond >= cond_undefined, rank < J, or non-finite cond.
+    """
+    if not np.isfinite(cond_val) or cond_val >= cond_undefined:
+        return 'undefined', (
+            f"pass-through matrix is numerically singular "
+            f"(cond={cond_val:.2e}); reported P_m is unreliable."
+        )
+    if rank < J:
+        return 'undefined', (
+            f"pass-through matrix has rank {rank} < J={J}; "
+            f"reported P_m is unreliable."
+        )
+    if cond_val >= cond_severe:
+        return 'near-degenerate', (
+            f"pass-through matrix is near-singular "
+            f"(cond={cond_val:.2e}); P_m entries lose ~"
+            f"{int(np.log10(cond_val))} digits of precision."
+        )
+    if cond_val >= cond_warn:
+        return 'ill-conditioned', (
+            f"pass-through matrix is ill-conditioned "
+            f"(cond={cond_val:.2e}); ~"
+            f"{int(np.log10(cond_val))} digits of precision lost."
+        )
+    return 'robust', ""
+
+
+def _classify_pt_method(candidate: Any, is_vertical: bool) -> str:
+    """Return the method name reported in the ``pt_method`` column."""
+    if is_vertical:
+        return 'analytical_vertical'
+    if isinstance(
+            candidate,
+            (PerfectCompetition, ConstantMarkup, RuleOfThumb, UserSuppliedMarkups),
+    ):
+        return 'analytical_trivial'
+    return 'numerical_central_difference'
+
+
+def compute_passthrough_reliability(
+        problem: Any,
+        *,
+        market_id: Optional[Hashable] = None,
+        cond_warn: float = 1e6,
+        cond_severe: float = 1e12,
+        cond_undefined: float = 1e16,
+) -> 'pd.DataFrame':
+    r"""Per-(model, market) numerical reliability diagnostic for PT matrices.
+
+    Reports, for each candidate-conduct model and each market, the
+    condition number and rank of the pass-through matrix
+    :math:`P_m = (I - \partial \Delta_m / \partial p)^{-1}` along
+    with a human-readable status. Lets the user distinguish
+
+    1. **structural** pass-through degeneracy (the
+       :meth:`Problem.passthrough_summary` distance is zero because
+       :math:`P_i` and :math:`P_j` are genuinely identical under the
+       chosen instrument type — Audit 2 Finding C3 case "true
+       structural degeneracy");
+    2. **numerical** instability in the derivative or its inverse
+       (an ill-conditioned :math:`I - \partial \Delta_m / \partial p`
+       — Audit 2 Finding C3 case "ill-conditioned numerical derivative").
+
+    The diagnostic does NOT change any computed pass-through value; it
+    reports condition numbers of the matrices the existing PT methods
+    already invert. Bit-identical to pre-rc14 behavior on all PT
+    methods.
+
+    Parameters
+    ----------
+    problem : pyRVtest.Problem
+        Initialized Problem.
+    market_id : hashable, optional
+        Restrict the report to a single market; default returns every
+        market.
+    cond_warn : float, optional
+        Condition-number threshold above which ``pt_status`` is
+        ``'ill-conditioned'``. Default ``1e6`` (loses ~6 digits of
+        precision relative to double).
+    cond_severe : float, optional
+        Threshold above which ``pt_status`` is ``'near-degenerate'``.
+        Default ``1e12``.
+    cond_undefined : float, optional
+        Threshold above which ``pt_status`` is ``'undefined'`` (so is
+        any rank deficiency or non-finite cond). Default ``1e16``,
+        i.e. effective machine-precision singularity.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per (candidate model, market). Columns:
+
+        * ``model_index`` (int): row index in ``problem._models``.
+        * ``model`` (str): class name of the candidate.
+        * ``market_id``: passes through from
+          ``problem.unique_market_ids``.
+        * ``pt_method`` (str): which path produced :math:`P_m` —
+          ``'analytical_trivial'`` (PC / ConstantMarkup /
+          UserSuppliedMarkups / RuleOfThumb give exact closed forms),
+          ``'analytical_vertical'`` (Villas-Boas), or
+          ``'numerical_central_difference'`` (Bertrand / Cournot /
+          Monopoly / PartialCollusion / MixCournotBertrand /
+          CustomConductModel).
+        * ``pt_condition_number`` (float): :math:`\kappa(P_m)`. For
+          the non-vertical paths this equals
+          :math:`\kappa(I - \partial \Delta_m / \partial p)`; for the
+          Vertical Villas-Boas path it bounds the conditioning of the
+          :math:`G` matrix that gets inverted.
+        * ``pt_rank`` (int): numerical rank of :math:`P_m`.
+        * ``pt_status`` (str): one of
+          ``'robust'`` / ``'ill-conditioned'`` /
+          ``'near-degenerate'`` / ``'undefined'`` (see threshold
+          arguments).
+        * ``pt_warning`` (str): empty string when ``pt_status ==
+          'robust'``, otherwise a one-line description of the issue.
+
+    Examples
+    --------
+    >>> # df = problem.passthrough_reliability()  # doctest: +SKIP
+    >>> # df[df.pt_status != 'robust']            # doctest: +SKIP
+
+    See Also
+    --------
+    Problem.passthrough_summary
+    Problem.instrument_channels
+    """
+    import pandas as pd
+
+    n_models = len(problem._models)
+    if market_id is not None:
+        if not np.any(problem.unique_market_ids == market_id):
+            raise ValueError(
+                f"Expected market_id to appear in "
+                f"problem.unique_market_ids. Received market_id="
+                f"{market_id!r}, which is not in "
+                f"problem.unique_market_ids={list(problem.unique_market_ids)}. "
+                f"Fix: pass a market id from problem.unique_market_ids, "
+                f"or omit market_id to scan all markets."
+            )
+
+    rows: List[Dict[str, Any]] = []
+    for m in range(n_models):
+        candidate = problem._models[m]
+        models_upstream = problem.models['models_upstream']
+        is_vertical = (
+            isinstance(candidate, Vertical)
+            or models_upstream[m] is not None
+        )
+        method = _classify_pt_method(candidate, is_vertical)
+        label = type(candidate).__name__
+
+        pt_dict = build_passthrough(problem, model_index=m, market_id=market_id)
+        if not isinstance(pt_dict, dict):
+            # Single-market call returned a bare ndarray.
+            pt_dict = {market_id: pt_dict}
+
+        for t, P_t in pt_dict.items():
+            P_arr = np.asarray(P_t, dtype=float)
+            J_t = P_arr.shape[0]
+            # cond + rank can both raise on degenerate inputs; trap and
+            # fall through to the 'undefined' status.
+            try:
+                cond_val = float(np.linalg.cond(P_arr))
+            except (np.linalg.LinAlgError, ValueError):
+                cond_val = float('inf')
+            try:
+                rank_val = int(np.linalg.matrix_rank(P_arr))
+            except (np.linalg.LinAlgError, ValueError):
+                rank_val = 0
+            status, warn = _classify_condition_number(
+                cond_val, rank_val, J_t,
+                cond_warn, cond_severe, cond_undefined,
+            )
+            rows.append({
+                'model_index': m,
+                'model': label,
+                'market_id': t,
+                'pt_method': method,
+                'pt_condition_number': cond_val,
+                'pt_rank': rank_val,
+                'pt_status': status,
+                'pt_warning': warn,
+            })
+
+    return pd.DataFrame(rows, columns=_PT_RELIABILITY_COLUMNS)
 
 
 def compute_passthrough_summary(

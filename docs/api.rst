@@ -282,6 +282,24 @@ pre-solve sanity check. Both signatures and outputs match the
    ProblemResults.instrument_channels
    ProblemResults.passthrough_matrix
 
+**Numerical reliability of the pass-through matrices:**
+
+A reported PT distance of zero in
+:meth:`Problem.passthrough_summary` could mean (1) genuine structural
+degeneracy or (2) ill-conditioned numerics. The reliability
+diagnostic reports condition number, rank, and a four-level status
+(``'robust'`` / ``'ill-conditioned'`` / ``'near-degenerate'`` /
+``'undefined'``) per (candidate, market), letting the user
+distinguish the two interpretations. The diagnostic is *passive* —
+it inspects matrices the other PT methods already invert without
+changing any computed value.
+
+.. autosummary::
+   :toctree: _api
+
+   Problem.passthrough_reliability
+   ProblemResults.passthrough_reliability
+
 **Low-level building block:**
 
 .. autosummary::

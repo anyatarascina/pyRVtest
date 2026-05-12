@@ -1239,5 +1239,25 @@ class ProblemResults(StringRepresentation):  # type: ignore[misc]
         )
         return result
 
+    def passthrough_reliability(
+        self,
+        *,
+        market_id: Optional[Any] = None,
+        cond_warn: float = 1e6,
+        cond_severe: float = 1e12,
+        cond_undefined: float = 1e16,
+    ) -> 'pd.DataFrame':
+        """Per-(model, market) numerical reliability diagnostic for PT matrices.
+
+        Post-solve wrapper delegating to
+        :meth:`pyRVtest.Problem.passthrough_reliability`. See that
+        method's docstring for the column contract and threshold
+        semantics.
+        """
+        return self.problem.passthrough_reliability(
+            market_id=market_id, cond_warn=cond_warn,
+            cond_severe=cond_severe, cond_undefined=cond_undefined,
+        )
+
 
 __all__ = ['Progress', 'ProblemResults']

@@ -13,6 +13,33 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Added (rc13 → rc14)
+
+- **`Problem.passthrough_reliability()` /
+  `ProblemResults.passthrough_reliability()`.** New per-(model, market)
+  diagnostic addressing Audit 2 Findings C2 and C3 (PT numerical-
+  reliability vocabulary). Returns a DataFrame with one row per
+  candidate × market and columns ``model_index``, ``model``,
+  ``market_id``, ``pt_method`` (``'analytical_trivial'`` /
+  ``'analytical_vertical'`` / ``'numerical_central_difference'``),
+  ``pt_condition_number`` (``np.linalg.cond`` of the per-market
+  :math:`P_m`), ``pt_rank``, ``pt_status``
+  (``'robust'`` / ``'ill-conditioned'`` / ``'near-degenerate'`` /
+  ``'undefined'``), ``pt_warning``. Threshold defaults
+  ``cond_warn=1e6`` / ``cond_severe=1e12`` / ``cond_undefined=1e16``;
+  all three are kwargs.
+
+  The diagnostic lets the user distinguish *structural* pass-through
+  degeneracy (the
+  :meth:`pyRVtest.Problem.passthrough_summary` distance metric is
+  designed to detect that) from *numerical* instability in the
+  derivative or its inverse. Passive — does NOT change any computed
+  pass-through value (verified by
+  ``TestValuePreservation.test_passthrough_summary_unchanged_after_reliability_call``).
+  24-test suite at ``tests/test_passthrough_reliability.py``;
+  ``api.rst`` updated to list both Problem and ProblemResults
+  entries under the new PT section.
+
 ### Docs (rc12 → rc13)
 
 - **API reference foregrounds the Dearing methods.** Audit 2 Finding
