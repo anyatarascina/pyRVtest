@@ -864,27 +864,37 @@ def _metric_full_pass(P_i: _NDArray, P_j: _NDArray, p_t: _NDArray,
 
 
 def _metric_offdiag_ratio(P_i: _NDArray, P_j: _NDArray, p_t: _NDArray,
-                         D_i: _NDArray, D_j: _NDArray) -> float:
+                         D_i: _NDArray, D_j: _NDArray,
+                         eps_diag: float = 1e-12) -> float:
     """Frobenius norm of off-diagonal column-ratio differences (Remark 1 target).
 
     For each off-diagonal position (j, ℓ) with j ≠ ℓ, the Remark 1 target
     is the column-normalized off-diagonal entry (P)_{jℓ}/(P)_{ℓℓ}. The
     aggregated distance over off-diagonals captures whether rival cost
     shifters can distinguish the pair regardless of γ.
+
+    Denominator degeneracy. If any column ℓ has ``|diag(P_i)[ℓ]| <= eps_diag``
+    or ``|diag(P_j)[ℓ]| <= eps_diag``, the column ratio is mathematically
+    undefined for that column. Returning a numeric value in that regime
+    is misleading (pre-rc15 the function returned 0 via the
+    ``inf``-substitution, which the user could not distinguish from
+    "true structural degeneracy"). rc15 instead returns ``np.nan`` for
+    the whole market when any column is degenerate. The caller
+    (:func:`compute_passthrough_summary`) aggregates with ``nanmedian``
+    and reports the count of degenerate markets separately. Audit 2
+    rc14 re-audit Finding 3.
     """
     J = P_i.shape[0]
     if J <= 1:
         return 0.0
     diag_i = np.diag(P_i).astype(float)
     diag_j = np.diag(P_j).astype(float)
-    # Avoid division by zero. If a candidate has zero diagonal entry at
-    # column ℓ, its column ratio is undefined; we contribute 0 to the
-    # distance for that column (caller sees 0 → degenerate via the other
-    # candidate's check too).
-    safe_diag_i = np.where(np.abs(diag_i) > 1e-12, diag_i, np.inf)
-    safe_diag_j = np.where(np.abs(diag_j) > 1e-12, diag_j, np.inf)
-    ratio_i = P_i / safe_diag_i[np.newaxis, :]
-    ratio_j = P_j / safe_diag_j[np.newaxis, :]
+    # Denominator-degeneracy check: NaN out when any column has |diag| <= eps.
+    if (np.any(np.abs(diag_i) <= eps_diag)
+            or np.any(np.abs(diag_j) <= eps_diag)):
+        return float('nan')
+    ratio_i = P_i / diag_i[np.newaxis, :]
+    ratio_j = P_j / diag_j[np.newaxis, :]
     diff = ratio_i - ratio_j
     np.fill_diagonal(diff, 0.0)
     return float(np.linalg.norm(diff, 'fro'))
@@ -940,27 +950,37 @@ def _metric_full_pass_batched(
 def _metric_offdiag_ratio_batched(
         P_i_batch: _NDArray, P_j_batch: _NDArray, p_batch: _NDArray,
         D_i_batch: _NDArray, D_j_batch: _NDArray,
+        eps_diag: float = 1e-12,
 ) -> _NDArray:
     """Off-diagonal column-ratio Frobenius distance, per market.
 
     Mirrors :func:`_metric_offdiag_ratio` (Remark 1 target) but
-    vectorized across the market axis.
+    vectorized across the market axis. Returns NaN per market where
+    any column of P_i or P_j has |diag| <= eps_diag (denominator
+    degeneracy, undefined ratio); see the scalar variant's docstring
+    for the rationale.
     """
     M, J, _ = P_i_batch.shape
     if J <= 1:
         return np.zeros(M)
     diag_i = np.diagonal(P_i_batch, axis1=1, axis2=2).astype(float)  # (M, J)
     diag_j = np.diagonal(P_j_batch, axis1=1, axis2=2).astype(float)
-    # Avoid division by zero (per the scalar variant's contract).
-    safe_diag_i = np.where(np.abs(diag_i) > 1e-12, diag_i, np.inf)
-    safe_diag_j = np.where(np.abs(diag_j) > 1e-12, diag_j, np.inf)
+    # Per-market degeneracy mask: any column has |diag| <= eps in either matrix.
+    deg_i = (np.abs(diag_i) <= eps_diag).any(axis=1)                 # (M,)
+    deg_j = (np.abs(diag_j) <= eps_diag).any(axis=1)
+    degenerate = deg_i | deg_j                                       # (M,)
+    # Use safe denominators for the bulk computation; the deg mask
+    # overrides the result for degenerate markets below.
+    safe_diag_i = np.where(np.abs(diag_i) > eps_diag, diag_i, 1.0)
+    safe_diag_j = np.where(np.abs(diag_j) > eps_diag, diag_j, 1.0)
     ratio_i = P_i_batch / safe_diag_i[:, np.newaxis, :]              # (M, J, J)
     ratio_j = P_j_batch / safe_diag_j[:, np.newaxis, :]
     diff = ratio_i - ratio_j
-    # Zero out the diagonal of every per-market matrix.
     diag_idx = np.arange(J)
     diff[:, diag_idx, diag_idx] = 0.0
-    return np.asarray(np.sqrt(np.sum(diff * diff, axis=(1, 2))))
+    out = np.sqrt(np.sum(diff * diff, axis=(1, 2)))
+    out = np.where(degenerate, np.nan, out)
+    return np.asarray(out)
 
 
 def _metric_row_sum_batched(
@@ -1296,8 +1316,8 @@ def compute_passthrough_reliability(
 
     Examples
     --------
-    >>> # df = problem.passthrough_reliability()  # doctest: +SKIP
-    >>> # df[df.pt_status != 'robust']            # doctest: +SKIP
+    >>> df = problem.passthrough_reliability()  # doctest: +SKIP
+    >>> df[df.pt_status != 'robust']            # doctest: +SKIP
 
     See Also
     --------
@@ -1318,6 +1338,31 @@ def compute_passthrough_reliability(
                 f"or omit market_id to scan all markets."
             )
 
+    # rc15: thread the rc6-rc11 caches through the per-model
+    # build_passthrough calls below. Pre-rc15 this method bypassed
+    # them — each model's call re-ran the markups assembly, the
+    # per-market demand-derivative computation, and the np.where scan
+    # over product_market_ids. On the shipped synthetic that drove
+    # ``passthrough_reliability()`` to ~5.8s vs ~0.5s for the cached
+    # ``passthrough_summary()``. Audit 2 rc14 re-audit Finding 4.
+    markups_full, markups_downstream, _ = problem._perturb_and_build_markups()
+    _backend = problem._demand_backend
+    _all_trivial = all(
+        not (isinstance(c, Vertical) or problem.models['models_upstream'][k] is not None)
+        and isinstance(c, (PerfectCompetition, ConstantMarkup, RuleOfThumb, UserSuppliedMarkups))
+        for k, c in enumerate(problem._models)
+    )
+    demand_derivs: Dict[Hashable, Tuple[_NDArray, Optional[_NDArray]]] = {}
+    if _backend is not None and not _all_trivial:
+        for t in problem.unique_market_ids:
+            D_t = _backend.compute_jacobian(market_id=t)
+            H_t = _backend.compute_hessian(market_id=t)
+            demand_derivs[t] = (D_t, H_t)
+    product_market_ids = problem.products.market_ids.flatten()
+    cached_market_indices = _build_market_index_map(
+        product_market_ids, list(problem.unique_market_ids),
+    )
+
     rows: List[Dict[str, Any]] = []
     for m in range(n_models):
         candidate = problem._models[m]
@@ -1329,7 +1374,12 @@ def compute_passthrough_reliability(
         method = _classify_pt_method(candidate, is_vertical)
         label = type(candidate).__name__
 
-        pt_dict = build_passthrough(problem, model_index=m, market_id=market_id)
+        pt_dict = build_passthrough(
+            problem, model_index=m, market_id=market_id,
+            _precomputed_markups=(markups_full, markups_downstream),
+            _precomputed_demand_derivatives=(demand_derivs or None),
+            _precomputed_market_indices=cached_market_indices,
+        )
         if not isinstance(pt_dict, dict):
             # Single-market call returned a bare ndarray.
             pt_dict = {market_id: pt_dict}
@@ -1556,7 +1606,22 @@ def compute_passthrough_summary(
                     'model_j': j,
                 }
                 for name in metric_names:
-                    row[name] = float(np.median(per_market_metrics[name]))
+                    vals = np.asarray(per_market_metrics[name], dtype=float)
+                    # rc15: any metric can be NaN-valued for a given
+                    # market when its underlying feature is undefined
+                    # (currently only ``offdiag_ratio`` has this case —
+                    # denominator degeneracy when |diag(P_m)[ℓ]| <=
+                    # eps for any column). Use ``nanmedian`` so a
+                    # well-defined majority of markets still aggregates
+                    # cleanly, and emit a count of degenerate markets
+                    # so the user can tell whether the median is
+                    # representative. Audit 2 rc14 re-audit Finding 3.
+                    n_degen = int(np.isnan(vals).sum())
+                    if n_degen == len(vals):
+                        row[name] = float('nan')
+                    else:
+                        row[name] = float(np.nanmedian(vals))
+                    row[f'{name}_n_degenerate'] = n_degen
                 pair_rows.append(row)
             else:  # detail == 'full'
                 for k, t in enumerate(market_ids):

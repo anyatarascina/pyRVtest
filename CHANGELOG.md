@@ -13,6 +13,51 @@ F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4
 final cleans those up. There is no deprecation alias for the renamed /
 removed names because rc1 was not a public release.
 
+### Fixed + Performance (rc14 → rc15)
+
+Acts on the rc14 re-audit memo (2026-05-12). Four findings, all
+addressed.
+
+- **`typing_extensions` added to runtime requirements** (Finding 1,
+  release blocker). 10+ runtime modules import
+  ``from typing_extensions import TypeAlias``, but the package was
+  missing from ``requirements.txt`` / ``install_requires``. Fresh
+  installs would `pip install` but fail at first import with
+  ``ModuleNotFoundError``. Now pinned ``typing_extensions>=4.0``.
+- **Doctest gate fixed in
+  ``compute_passthrough_reliability``** (Finding 2, release
+  blocker). The rc14 docstring had
+  ``>>> # df = problem.passthrough_reliability()  # doctest: +SKIP``
+  — a directive attached to a comment-only line, which doctest
+  cannot parse and the CI ``--doctest-modules`` gate failed to
+  collect. Removed the ``#`` so the line is a real ``SKIP``-decorated
+  statement. Added ``tests/test_doctest_gate.py`` mirroring the CI
+  step locally so this regression class is caught before CI.
+- **`_metric_offdiag_ratio` denominator-degeneracy returns NaN**
+  (Finding 3, methodology). When any column of ``P_m`` has
+  ``|diag| <= 1e-12``, the column ratio is mathematically undefined.
+  Pre-rc15 the function returned 0 (via ``inf`` substitution in the
+  denominator), making "true structural degeneracy" indistinguishable
+  from "denominator degeneracy" in the diagnostic — Audit 2 C3 case 2
+  was unaddressed. rc15 returns ``np.nan`` per market when the
+  denominator is degenerate; ``compute_passthrough_summary``
+  aggregates with ``nanmedian`` and emits an
+  ``offdiag_ratio_n_degenerate`` count column per pair.
+- **`compute_passthrough_reliability` reuses the rc6-rc11 caches**
+  (Finding 4, performance). Pre-rc15 the method bypassed
+  ``_precomputed_markups`` / ``_precomputed_demand_derivatives`` /
+  ``_precomputed_market_indices``, so every model re-ran markups
+  assembly. On the shipped synthetic this drove the method to ~5.8s
+  vs ~0.5s for the cached ``passthrough_summary``. rc15 threads the
+  three caches through. On the shipped synthetic the method now
+  runs in ~0.95s (~6× off rc14, in line with the other PT methods).
+
+Bit-identical to rc5 on TRV / F / MCS / markups across both
+demand_adjustment paths (`max |diff| = 0`). The offdiag_ratio NaN
+change only triggers on denominator-degenerate inputs, which don't
+occur in the shipped synthetic — so the cumulative correctness
+invariant holds across all 15 release candidates.
+
 ### Added (rc13 → rc14)
 
 - **`Problem.passthrough_reliability()` /
