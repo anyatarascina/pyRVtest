@@ -91,8 +91,10 @@ def _build_market_index_map(
     pmi = np.asarray(product_market_ids)
     order = np.argsort(pmi, kind='stable')
     sorted_ids = pmi[order]
+    # Use element-wise inequality rather than np.diff so this works
+    # for any dtype (e.g. string market ids), not just numeric ones.
     change_points = np.concatenate(
-        ([0], np.where(np.diff(sorted_ids) != 0)[0] + 1, [len(sorted_ids)])
+        ([0], np.flatnonzero(sorted_ids[1:] != sorted_ids[:-1]) + 1, [len(sorted_ids)])
     )
     by_id: Dict[Hashable, _NDArray] = {}
     for k in range(len(change_points) - 1):

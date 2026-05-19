@@ -395,8 +395,10 @@ def _compute_markups(
         # here to avoid the import cycle.
         order = np.argsort(market_ids_arr, kind='stable')
         sorted_ids = market_ids_arr[order]
+        # Use element-wise inequality rather than np.diff so this works
+        # for any dtype (e.g. string market ids), not just numeric ones.
         change_points = np.concatenate(
-            ([0], np.where(np.diff(sorted_ids) != 0)[0] + 1, [len(sorted_ids)])
+            ([0], np.flatnonzero(sorted_ids[1:] != sorted_ids[:-1]) + 1, [len(sorted_ids)])
         )
         by_id: Dict[Any, Array] = {}
         for k in range(len(change_points) - 1):
