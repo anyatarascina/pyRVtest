@@ -8,7 +8,6 @@ import pyblp
 import sys
 import os
 import numpy as np
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 import pyRVtest
 from pyRVtest.instruments import blp_instruments, differentiation_ivs
@@ -25,7 +24,7 @@ rng = np.random.default_rng(seed=0)
 F = 5           # number of firms (constant across markets)
 J_min = 20      # minimum products per market
 J_max = 40      # maximum products per market
-target_obs = 10000
+target_obs = 30000
 T = target_obs // ((J_min + J_max) // 2)
 J_per_market = rng.integers(J_min, J_max + 1, size=T)
 market_ids = np.repeat(np.arange(T), J_per_market)
@@ -231,15 +230,17 @@ print(testing_results)
 # Pre-computed Bertrand markups fed back in as a column; demand_adjustment must be False
 # because there is no demand system to perturb. TRV vs. Bertrand should be ≈ 0.
 data['mkup_bertrand'] = markups[0].flatten()
+data['mkup_pc'] = 0
 usm_problem = pyRVtest.Problem(
     cost_formulation=pyRVtest.Formulation('1+z+shares'),
     instrument_formulation=pyRVtest.Formulation('0+x1+x2+' + instr_form0),
     models=[
-        pyRVtest.Bertrand(ownership='firm_ids'),
+        pyRVtest.Cournot(ownership='firm_ids'),
         pyRVtest.UserSuppliedMarkups(markups='mkup_bertrand', ownership='firm_ids'),
+        pyRVtest.UserSuppliedMarkups(markups='mkup_pc', ownership='firm_ids')
     ],
     product_data=data,
-    demand_results=None,
+    demand_results=pyblp_results, #Only needed to create Cournot markups
     endogenous_cost_component='shares'
 )
 usm_results = usm_problem.solve(demand_adjustment=False, clustering_adjustment=True)
@@ -267,6 +268,7 @@ print(dearing_results)
 # analytical Jacobian path is valid.  The result should still clearly reject
 # PerfectCompetition in favour of Bertrand under the true Bertrand DGP.
 
+# Logit demand
 logit_problem = pyblp.Problem(
     pyblp.Formulation('1 + prices + x1 + x2'),
     product_data=data,
@@ -276,6 +278,8 @@ logit_alpha = float(logit_results.beta.flatten()[logit_results.beta_labels.index
 logit_beta  = logit_results.beta.flatten().tolist()
 demand_iv_cols = [c for c in data.columns if c.startswith('demand_instruments')]
 data['const']=1
+
+# Inputing demand estimates
 analytical_problem = pyRVtest.Problem(
     cost_formulation=pyRVtest.Formulation('1+z+shares'),
     instrument_formulation=[
@@ -299,6 +303,8 @@ analytical_results = analytical_problem.solve(
 )
 print("\nAnalytical demand_params path (Bertrand vs. PerfectCompetition):")
 print(analytical_results)
+
+
 
 # %% Passthrough diagnostic — per-model Villas-Boas matrix
 # Only Vertical models support passthrough_matrix in v0.4. The pairwise
@@ -361,8 +367,3 @@ labor_results = labor_problem.solve(clustering_adjustment=True)
 print("\nLabor-side conduct test (Monopsony vs. PerfectCompetition):")
 print(labor_results)
 
-# %% Save results
-results_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'monte_carlo_results.txt')
-with open(results_path, 'w') as f:
-    f.write(str(testing_results))
-print(f"\nResults written to {results_path}")

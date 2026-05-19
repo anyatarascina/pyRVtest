@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 import pyRVtest as pyRV
-import pickle
 from sklearn.decomposition import PCA
 
 dpath=lambda x: os.path.join('/home/md/Dropbox/Projects/RVpaper/RVpaper_complete/Data/',x)
@@ -86,8 +85,6 @@ def CostInstr(product_data):
 # %% Demand 
 product_data = pd.read_csv(dpath('product_data.csv'),na_values='NA',low_memory=False)
 agent_data = pd.read_csv(dpath('agent_data.csv'),na_values='NA',low_memory=False)
-
-monopoly=pyblp.build_ownership(product_data, 'monopoly')
 logit = pyblp.Formulation('prices+size+light+flavor_Plain+log_nflavors',
                               absorb='C(brand)+C(quarter)+C(store)')
 Z=['freight_cost','freightxinc','freight2xinc','incxlight',
@@ -105,12 +102,8 @@ problem = pyblp.Problem((logit,rc), product_data, demo, agent_data)
 rc_result = problem.solve(sigma=initial_sigma,pi=initial_pi,iteration=iteration,
                             optimization=optim, method='1s')
 
-#rc_result.to_pickle("/home/md/Desktop/RVpaper_demand.p")
-# with open("/home/md/Desktop/RVpaper_demand.p",'rb') as file:
-#     rc_result = pickle.load(file)
-
 # %% Data
-#product_data = pd.read_csv(dpath('product_data.csv'),low_memory=False)
+product_data = pd.read_csv(dpath('product_data.csv'),low_memory=False)
 
 # Instrument construction
 product_data['log_nflavors']=np.log(product_data['nflavors'])
@@ -136,11 +129,11 @@ Models=[
     pyRV.Monopoly(),
     pyRV.Bertrand(ownership='firm_ids'),
     pyRV.Vertical(
-         downstream=pyRV.Monopoly(ownership='firm_ids'),
+         downstream=pyRV.Monopoly(),
          upstream=pyRV.Bertrand(ownership='firm_ids'),
      ),
     pyRV.Vertical(
-         downstream=pyRV.Monopoly(ownership='firm_ids'),
+         downstream=pyRV.Monopoly(),
          upstream=pyRV.Bertrand(ownership='firm_ids'),
          vertical_integration='vertical_ids',
      )
