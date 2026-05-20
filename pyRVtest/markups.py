@@ -653,8 +653,8 @@ def _compute_mix_cournot_bertrand_markups(ownership_matrix, response_matrix, mix
     mkups_B = np.linalg.solve(O_BB * (D_BC @ D_CC_inv @ D_CB + D_BB), -shares_B)
 
     mkups = np.zeros((len(mix_flag), 1))
-    mkups[b] = mkups_B
-    mkups[c] = mkups_C
+    mkups[b] = mkups_B.reshape(-1, 1)
+    mkups[c] = mkups_C.reshape(-1, 1)
     return mkups
 
 

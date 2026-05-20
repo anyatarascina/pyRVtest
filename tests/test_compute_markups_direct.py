@@ -524,3 +524,33 @@ class TestBatchabilityMatrix:
             mix_flag=None,
             custom_model_specification=spec,
         ) is False
+
+
+class TestMixCournotBertrandShareShapes:
+    """The numerical-passthrough path calls
+    ``_compute_mix_cournot_bertrand_markups`` with 1D ``shares``, while the
+    legacy FOC dispatch in ``evaluate_first_order_conditions`` passes
+    column-shape ``(N, 1)``. Both must produce the same ``(N, 1)`` result.
+    """
+
+    def _fixture(self):
+        rng = np.random.default_rng(0)
+        J = 5
+        O = np.ones((J, J))
+        D = np.eye(J) * -2.0 + rng.standard_normal((J, J)) * 0.05
+        mix = np.array([True, False, True, False, True])
+        s = np.array([0.10, 0.20, 0.15, 0.25, 0.10])
+        return O, D, mix, s
+
+    def test_1d_shares_returns_column_vector(self):
+        from pyRVtest.markups import _compute_mix_cournot_bertrand_markups
+        O, D, mix, s = self._fixture()
+        m = _compute_mix_cournot_bertrand_markups(O, D, mix, s)
+        assert m.shape == (5, 1)
+
+    def test_1d_and_2d_shares_agree(self):
+        from pyRVtest.markups import _compute_mix_cournot_bertrand_markups
+        O, D, mix, s = self._fixture()
+        m_1d = _compute_mix_cournot_bertrand_markups(O, D, mix, s)
+        m_2d = _compute_mix_cournot_bertrand_markups(O, D, mix, s.reshape(-1, 1))
+        np.testing.assert_allclose(m_1d, m_2d)
