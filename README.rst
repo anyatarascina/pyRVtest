@@ -65,7 +65,7 @@ A complete pyRVtest run on a synthetic dataset shipped with the package
 (2 single-product firms × 3000 markets, simulated under perfect
 competition with logit demand). Tests four candidate conduct models
 (Bertrand, Cournot, Monopoly, Perfect Competition) using rival cost
-shifters as testing instruments per :ref:`references: Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024)`.
+shifters as testing instruments per Dearing, Magnolfi, Quint, Sullivan, and Waldfogel (2024).
 
 .. code-block:: python
 

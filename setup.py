@@ -29,6 +29,7 @@ setup(
     license='MIT',
     description='Code to perform econometric test of firm conduct',
     long_description=read('README.rst').split('docs-start')[1].strip(),
+    long_description_content_type='text/x-rst',
     include_package_data=True,
-    version='0.4.0rc15'
+    version='0.4.0b1'
 )
