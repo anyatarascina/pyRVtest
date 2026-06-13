@@ -135,11 +135,21 @@ def compute_analytical_jacobian(
 
     market_ids = np.asarray(product_data['market_ids']).flatten()
     shares = np.asarray(product_data['shares']).flatten()
-    markets = np.unique(market_ids)
     N = len(market_ids)
 
+    # One O(N log N) groupby instead of an O(N) scan per market (which made the
+    # old J_max reduction and the build loop below O(N * n_markets)). The sort
+    # is stable, so each market's contiguous segment of the sort order equals
+    # np.where(market_ids == t)[0] in its original row order -> bit-identical.
+    order = np.argsort(market_ids, kind='stable')
+    sorted_ids = market_ids[order]
+    change = np.concatenate(
+        ([0], np.flatnonzero(sorted_ids[1:] != sorted_ids[:-1]) + 1, [N])
+    )
+    segments = [order[change[k]:change[k + 1]] for k in range(len(change) - 1)]
+
     # Determine max products per market for NaN padding
-    J_max = max(np.sum(market_ids == t) for t in markets)
+    J_max = max((len(seg) for seg in segments), default=0)
 
     # Treat rho values of exactly 0 as plain logit (no nesting effect)
     rho = [s_val for s_val in rho if s_val > 0]
@@ -164,8 +174,7 @@ def compute_analytical_jacobian(
     # Build Jacobian market by market
     jacobian = np.full((N, J_max), np.nan)
 
-    for t in markets:
-        idx = np.where(market_ids == t)[0]
+    for idx in segments:
         J_t = len(idx)
         s_t = shares[idx]
 

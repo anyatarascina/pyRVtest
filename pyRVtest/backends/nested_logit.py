@@ -104,8 +104,11 @@ class NestedLogitBackend(LogitBackend):
         full = self._jacobian_cache
         if market_id is None:
             return full
-        mids = np.asarray(self._product_data['market_ids']).flatten()
-        idx = np.where(mids == market_id)[0]
+        # Reuse the inherited O(N log N) groupby cache (built once) instead of
+        # an O(N) np.where per call -- the base LogitBackend.compute_jacobian
+        # already does this; this override had regressed it back to per-call
+        # scanning, making it O(N * n_markets) across demand adjustment.
+        idx = self._ensure_market_indices()[market_id]
         block = full[idx]
         block = block[:, ~np.isnan(block).all(axis=0)]
         return block

@@ -239,8 +239,21 @@ def compute_demand_adjustment(
     # there is no behavior change for them.
     if analytical_models:
         dD_dtheta_per_market = backend.jacobian_gradient_all_markets()
+        # Build market -> row indices once with an O(N log N) stable-sort
+        # groupby, replacing an O(N) np.where per market (which made this loop
+        # O(N * n_markets)). Stable sort preserves within-market row order, so
+        # each segment equals np.where(market_ids == t)[0] -> bit-identical.
+        order = np.argsort(market_ids, kind='stable')
+        sorted_ids = market_ids[order]
+        change = np.concatenate(
+            ([0], np.flatnonzero(sorted_ids[1:] != sorted_ids[:-1]) + 1, [len(market_ids)])
+        )
+        idx_by_market = {
+            sorted_ids[change[k]]: order[change[k]:change[k + 1]]
+            for k in range(len(change) - 1)
+        }
         for t in markets:
-            idx = np.where(market_ids == t)[0]
+            idx = idx_by_market[t]
             J_t = idx.shape[0]
             s_t = shares_all[idx]
             D_t = backend.compute_jacobian(market_id=t)   # (J_t, J_t)
