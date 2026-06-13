@@ -99,7 +99,8 @@ class NestedLogitBackend(LogitBackend):
         if self._jacobian_cache is None:
             self._jacobian_cache = compute_analytical_jacobian(
                 self._alpha, self._rho, self._product_data,
-                nesting_ids_columns=self._nesting_ids_columns
+                nesting_ids_columns=self._nesting_ids_columns,
+                n_jobs=self._n_jobs,
             )
         full = self._jacobian_cache
         if market_id is None:

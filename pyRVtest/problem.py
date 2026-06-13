@@ -22,6 +22,7 @@ from .exceptions import ValidationError
 from .formulation import Absorb, Formulation, ModelFormulation
 from .markups import build_ownership
 from .models import _LABOR_SIDE_MODEL_NAMES, _PRODUCT_SIDE_MODEL_NAMES
+from ._parallel import resolve_n_jobs
 from .data import read_critical_values_tables
 from .products import Products
 from .results import ProblemResults, Progress
@@ -1707,6 +1708,7 @@ class Problem(Container, StringRepresentation):
             mc_correction: Optional[Array] = None,
             reliability_check: str = 'conditional',
             reliability_precision_dps: int = 50,
+            n_jobs: int = 1,
     ) -> ProblemResults:
         r"""Solve the problem.
 
@@ -1759,6 +1761,21 @@ class Problem(Container, StringRepresentation):
             comfortably above any cancellation a typical application can produce. Increase only if you have a
             specific reason; decreasing below ~20 may not buy enough margin to be worth the swap.
 
+        n_jobs: int
+            (optional, default is 1) Number of worker threads for the per-market loops on the
+            (nested-)logit solve path (the markups-stage Jacobian build and the demand-adjustment
+            gradient). 1 runs serially. -1 uses all available cores. Threads share the Jacobian
+            cache read-only and each market writes a disjoint output block, so results are
+            bit-identical to the serial path for any n_jobs; it never affects correctness.
+
+            Performance caveat: a speedup requires the per-market linear algebra to dominate, i.e.
+            many products per market, so the GIL-releasing NumPy work outweighs per-iteration Python
+            overhead. For the common case of few products per market (e.g. ~5 in store x week
+            scanner data) the per-market blocks are tiny, the loop is GIL-bound, and n_jobs > 1 can
+            be *slower* than serial — benchmark before enabling. On a free-threaded (no-GIL) CPython
+            build the threads scale much better. Has no effect on the PyBLP demand backend (whose
+            gradient pass is already batched).
+
         Returns
         -------
         `ProblemResults`
@@ -1786,6 +1803,16 @@ class Problem(Container, StringRepresentation):
         step_start_time = time.time()
 
         self._validate_solve_args(demand_adjustment, clustering_adjustment, costs_type)
+
+        # Opt-in threaded per-market loops. n_jobs=1 (default) is the serial
+        # path. resolve_n_jobs validates and maps -1 -> all cores. The value is
+        # stashed on the analytical demand backend so the markups-stage Jacobian
+        # build and jacobian_gradient_all_markets pick it up; it is also passed
+        # explicitly to compute_demand_adjustment below. Output is bit-identical
+        # for any n_jobs (each market writes disjoint memory).
+        n_jobs = resolve_n_jobs(n_jobs)
+        if self._demand_backend is not None and hasattr(self._demand_backend, '_n_jobs'):
+            self._demand_backend._n_jobs = n_jobs
 
         # F-stat reliability precision-check mode (2026-05-01 redesign).
         # See ``pyRVtest/solve/test_engine.py::compute_instrument_results``
@@ -1955,6 +1982,7 @@ class Problem(Container, StringRepresentation):
             ) = compute_demand_adjustment(
                 self._demand_backend, self, M, N, markups,
                 advalorem_tax_adj, cost_scaling, mc_base_for_grad,
+                n_jobs=n_jobs,
             )
 
             # Cost-transform chain rule. The demand-adjustment gradient

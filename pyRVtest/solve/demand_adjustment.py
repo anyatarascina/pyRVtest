@@ -24,6 +24,8 @@ from __future__ import annotations
 from typing import Any, Callable, List, Optional, Tuple, cast
 
 import numpy as np
+
+from .._parallel import for_each
 from numpy.typing import NDArray
 from typing_extensions import TypeAlias
 
@@ -106,6 +108,7 @@ def compute_demand_adjustment(
         advalorem_tax_adj: List[Any],
         cost_scaling: List[Any],
         marginal_cost_base: Optional[List[_NDArray]] = None,
+        n_jobs: int = 1,
 ) -> Tuple[_NDArray, _NDArray, _NDArray, _NDArray, _NDArray, Optional[List[_NDArray]]]:
     """Unified DMSS-eq.-(77) demand-adjustment gradient, generic over backend.
 
@@ -252,7 +255,21 @@ def compute_demand_adjustment(
             sorted_ids[change[k]]: order[change[k]:change[k + 1]]
             for k in range(len(change) - 1)
         }
-        for t in markets:
+        # Warm the backend's lazy caches in the main thread before any worker
+        # touches them (a concurrent first build would race). The serial
+        # jacobian_gradient_all_markets() call above already warms them for the
+        # analytical backends; this is a belt-and-braces guard for any backend
+        # exposing _ensure_market_indices. n_jobs is 1 for backends that do not
+        # set it (PyBLP / user-supplied), so they keep the serial path.
+        backend.compute_jacobian()
+        if hasattr(backend, '_ensure_market_indices'):
+            backend._ensure_market_indices()
+
+        # Each market writes a disjoint row block of gradient_markups[m], and
+        # idx_by_market / dD_dtheta_per_market / ownership / markups are
+        # read-only here, so the loop runs serially (n_jobs=1) or across threads
+        # with bit-identical output -- see pyRVtest._parallel.
+        def _process_market(t: Any) -> None:
             idx = idx_by_market[t]
             J_t = idx.shape[0]
             s_t = shares_all[idx]
@@ -275,6 +292,8 @@ def compute_demand_adjustment(
                     mix_flag_all[m], idx, J_t,
                 )
                 gradient_markups[m][idx, :] = d_mu_all
+
+        for_each(markets, _process_market, n_jobs)
 
     # --- 2b. Finite-diff for vertical / custom models ---
     if finite_diff_models:

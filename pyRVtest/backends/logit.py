@@ -40,6 +40,7 @@ from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 import numpy as np
 from pyblp.utilities.basics import Array
 
+from .._parallel import for_each
 from ..exceptions import DemandBackendError
 from ..solve.demand_adjustment import _residualize_on_xd
 
@@ -68,7 +69,8 @@ __all__ = [
 
 def compute_analytical_jacobian(
         alpha: float, rho: List[float], product_data: Mapping,
-        nesting_ids_columns: Optional[List[str]] = None
+        nesting_ids_columns: Optional[List[str]] = None,
+        n_jobs: int = 1,
 ) -> Array:
     """Compute the (N, J_max) NaN-padded demand Jacobian for logit/nested logit.
 
@@ -84,6 +86,10 @@ def compute_analytical_jacobian(
     nesting_ids_columns : list of str, optional
         Column names for nesting IDs, ordered finest to coarsest. If None and rho
         is non-empty, inferred from columns named 'nesting_ids*' in product_data.
+    n_jobs : int, default 1
+        Number of worker threads for the per-market build loop. 1 (default) runs
+        serially. Each market writes a disjoint row block, so the output is
+        bit-identical regardless of n_jobs. See :mod:`pyRVtest._parallel`.
 
     Returns
     -------
@@ -171,20 +177,22 @@ def compute_analytical_jacobian(
         for col in nesting_ids_columns:
             nesting_arrays.append(np.asarray(product_data[col]).flatten())
 
-    # Build Jacobian market by market
+    # Build Jacobian market by market. Each market writes a disjoint row block
+    # of `jacobian`, so the loop runs serially (n_jobs=1, the default) or across
+    # threads (n_jobs>1) with bit-identical output -- see pyRVtest._parallel.
     jacobian = np.full((N, J_max), np.nan)
 
-    for idx in segments:
+    def _build_market(idx: Array) -> None:
         J_t = len(idx)
         s_t = shares[idx]
-
         if L == 0:
             D_t = _logit_jacobian(alpha, s_t)
         else:
             nesting_t = [arr[idx] for arr in nesting_arrays]
             D_t = _nested_logit_jacobian(alpha, rho, s_t, nesting_t)
-
         jacobian[idx[:, None], np.arange(J_t)[None, :]] = D_t
+
+    for_each(segments, _build_market, n_jobs)
 
     return jacobian
 
@@ -604,6 +612,9 @@ class LogitBackend:
         self._mids_arr: Optional[Array] = None
         self._shares_arr: Optional[Array] = None
         self._market_index_cache: Optional[Dict[Any, Array]] = None
+        # Worker-thread count for the per-market loops. Set by Problem.solve
+        # from its n_jobs argument; 1 keeps the serial path.
+        self._n_jobs: int = 1
 
     def _ensure_market_indices(self) -> Dict[Any, Array]:
         if self._market_index_cache is None:
@@ -634,7 +645,8 @@ class LogitBackend:
     def compute_jacobian(self, market_id: Any = None) -> Array:
         if self._jacobian_cache is None:
             self._jacobian_cache = compute_analytical_jacobian(
-                self._alpha, [], self._product_data, nesting_ids_columns=None
+                self._alpha, [], self._product_data, nesting_ids_columns=None,
+                n_jobs=self._n_jobs,
             )
         full = self._jacobian_cache
         if market_id is None:
@@ -726,7 +738,19 @@ class LogitBackend:
         """
         market_ids = np.asarray(self._product_data['market_ids']).flatten()
         markets = np.unique(market_ids)
-        out: Dict[Any, Array] = {t: self.jacobian_gradient(t) for t in markets}
+        # Warm the lazy caches in the main thread before any worker touches
+        # them: jacobian_gradient -> compute_jacobian builds _jacobian_cache and
+        # _ensure_market_indices builds _market_index_cache. A concurrent first
+        # touch would race. After warming, every market is a pure read + a
+        # disjoint dict insert, so threading is safe and order-independent.
+        self.compute_jacobian()
+        self._ensure_market_indices()
+        out: Dict[Any, Array] = {}
+
+        def _grad_market(t: Any) -> None:
+            out[t] = self.jacobian_gradient(t)
+
+        for_each(markets, _grad_market, self._n_jobs)
         return out
 
     def jacobian_gradient(self, market_id: Any) -> Array:
