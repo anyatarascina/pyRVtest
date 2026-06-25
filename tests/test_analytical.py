@@ -511,6 +511,70 @@ class TestAlgebraWithFE:
         assert expected['TRV'] != no_fe['TRV'], "FE and no-FE TRV should differ"
 
 
+class TestAbsorbOnlyCostFormulation:
+    """Absorb-only cost spec (all shifters absorbed, zero-column w) is valid.
+
+    By Frisch-Waugh-Lovell, absorbing ``C(firm_ids)`` is equivalent to entering
+    the firm dummies as explicit cost shifters, so the two specifications must
+    produce identical test statistics. This exercises the relaxation that lets
+    pyRVtest construct ``Formulation('0', absorb='C(firm_ids)')`` (PyBLP rejects
+    it as "formula has no terms").
+    """
+
+    @pytest.fixture(scope='class')
+    def results_pair(self):
+        product_data, _ = _build_base_dgp()
+        model_formulations = (
+            pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids',
+                                      user_supplied_markups='markups_m1'),
+            pyRVtest.ModelFormulation(model_downstream='perfect_competition',
+                                      user_supplied_markups='markups_m2'),
+        )
+        instrument_formulation = pyRVtest.Formulation('0 + iv0 + iv1 + iv2')
+
+        def _solve(cost_formulation):
+            problem = pyRVtest.Problem(
+                cost_formulation=cost_formulation,
+                instrument_formulation=instrument_formulation,
+                model_formulations=model_formulations,
+                product_data=product_data,
+                demand_results=None,
+            )
+            results = problem.solve(demand_adjustment=False, clustering_adjustment=False)
+            return problem, results
+
+        explicit = _solve(pyRVtest.Formulation('0 + C(firm_ids)'))
+        absorbed = _solve(pyRVtest.Formulation('0', absorb='C(firm_ids)'))
+        return explicit, absorbed
+
+    def test_absorb_only_constructs(self, results_pair):
+        """The absorb-only Problem builds with a zero-column w and EC == 1."""
+        (_explicit_problem, _), (absorbed_problem, _) = results_pair
+        assert absorbed_problem.products.w.shape[1] == 0
+        assert absorbed_problem.EC == 1
+
+    def test_trv_matches_explicit_dummies(self, results_pair):
+        (_, explicit_results), (_, absorbed_results) = results_pair
+        np.testing.assert_allclose(
+            absorbed_results.TRV[0], explicit_results.TRV[0], atol=1e-8,
+            err_msg="absorb-only TRV must match explicit firm dummies (FWL)",
+        )
+
+    def test_f_matches_explicit_dummies(self, results_pair):
+        (_, explicit_results), (_, absorbed_results) = results_pair
+        np.testing.assert_allclose(
+            absorbed_results.F[0], explicit_results.F[0], atol=1e-8,
+            err_msg="absorb-only F must match explicit firm dummies (FWL)",
+        )
+
+    def test_mcs_matches_explicit_dummies(self, results_pair):
+        (_, explicit_results), (_, absorbed_results) = results_pair
+        np.testing.assert_allclose(
+            absorbed_results.MCS_pvalues[0], explicit_results.MCS_pvalues[0], atol=1e-8,
+            err_msg="absorb-only MCS p-values must match explicit firm dummies (FWL)",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Test class 3: Economies of scale (endogenous cost component)
 # ---------------------------------------------------------------------------

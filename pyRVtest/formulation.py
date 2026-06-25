@@ -1,12 +1,16 @@
 """Formulation of data matrices and absorption of fixed effects."""
 
 import warnings
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Type, Union
 
 import numpy as np
+import patsy
+import patsy.desc
 
 from pyblp.utilities.basics import Array  # noqa: F401
-from pyblp.configurations.formulation import Absorb, Formulation as _PyblpFormulation
+from pyblp.configurations.formulation import (
+    Absorb, Formulation as _PyblpFormulation, parse_term_expression, parse_terms,
+)
 
 from .exceptions import ValidationError
 
@@ -51,6 +55,16 @@ class Formulation(_PyblpFormulation):  # type: ignore[misc]  # pyblp has no stub
         specify two coefficients for the same column. Values must be
         finite.
 
+    A cost formulation whose cost shifters are *all* absorbed as fixed
+    effects (so the explicit cost-shifter matrix ``w`` has zero columns)
+    is also permitted, e.g. ``Formulation('0', absorb='C(firm_ids)')``.
+    PyBLP rejects this ("formula has no terms"); pyRVtest allows it
+    because, by Frisch-Waugh-Lovell, it is equivalent to entering the
+    fixed-effect dummies as explicit cost shifters. The relaxation only
+    triggers when ``absorb`` is set, so the absorbed dummies always span
+    a constant and the degenerate no-control / no-intercept case stays
+    rejected.
+
     Examples
     --------
     >>> from pyRVtest import Formulation
@@ -67,15 +81,63 @@ class Formulation(_PyblpFormulation):  # type: ignore[misc]  # pyblp has no stub
             absorb_options: Optional[Mapping[str, Any]] = None,
             known_coefficients: Optional[Dict[str, Union[float, int]]] = None,
     ) -> None:
-        super().__init__(
-            formula=formula,
-            absorb=absorb,
-            absorb_method=absorb_method,
-            absorb_options=absorb_options,
-        )
+        if absorb is not None and _main_formula_is_empty(formula):
+            # PyBLP's Formulation.__init__ raises "formula has no terms" when the
+            # main formula has no non-absorbed terms. pyRVtest permits this
+            # absorb-only case (every cost shifter is a fixed effect, leaving a
+            # zero-column w), so initialize the empty main design directly.
+            self._init_absorb_only(formula, absorb, absorb_method, absorb_options)
+        else:
+            super().__init__(
+                formula=formula,
+                absorb=absorb,
+                absorb_method=absorb_method,
+                absorb_options=absorb_options,
+            )
         self.known_coefficients: Dict[str, float] = _validate_known_coefficients(
             known_coefficients, formula,
         )
+
+    def _init_absorb_only(
+            self,
+            formula: str,
+            absorb: str,
+            absorb_method: Optional[str],
+            absorb_options: Optional[Mapping[str, Any]],
+    ) -> None:
+        """Initialize a Formulation whose main design is empty (all shifters absorbed).
+
+        Mirrors the field assignments in :meth:`pyblp.Formulation.__init__` for
+        the part following the "formula has no terms" guard, so the resulting
+        object is indistinguishable from a regular PyBLP Formulation apart from
+        the (intentionally) empty ``_terms``. ``_build_matrix`` then returns a
+        zero-column ``w``; ``_build_ids`` / ``_build_absorb`` use only the
+        populated ``_absorbed_terms``.
+        """
+        self._formula = formula
+        self._absorb = absorb
+        self._terms: List[Any] = []
+        self._absorbed_terms = parse_terms(f'{absorb} - 1')
+        self._expressions: List[Any] = []
+        self._absorbed_expressions = [parse_term_expression(t) for t in self._absorbed_terms]
+        self._names: Set[str] = set()
+        self._absorbed_names = {str(s) for e in self._absorbed_expressions for s in e.free_symbols}
+        # mirror PyBLP's guards so genuinely-bad specs still error
+        if not self._absorbed_terms or any(not e.free_symbols for e in self._absorbed_expressions):
+            origin = patsy.origin.Origin(absorb, 0, len(absorb))
+            raise patsy.PatsyError("absorb should not have any constant terms.", origin)
+        self._absorb_method = absorb_method
+        self._absorb_options: Mapping[str, Any] = absorb_options if absorb_options is not None else {}
+
+
+def _main_formula_is_empty(formula: str) -> bool:
+    """Return True if ``formula`` has no non-absorbed main terms.
+
+    PyBLP strips the intercept from the main terms when ``absorb`` is
+    present, so an intercept-only main formula (e.g. ``'1'``) also counts as
+    empty here. Mirrors the logic in :meth:`pyblp.Formulation.__init__`.
+    """
+    return not [t for t in parse_terms(formula) if t != patsy.desc.INTERCEPT]
 
 
 def _validate_known_coefficients(
