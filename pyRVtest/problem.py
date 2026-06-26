@@ -20,7 +20,7 @@ from pyblp.configurations.formulation import ColumnFormulation
 from . import options
 from .exceptions import ValidationError
 from .formulation import Absorb, Formulation, ModelFormulation
-from .markups import build_ownership
+from .markups import build_ownership, PhiMatrixData, MarkupDerivativeData
 from .models import _LABOR_SIDE_MODEL_NAMES, _PRODUCT_SIDE_MODEL_NAMES
 from ._parallel import resolve_n_jobs
 from .data import read_critical_values_tables
@@ -1709,6 +1709,8 @@ class Problem(Container, StringRepresentation):
             reliability_check: str = 'conditional',
             reliability_precision_dps: int = 50,
             n_jobs: int = 1,
+            phi_matrix: Optional[PhiMatrixData] = None,
+            markup_derivative: Optional[MarkupDerivativeData] = None,
     ) -> ProblemResults:
         r"""Solve the problem.
 
@@ -1776,6 +1778,23 @@ class Problem(Container, StringRepresentation):
             build the threads scale much better. Has no effect on the PyBLP demand backend (whose
             gradient pass is already batched).
 
+        phi_matrix: Optional[PhiMatrixData]
+            (optional, default is None) A precomputed demand-only "Phi" block from
+            :func:`pyRVtest.build_phi_matrix`. When supplied with ``demand_adjustment=True``,
+            the demand block (``H``, ``H_prime_wd``, ``h_i``, ``h``) is taken from this object
+            instead of being recomputed.
+        markup_derivative: Optional[MarkupDerivativeData]
+            (optional, default is None) A precomputed per-model markup gradient from
+            :func:`pyRVtest.build_markup_derivative`. When supplied with ``demand_adjustment=True``,
+            the RAW markup Jacobian is taken from this object and only the cheap solve-time transforms
+            (residualize on cost shifters, tax / cost-scaling, ``costs_type='log'`` rescale) are applied.
+
+            ``phi_matrix`` and ``markup_derivative`` are independently mixable: supply either, both,
+            or neither (neither -> compute inline, the default). Any piece not supplied is computed
+            inline. Each supplied object is validated against this Problem (dimensions, ``market_ids``
+            ordering, backend identity) and rejected on mismatch. Neither is supported with
+            ``endogenous_cost_component`` (raises). Both are ignored when ``demand_adjustment=False``.
+
         Returns
         -------
         `ProblemResults`
@@ -1802,7 +1821,10 @@ class Problem(Container, StringRepresentation):
         logger.info("Solving the problem ...")
         step_start_time = time.time()
 
-        self._validate_solve_args(demand_adjustment, clustering_adjustment, costs_type)
+        self._validate_solve_args(
+            demand_adjustment, clustering_adjustment, costs_type,
+            phi_matrix, markup_derivative,
+        )
 
         # Opt-in threaded per-market loops. n_jobs=1 (default) is the serial
         # path. resolve_n_jobs validates and maps -1 -> all cores. The value is
@@ -1972,7 +1994,56 @@ class Problem(Container, StringRepresentation):
         # -----------------------------------------------------------------
         gradient_markups = H_prime_wd = H = h_i = h = None
         gradient_gamma_per_instrument = None
-        if demand_adjustment:
+        if demand_adjustment and (phi_matrix is not None or markup_derivative is not None):
+            # Mixable precomputed path: take whichever pieces were supplied,
+            # compute the rest inline, then apply the cheap solve-time
+            # transforms. (Endogenous cost is rejected upstream.)
+            from .solve.demand_adjustment import (
+                apply_demand_adjustment_transforms, compute_demand_block,
+                compute_markup_jacobian_raw,
+            )
+            backend = self._demand_backend
+
+            # --- Demand block (Phi) ---
+            if phi_matrix is not None:
+                self._validate_phi_matrix(phi_matrix, N)
+                H, H_prime_wd, h, h_i = (
+                    phi_matrix.H, phi_matrix.H_prime_wd, phi_matrix.h, phi_matrix.h_i
+                )
+                if phi_matrix.dtype != 'float64':
+                    H = np.asarray(H, dtype=options.dtype)
+                    H_prime_wd = np.asarray(H_prime_wd, dtype=options.dtype)
+                    h = np.asarray(h, dtype=options.dtype)
+                    h_i = np.asarray(h_i, dtype=options.dtype)
+                n_theta = phi_matrix.n_theta
+            else:
+                H, H_prime_wd, h_i, h, n_theta = compute_demand_block(backend, N)
+
+            # --- Markup Jacobian ---
+            if markup_derivative is not None:
+                self._validate_markup_derivative(markup_derivative, M, N)
+                if markup_derivative.n_theta != n_theta:
+                    raise ValidationError(
+                        f"Expected markup_derivative.n_theta to match the demand "
+                        f"block's n_theta = {n_theta}. "
+                        f"Received markup_derivative.n_theta = {markup_derivative.n_theta}. "
+                        f"Fix: rebuild both objects from the same demand system."
+                    )
+                # Copy the cached RAW gradient before the transforms mutate it in
+                # place, so the supplied object stays reusable across solves.
+                gradient_markups = np.asarray(
+                    markup_derivative.gradient_markups_raw, dtype=options.dtype
+                ).copy()
+            else:
+                gradient_markups = compute_markup_jacobian_raw(
+                    backend, self.products, self.models, M, N, n_theta, markups,
+                    n_jobs=n_jobs,
+                )
+
+            apply_demand_adjustment_transforms(
+                gradient_markups, self, M, n_theta, advalorem_tax_adj, cost_scaling,
+            )
+        elif demand_adjustment:
             from .solve.demand_adjustment import compute_demand_adjustment
             mc_base_for_grad = (
                 marginal_cost_base if self.endogenous_cost_component is not None else None
@@ -1985,22 +2056,23 @@ class Problem(Container, StringRepresentation):
                 n_jobs=n_jobs,
             )
 
-            # Cost-transform chain rule. The demand-adjustment gradient
-            # captures d omega_m / d theta = f'(p - Delta_m) * (-d Delta_m / d theta)
-            # - q * (d gamma_m / d theta). For costs_type='linear' the cost
-            # transform is f(c) = c so f' = 1 and gradient_markups already
-            # represents the markup channel correctly. For costs_type='log'
-            # the cost transform is f(c) = log(c) so f'(p - Delta_m) =
-            # 1/(p - Delta_m); rescale gradient_markups elementwise by
-            # 1/marginal_cost_level so the variance term gets the right
-            # log-cost moment. The endogenous-cost gamma channel does not
-            # need rescaling here: gamma is already estimated in the LOG
-            # cost regression, so d omega_m / d gamma = -q in both cases.
-            if costs_type == "log":
-                # marginal_cost_level shape (M, N, 1) (per-model). Broadcast over n_theta.
-                for m in range(M):
-                    mc_m = marginal_cost_level[m].reshape(-1)  # (N,)
-                    gradient_markups[m] = gradient_markups[m] / mc_m[:, np.newaxis]
+        # Cost-transform chain rule (shared by the precomputed and inline
+        # paths). The demand-adjustment gradient captures
+        # d omega_m / d theta = f'(p - Delta_m) * (-d Delta_m / d theta)
+        # - q * (d gamma_m / d theta). For costs_type='linear' the cost
+        # transform is f(c) = c so f' = 1 and gradient_markups already
+        # represents the markup channel correctly. For costs_type='log'
+        # the cost transform is f(c) = log(c) so f'(p - Delta_m) =
+        # 1/(p - Delta_m); rescale gradient_markups elementwise by
+        # 1/marginal_cost_level so the variance term gets the right
+        # log-cost moment. The endogenous-cost gamma channel does not
+        # need rescaling here: gamma is already estimated in the LOG
+        # cost regression, so d omega_m / d gamma = -q in both cases.
+        if demand_adjustment and costs_type == "log":
+            # marginal_cost_level shape (M, N, 1) (per-model). Broadcast over n_theta.
+            for m in range(M):
+                mc_m = marginal_cost_level[m].reshape(-1)  # (N,)
+                gradient_markups[m] = gradient_markups[m] / mc_m[:, np.newaxis]
 
         # -----------------------------------------------------------------
         # Stage 5: test engine — RV, F, MCS per instrument set.
@@ -2089,8 +2161,44 @@ class Problem(Container, StringRepresentation):
     def _validate_solve_args(
             self, demand_adjustment: bool, clustering_adjustment: bool,
             costs_type: Optional[str] = 'linear',
+            phi_matrix: Optional[PhiMatrixData] = None,
+            markup_derivative: Optional[MarkupDerivativeData] = None,
     ) -> None:
         """Validate arguments passed to solve."""
+        precompute_args = (
+            ('phi_matrix', phi_matrix, PhiMatrixData),
+            ('markup_derivative', markup_derivative, MarkupDerivativeData),
+        )
+        for name, obj, expected_type in precompute_args:
+            if obj is None:
+                continue
+            builder = (
+                'build_phi_matrix' if name == 'phi_matrix'
+                else 'build_markup_derivative'
+            )
+            if not isinstance(obj, expected_type):
+                raise TypeError(
+                    f"Expected {name} to be a {expected_type.__name__} from "
+                    f"pyRVtest.{builder}. "
+                    f"Received {type(obj).__name__}. "
+                    f"Fix: pass the object returned by {builder}(...), or omit {name}."
+                )
+            if not demand_adjustment:
+                raise ValueError(
+                    f"Expected demand_adjustment=True when {name} is supplied (the "
+                    f"precomputed object is only used by the first-stage correction). "
+                    f"Received {name} with demand_adjustment=False. "
+                    f"Fix: pass demand_adjustment=True, or omit {name}."
+                )
+            if self.endogenous_cost_component is not None:
+                raise NotImplementedError(
+                    f"Expected endogenous_cost_component to be None when {name} is "
+                    f"supplied; its gamma gradient is instrument-set specific and not "
+                    f"part of the precompute. "
+                    f"Received a Problem with endogenous_cost_component set. "
+                    f"Fix: call solve(demand_adjustment=True) without {name} for "
+                    f"endogenous-cost models."
+                )
         if not isinstance(demand_adjustment, bool):
             raise TypeError(
                 f"Expected demand_adjustment to be True or False. "
@@ -2189,6 +2297,80 @@ class Problem(Container, StringRepresentation):
                         "system instead."
                     )
 
+    def _check_precompute_provenance(self, data: Any, name: str, builder: str) -> None:
+        """Shared market-ordering / backend-identity guard for precompute objects.
+
+        Guards against the silent-corruption failure modes: a reordered
+        ``product_data`` (row order is positional) and an object built from a
+        different demand system / backend.
+        """
+        from .markups import _hash_market_ids, _backend_signature
+
+        current_hash = _hash_market_ids(self.products.market_ids)
+        if data.market_ids_hash != current_hash:
+            raise ValidationError(
+                f"Expected {name} to match this Problem's market_ids row ordering "
+                f"(the precomputed arrays are positional). "
+                f"Received an object whose market_ids hash differs. "
+                f"Fix: rebuild with {builder}(...) using the same product_data "
+                f"(same row order) as this Problem."
+            )
+        current_sig = _backend_signature(self._demand_backend, data.N)
+        if data.backend_signature != current_sig:
+            raise ValidationError(
+                f"Expected {name} built with the same demand backend as this Problem "
+                f"({current_sig}). "
+                f"Received {data.backend_signature}. "
+                f"Fix: rebuild with {builder}(...) on this Problem's demand system."
+            )
+
+    def _validate_phi_matrix(self, data: PhiMatrixData, N: int) -> None:
+        """Validate a precomputed ``PhiMatrixData`` against this Problem."""
+        if data.N != N:
+            raise ValidationError(
+                f"Expected phi_matrix built for N={N}. Received N={data.N}. "
+                f"Fix: rebuild with build_phi_matrix(...) on this product_data."
+            )
+        K_z = int(np.shape(data.h_i)[1])
+        expected_shapes = {
+            'H': (K_z, data.n_theta),
+            'H_prime_wd': (data.n_theta, K_z),
+            'h_i': (N, K_z),
+            'h': (K_z, 1),
+        }
+        for name, expected in expected_shapes.items():
+            actual = tuple(np.shape(getattr(data, name)))
+            if actual != expected:
+                raise ValidationError(
+                    f"Expected phi_matrix.{name} to have shape {expected}. "
+                    f"Received shape {actual}. "
+                    f"Fix: rebuild with build_phi_matrix(...)."
+                )
+        self._check_precompute_provenance(data, 'phi_matrix', 'build_phi_matrix')
+
+    def _validate_markup_derivative(
+            self, data: MarkupDerivativeData, M: int, N: int,
+    ) -> None:
+        """Validate a precomputed ``MarkupDerivativeData`` against this Problem."""
+        if (data.N, data.M) != (N, M):
+            raise ValidationError(
+                f"Expected markup_derivative built for N={N}, M={M}. "
+                f"Received N={data.N}, M={data.M}. "
+                f"Fix: rebuild with build_markup_derivative(model_formulations, ...) "
+                f"using this Problem's models and product_data."
+            )
+        actual = tuple(np.shape(data.gradient_markups_raw))
+        expected = (M, N, data.n_theta)
+        if actual != expected:
+            raise ValidationError(
+                f"Expected markup_derivative.gradient_markups_raw to have shape "
+                f"{expected}. Received shape {actual}. "
+                f"Fix: rebuild with build_markup_derivative(...)."
+            )
+        self._check_precompute_provenance(
+            data, 'markup_derivative', 'build_markup_derivative'
+        )
+
     def _construct_demand_backend(self):
         """Build the backend from demand_results / demand_params / demand_backend at Problem init.
 
@@ -2212,186 +2394,19 @@ class Problem(Container, StringRepresentation):
           - ``demand_params is not None`` with empty or all-zero rho ->
             ``LogitBackend``.
 
-        Demand-adjustment state (beta, x_columns, demand_instrument_columns, W_demand)
-        is forwarded when present so `SupportsDemandAdjustment` methods work. The raw
-        `product_data` (not the structured `Products` recarray) is passed because the
-        backends need access to arbitrary columns like `nesting_ids`, `x1`, etc.
+        Delegates to :func:`pyRVtest.backends.factory.make_demand_backend` so
+        the routing has one source of truth shared with the standalone
+        precompute helpers (``build_phi_matrix`` / ``build_markup_derivative``).
+        The raw ``product_data`` (not the structured ``Products`` recarray) is
+        passed because the backends need arbitrary columns like ``nesting_ids``,
+        ``x1``, etc.
         """
-        if self._user_demand_backend is not None:
-            return self._user_demand_backend
-        if self.demand_results is not None:
-            return self._backend_from_demand_results(self.demand_results)
-
-        if self.demand_params is not None:
-            dp = self.demand_params
-            rho_nonzero = [s for s in dp.get('rho', []) if s > 0]
-            # Auto-augment product_data with a literal '1' column if any
-            # x_columns / demand_instrument_columns reference it but the
-            # raw data does not (mirrors `_backend_from_demand_results` for
-            # the `Formulation('1 + ...')` path so the LogitEstimator output
-            # works without users hand-adding an intercept column).
-            raw = self._product_data_raw
-            referenced = list(dp.get('x_columns') or []) + list(
-                dp.get('demand_instrument_columns') or []
-            )
-            if '1' in referenced and '1' not in self._raw_product_data_columns(raw):
-                raw = self._augment_with_intercept_column(raw)
-            shared_kwargs = dict(
-                alpha=dp['alpha'],
-                product_data=raw,
-                beta=dp.get('beta'),
-                x_columns=dp.get('x_columns'),
-                demand_instrument_columns=dp.get('demand_instrument_columns'),
-                W_demand=dp.get('W_demand'),
-            )
-            if rho_nonzero:
-                from .backends.nested_logit import NestedLogitBackend
-                return NestedLogitBackend(
-                    rho=dp.get('rho', []),
-                    nesting_ids_columns=dp.get('nesting_ids_columns'),
-                    **shared_kwargs,
-                )
-            from .backends.logit import LogitBackend
-            return LogitBackend(**shared_kwargs)
-
-        return None
-
-    def _backend_from_demand_results(self, r):
-        """Route pyblp ProblemResults to the best-matched backend.
-
-        * **Plain logit** (``K2==0`` and ``r.rho.size==0``): try routing
-          to ``LogitBackend``. Precision gain is modest (pyblp's finite-
-          diff of ``d(D)/d(alpha)`` is ~O(1e-9) accurate because D is
-          linear in alpha at fixed shares) but routing keeps the code
-          path consistent with the nested case.
-
-        * **Single-scalar-rho nested logit** (``K2==0`` and ``r.rho.size==1``):
-          try routing to ``NestedLogitBackend(rho=[rho])``. Analytical
-          ``d(D)/d(rho)`` is exact; pyblp's finite-diff has genuine
-          O(eps^2) truncation error because D is nonlinear in rho.
-          Precision gain is material.
-
-        * **Per-nest rho** (``K2==0`` and ``r.rho.size>1``): stay on
-          ``PyBLPBackend``. AFSSZ L=1 formulation has one rho (nesting
-          parameter); pyblp's Cardell-Nevo formulation has one rho per
-          nest. The derivatives ``d(D)/d(rho_h)`` don't match the
-          AFSSZ ``d(D)/d(rho_1)``.
-
-        * **BLP** (``K2>0``): stay on ``PyBLPBackend``. No analytical
-          ``d(D)/d(theta)`` through the BLP contraction mapping.
-
-        Falls back to ``PyBLPBackend`` if the raw product_data doesn't
-        carry the columns the analytical backend needs (e.g., pyblp-
-        generated fixed-effect dummies).
-        """
-        from .backends.pyblp import PyBLPBackend
-        K2 = r.problem.K2
-        if K2 > 0:
-            return PyBLPBackend(r)
-        rho_arr = np.atleast_1d(np.asarray(r.rho).flatten())
-        # Per-nest rho -> stay on PyBLPBackend.
-        if rho_arr.size > 1:
-            return PyBLPBackend(r)
-
-        # Plain logit (rho.size == 0) or single-scalar-rho nested logit
-        # (rho.size == 1): try analytical. Extract shared state.
-        beta_labels = list(r.beta_labels)
-        if 'prices' not in beta_labels:
-            return PyBLPBackend(r)
-        price_idx = beta_labels.index('prices')
-        alpha = float(np.asarray(r.beta).flatten()[price_idx])
-        x_columns = [lab for lab in beta_labels if lab != 'prices']
-        beta_full = np.asarray(r.beta).flatten()
-        beta_nonprice = np.asarray(
-            [b for b, lab in zip(beta_full, beta_labels) if lab != 'prices']
-        )
-
-        # pyblp's ZD dtype does not carry sub-column names as a 3-tuple; we
-        # need names to feed `demand_instrument_columns`. Infer from the
-        # raw product_data: `demand_instrumentsN` columns + non-price X1
-        # columns, matching pyblp's default ZD construction. If the inferred
-        # count does not match the actual ZD width, the user passed a
-        # custom ZD formulation and we should bail.
-        raw = self._product_data_raw
-        raw_cols = self._raw_product_data_columns(raw)
-        excluded_instrument_cols = sorted(
-            [c for c in raw_cols if str(c).startswith('demand_instruments')]
-        )
-        inferred_zd_cols = excluded_instrument_cols + x_columns
-        expected_n_zd = r.problem.products.ZD.shape[1]
-        if len(inferred_zd_cols) != expected_n_zd:
-            return PyBLPBackend(r)
-
-        # pyblp's `Formulation('1 + ...')` packs a literal '1' column in X1 / ZD.
-        # Synthesize it if that's the only missing column.
-        needed = set(x_columns + inferred_zd_cols)
-        missing = needed - raw_cols
-        if missing == {'1'}:
-            raw = self._augment_with_intercept_column(raw)
-        elif missing:
-            return PyBLPBackend(r)
-
-        weight_choice = getattr(options, 'demand_adjustment_weight', 'W')
-        W_demand = r.W if weight_choice == 'W' else r.updated_W
-
-        shared_kwargs = dict(
-            alpha=alpha,
-            product_data=raw,
-            beta=beta_nonprice,
-            x_columns=x_columns,
-            demand_instrument_columns=inferred_zd_cols,
-            W_demand=W_demand,
-        )
-
-        if rho_arr.size == 1:
-            from .backends.nested_logit import NestedLogitBackend
-            return NestedLogitBackend(
-                rho=[float(rho_arr[0])],
-                nesting_ids_columns=None,  # backend infers from product_data
-                **shared_kwargs,
-            )
-        from .backends.logit import LogitBackend
-        return LogitBackend(**shared_kwargs)
-
-    @staticmethod
-    def _raw_product_data_columns(raw):
-        """Return the column names of the raw product_data regardless of whether
-        it's a DataFrame, structured recarray, or dict.
-        """
-        if hasattr(raw, 'columns'):
-            return set(map(str, raw.columns))
-        if hasattr(raw, 'dtype') and raw.dtype.names:
-            return set(raw.dtype.names)
-        if hasattr(raw, 'keys'):
-            return set(raw.keys())
-        return set()
-
-    @staticmethod
-    def _augment_with_intercept_column(raw):
-        """Return a copy of raw product_data with a '1' column (all ones).
-
-        pyblp's `Formulation('1 + ...')` packs a literal '1' column into X1/ZD.
-        Users typically don't include a column literally named '1' in their
-        product_data; synthesize it for the analytical-backend path. Never
-        mutates the input.
-        """
-        import pandas as pd
-        if hasattr(raw, 'assign'):  # DataFrame
-            return raw.assign(**{'1': 1.0})
-        if hasattr(raw, 'dtype') and raw.dtype.names:
-            df = pd.DataFrame({name: raw[name] for name in raw.dtype.names})
-            df['1'] = 1.0
-            return df
-        if hasattr(raw, 'keys'):
-            out = {k: raw[k] for k in raw.keys()}
-            any_col = next(iter(out.values()))
-            out['1'] = np.ones(len(any_col))
-            return out
-        raise TypeError(
-            f"pyRVtest internal error: expected product_data to be a pandas "
-            f"DataFrame, a structured numpy array, or a dict-like mapping for "
-            f"intercept augmentation. "
-            f"Received {type(raw).__name__}."
+        from .backends.factory import make_demand_backend
+        return make_demand_backend(
+            self._product_data_raw,
+            demand_results=self.demand_results,
+            demand_params=self.demand_params,
+            demand_backend=self._user_demand_backend,
         )
 
     def _perturb_and_build_markups(self):

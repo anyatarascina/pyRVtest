@@ -12,6 +12,9 @@ The features covered:
    test under several testing-IV bundles in one call.
 #. :ref:`Demand adjustment and clustering <advanced-da-cluster>` —
    first-stage and clustering corrections to the test variance.
+#. :ref:`Precomputing the demand adjustment <advanced-precompute-da>` —
+   cache the first-stage correction once and reuse it across many
+   solves on large datasets.
 #. :ref:`F-stat reliability inspection <advanced-f-reliability>` —
    per-cell DMSS critical values and the strongest reliability claim
    :math:`F` supports.
@@ -152,6 +155,85 @@ When to use:
   dependence (markets, time periods, geographies). Set the
   ``clustering_ids`` column on the product data to whatever level you
   want to cluster at.
+
+
+.. _advanced-precompute-da:
+
+Precomputing the demand adjustment (large datasets)
+---------------------------------------------------
+
+On large datasets the first-stage demand-estimation correction is the
+dominant cost of ``solve(demand_adjustment=True)``, and it is rebuilt
+on every call. When you run many tests on the *same* demand system —
+sweeping instrument sets or candidate models — precompute the two
+correction objects once and plug them into each solve. Both builders are
+standalone (like :func:`~pyRVtest.build_markups`): they take raw
+``product_data`` plus a fitted demand object, **not** a constructed
+``Problem``, so they do not depend on ``cost_formulation`` /
+``instrument_formulation`` and are reused across any cost spec and
+instrument set.
+
+* :func:`~pyRVtest.build_phi_matrix` — the demand-only "Phi" block (DMSS
+  Appendix C eq. 77). Depends only on demand; reusable across every
+  conduct model and instrument set.
+* :func:`~pyRVtest.build_markup_derivative` — the per-model
+  ``d markup / d theta`` Jacobian. Depends on demand + the candidate
+  models. Stored RAW (before the cheap residualize / tax / log
+  transforms, which are reapplied at solve time), so one object is valid
+  across ``costs_type='linear'`` / ``'log'`` and tax configurations.
+
+.. code-block:: python
+
+   # Expensive steps, run once from raw data + a fitted demand object.
+   phi = pyRVtest.build_phi_matrix(
+       product_data, demand_results=pyblp_results,
+   )
+   md = pyRVtest.build_markup_derivative(
+       model_formulations, product_data, demand_results=pyblp_results,
+   )
+
+   # Build the Problem(s) and re-solve cheaply across specifications.
+   problem = pyRVtest.Problem(
+       cost_formulation=pyRVtest.Formulation('1 + w1'),
+       instrument_formulation=[z0, z1, z2],   # several instrument sets
+       model_formulations=model_formulations,
+       product_data=product_data,
+       demand_results=pyblp_results,
+   )
+   results = problem.solve(
+       demand_adjustment=True, phi_matrix=phi, markup_derivative=md,
+   )
+
+``phi_matrix`` and ``markup_derivative`` are independently mixable:
+supply either, both, or neither. Anything you omit is computed inline,
+so you can, e.g., reuse one ``phi_matrix`` across different model sets
+while recomputing the markup derivative each time. In-package logit /
+nested-logit demand works identically — pass ``demand_params=...``
+instead of ``demand_results=`` to both builders.
+
+The results are plain dataclasses of NumPy arrays; pickle them and
+reload with :func:`~pyRVtest.read_pickle`:
+
+.. code-block:: python
+
+   import pickle
+   with open('phi.pkl', 'wb') as fh:
+       pickle.dump(phi, fh)
+   phi = pyRVtest.read_pickle('phi.pkl')
+
+Notes and limits:
+
+* Each object is validated against the solving Problem (dimensions,
+  ``market_ids`` row ordering, demand-backend identity) and rejected on
+  mismatch — rebuild if you change the demand system or reorder
+  ``product_data``. The model order passed to
+  :func:`~pyRVtest.build_markup_derivative` must match the Problem's.
+* ``store_float32=True`` roughly halves the memory / pickle size of the
+  large array in each object; numerics are upcast to float64 at solve
+  time, so expect ~1e-6 agreement rather than bit-identity.
+* Not supported with ``endogenous_cost_component`` (the gamma gradient
+  is instrument-set specific); supplying a precompute object then raises,
+  and you should solve without precompute.
 
 
 .. _advanced-f-reliability:

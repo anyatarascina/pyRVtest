@@ -52,6 +52,7 @@ pyRVtest/
 ├── products.py             # Products class
 ├── formulation.py          # Formulation (pyblp re-export), ModelFormulation (deprecated)
 ├── markups.py              # build_markups (public), _compute_markups (internal),
+│                           #   build_phi_matrix + build_markup_derivative (precompute),
 │                           #   construct_passthrough_matrix, build_ownership,
 │                           #   evaluate_first_order_conditions (legacy string dispatch)
 ├── output.py               # format_table and logging shim
@@ -82,8 +83,15 @@ pyRVtest/
 │   ├── user_supplied.py    # UserSuppliedMarkups (pre-computed markup column wrapper)
 │   ├── labor.py            # Monopsony, BertrandWages, CournotEmployment, NashBargaining
 │   └── _adapter.py         # Legacy ModelFormulation → ConductModel translation
+├── backends/
+│   └── factory.py          # make_demand_backend: product_data + demand_results/params
+│                           #   -> backend (shared by Problem + the precompute builders)
 ├── solve/
 │   ├── demand_adjustment.py # Unified DMSS 2024 eq. 77 first-stage correction
+│   │                        # (split: compute_demand_block + compute_markup_jacobian_raw
+│   │                        #  + apply_demand_adjustment_transforms; orchestrated by
+│   │                        #  compute_demand_adjustment, reused by build_phi_matrix /
+│   │                        #  build_markup_derivative)
 │   ├── passthrough.py       # build_passthrough public helper
 │   ├── markups.py           # Per-model markup stage
 │   ├── orthogonalize.py     # Orthogonalization stage
@@ -355,6 +363,22 @@ by purpose:
   for scale + scope). `K_inst > K_endog` enforced per testing-IV
   bundle. Combinable with `costs_type='log'` and
   `demand_adjustment=True`.
+- **v0.4 precomputed demand adjustment:** two standalone builders
+  mirroring `build_markups` (raw `product_data` + demand results/params,
+  no `Problem` needed): `build_phi_matrix(...)` -> `PhiMatrixData` (the
+  demand-only block `H`/`H_prime_wd`/`h_i`/`h`, DMSS Appendix C eq. 77)
+  and `build_markup_derivative(model_formulations, ...)` ->
+  `MarkupDerivativeData` (the RAW per-model `d markup / d theta`, before
+  residualize / tax / log). Plug into
+  `solve(demand_adjustment=True, phi_matrix=..., markup_derivative=...)`;
+  the two kwargs are independently mixable (omit either -> computed
+  inline). RAW boundary means one object is valid across `costs_type`
+  and tax configs / instrument sets. Each is validated against the
+  Problem (dimensions, `market_ids` ordering, backend identity). NOT
+  supported with `endogenous_cost_component` (gamma gradient is
+  instrument-set specific) — raises. Backend construction is shared via
+  `backends/factory.py::make_demand_backend`. See
+  `docs/advanced_features.rst` (`advanced-precompute-da`).
 - **v0.4 agent guide exporter:** `show_agent_guide`.
 - **v0.4 exception hierarchy:** `PyRVTestError`, `ValidationError`,
   `InstrumentDataError`, `BackendError`, `DemandBackendError`,

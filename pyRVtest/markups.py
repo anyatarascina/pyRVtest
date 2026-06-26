@@ -1,6 +1,8 @@
 """Markup computation."""
 
 import contextlib
+from dataclasses import dataclass
+import hashlib
 import os
 from pathlib import Path
 import pickle
@@ -9,7 +11,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Union
 import numpy as np
 from numpy.linalg import inv
 import pyblp
-from pyblp.utilities.basics import Array, RecArray
+from pyblp.utilities.basics import Array, extract_matrix, RecArray
 
 from . import options
 
@@ -685,3 +687,290 @@ def read_pickle(path: Union[str, Path]) -> object:
     """
     with open(path, 'rb') as handle:
         return pickle.load(handle)
+
+
+def _hash_market_ids(market_ids: Array) -> str:
+    """Stable hash of the ``market_ids`` row ordering for precompute validation.
+
+    The precomputed markup Jacobian and per-observation demand moment are
+    positional (row ``i`` corresponds to product row ``i``), so a reordered
+    ``product_data`` would silently corrupt results. Hashing the raw bytes plus
+    dtype/shape lets :meth:`Problem.solve` reject a mismatched object.
+    """
+    arr = np.ascontiguousarray(np.asarray(market_ids).reshape(-1))
+    digest = hashlib.sha1()
+    digest.update(str(arr.dtype).encode())
+    digest.update(str(arr.shape).encode())
+    digest.update(arr.tobytes())
+    return digest.hexdigest()
+
+
+def _backend_signature(backend: Any, N: int) -> str:
+    """Identity string for the demand backend used to build a precompute object.
+
+    Combines the concrete backend class name with the observation count so that
+    plugging an object built with one demand system / backend into a Problem
+    with a different one (or a different sample size) is rejected. ``n_theta`` is
+    cross-checked separately at solve time.
+    """
+    return f"{type(backend).__name__}|N={N}"
+
+
+@dataclass
+class PhiMatrixData:
+    """Precomputed demand-only "Phi" block of the first-stage correction.
+
+    Produced by :func:`build_phi_matrix` from ``product_data`` plus a fitted
+    demand object — independent of the conduct models, the cost specification,
+    and the instrument sets. Pass it into
+    ``Problem.solve(demand_adjustment=True, phi_matrix=...)`` to skip recomputing
+    the demand block (DMSS 2024 Appendix C eq. 77, where
+    ``Phi = (H' Wᴰ H)⁻¹ H' Wᴰ``) on every solve.
+
+    Attributes
+    ----------
+    H : ndarray
+        ``(K_z, n_theta)`` moment Jacobian.
+    H_prime_wd : ndarray
+        ``(n_theta, K_z)`` equal to ``H.T @ W_D``.
+    h_i : ndarray
+        ``(N, K_z)`` per-observation demand moment ``Z_D * xi``.
+    h : ndarray
+        ``(K_z, 1)`` aggregate demand moment.
+    N, n_theta, K_z : int
+        Dimensions, stored for validation against the solving Problem.
+    market_ids_hash : str
+        Hash of the build-time ``market_ids`` ordering (row-order guard).
+    backend_signature : str
+        Identity of the demand backend used to build the object.
+    dtype : str
+        ``'float64'`` (default) or ``'float32'`` (when built with
+        ``store_float32=True``); ``h_i`` is upcast to float64 at solve time so
+        only ~1e-6 round-off is introduced.
+    """
+
+    H: Array
+    H_prime_wd: Array
+    h_i: Array
+    h: Array
+    N: int
+    n_theta: int
+    K_z: int
+    market_ids_hash: str
+    backend_signature: str
+    dtype: str = 'float64'
+
+
+@dataclass
+class MarkupDerivativeData:
+    """Precomputed per-model markup gradient ``d markup / d theta``.
+
+    Produced by :func:`build_markup_derivative` from ``model_formulations`` +
+    ``product_data`` + a fitted demand object — independent of the cost
+    specification, the instrument sets, taxes, and ``costs_type``. The stored
+    Jacobian is RAW (before the cheap residualize / tax transforms, which are
+    reapplied at solve time so one object works across cost specs). Pass it into
+    ``Problem.solve(demand_adjustment=True, markup_derivative=...)``.
+
+    Attributes
+    ----------
+    gradient_markups_raw : ndarray
+        ``(M, N, n_theta)`` raw markup gradient before residualize / tax.
+    N, M, n_theta : int
+        Dimensions, stored for validation against the solving Problem.
+    market_ids_hash : str
+        Hash of the build-time ``market_ids`` ordering (row-order guard).
+    backend_signature : str
+        Identity of the demand backend used to build the object.
+    dtype : str
+        ``'float64'`` (default) or ``'float32'`` (when built with
+        ``store_float32=True``); upcast to float64 at solve time.
+    """
+
+    gradient_markups_raw: Array
+    N: int
+    M: int
+    n_theta: int
+    market_ids_hash: str
+    backend_signature: str
+    dtype: str = 'float64'
+
+
+def build_phi_matrix(
+        product_data: Any,
+        demand_results: Optional[Mapping] = None,
+        demand_params: Optional[dict] = None,
+        demand_backend: Optional[Any] = None,
+        *,
+        store_float32: bool = False,
+) -> PhiMatrixData:
+    r"""Precompute the demand-only "Phi" block of the first-stage correction.
+
+    Standalone analogue of :func:`build_markups`: it takes raw ``product_data``
+    and a fitted demand object — NOT a constructed :class:`~pyRVtest.Problem` —
+    so it is independent of ``cost_formulation`` / ``instrument_formulation``.
+    The result is reusable across every conduct model, instrument set, and
+    ``costs_type``. Pass it into
+    ``Problem.solve(demand_adjustment=True, phi_matrix=...)``.
+
+    Provide exactly one of ``demand_results`` / ``demand_params`` /
+    ``demand_backend`` (the same demand inputs :class:`~pyRVtest.Problem`
+    accepts). The demand object must carry the first-stage-correction state
+    (``beta`` / ``x_columns`` / ``demand_instrument_columns``), exactly as
+    ``solve(demand_adjustment=True)`` requires; the backend raises otherwise.
+
+    Parameters
+    ----------
+    product_data : `structured array-like`
+        Product data with at least ``market_ids``, ``shares``, ``prices``, and
+        the demand regressor / instrument columns the demand object references.
+    demand_results : `structured array-like, optional`
+        A fitted ``pyblp.ProblemResults`` object.
+    demand_params : `dict, optional`
+        An in-package demand-parameter dict (``alpha`` plus ``rho`` / ``beta`` /
+        ``x_columns`` / ``demand_instrument_columns`` / ``W_demand`` ...).
+    demand_backend : `object, optional`
+        A pre-built demand backend.
+    store_float32 : `bool, optional`
+        Store ``h_i`` (the large array) in single precision; upcast at solve.
+
+    Returns
+    -------
+    `PhiMatrixData`
+        A picklable container (reload with :func:`read_pickle`).
+
+    Examples
+    --------
+    >>> import pyRVtest  # doctest: +SKIP
+    >>> phi = pyRVtest.build_phi_matrix(  # doctest: +SKIP
+    ...     product_data, demand_results=nl_results,
+    ... )
+    """
+    from .backends.factory import make_demand_backend
+    from .solve.demand_adjustment import compute_demand_block
+
+    backend = make_demand_backend(
+        product_data, demand_results=demand_results,
+        demand_params=demand_params, demand_backend=demand_backend,
+    )
+    market_ids = extract_matrix(product_data, 'market_ids')
+    N = int(np.asarray(market_ids).shape[0])
+
+    H, H_prime_wd, h_i, h, n_theta = compute_demand_block(backend, N)
+    K_z = int(h_i.shape[1])
+
+    if store_float32:
+        h_i = h_i.astype(np.float32)
+        dtype = 'float32'
+    else:
+        dtype = 'float64'
+
+    return PhiMatrixData(
+        H=H, H_prime_wd=H_prime_wd, h_i=h_i, h=h,
+        N=N, n_theta=n_theta, K_z=K_z,
+        market_ids_hash=_hash_market_ids(market_ids),
+        backend_signature=_backend_signature(backend, N),
+        dtype=dtype,
+    )
+
+
+def build_markup_derivative(
+        model_formulations: Any,
+        product_data: Any,
+        demand_results: Optional[Mapping] = None,
+        demand_params: Optional[dict] = None,
+        demand_backend: Optional[Any] = None,
+        *,
+        n_jobs: int = 1,
+        store_float32: bool = False,
+) -> MarkupDerivativeData:
+    r"""Precompute the per-model markup gradient ``d markup / d theta``.
+
+    Standalone analogue of :func:`build_markups`: it takes ``model_formulations``
+    + raw ``product_data`` + a fitted demand object — NOT a constructed
+    :class:`~pyRVtest.Problem` — so it is independent of ``cost_formulation`` /
+    ``instrument_formulation``. The stored Jacobian is RAW (the cheap
+    residualize / tax / ``costs_type='log'`` transforms are reapplied at solve
+    time), so one object is reused across cost specs, taxes, and instrument
+    sets. Pass it into
+    ``Problem.solve(demand_adjustment=True, markup_derivative=...)``.
+
+    Unlike :func:`build_phi_matrix`, this does NOT need the demand-side
+    first-stage state (``beta`` / ``x_columns`` / ``demand_instrument_columns``);
+    only the demand parameters that drive ``d(D)/d(theta)`` (``alpha`` / ``rho``,
+    or a full ``demand_results``) are required.
+
+    Parameters
+    ----------
+    model_formulations : `sequence of ModelFormulation / ConductModel`
+        The candidate conduct models (same objects passed to
+        :class:`~pyRVtest.Problem`). The order must match the solving Problem.
+    product_data : `structured array-like`
+        Product data with at least ``market_ids``, ``shares``, ``prices``, and
+        any columns the models / demand object reference.
+    demand_results, demand_params, demand_backend
+        The demand object, as in :func:`build_phi_matrix`.
+    n_jobs : `int, optional`
+        Worker threads for the per-market Jacobian loop on the (nested-)logit
+        backend, mirroring ``Problem.solve(n_jobs=...)``. Default 1 (serial).
+    store_float32 : `bool, optional`
+        Store the Jacobian in single precision; upcast at solve.
+
+    Returns
+    -------
+    `MarkupDerivativeData`
+        A picklable container (reload with :func:`read_pickle`).
+
+    Examples
+    --------
+    >>> import pyRVtest  # doctest: +SKIP
+    >>> md = pyRVtest.build_markup_derivative(  # doctest: +SKIP
+    ...     model_formulations, product_data, demand_results=nl_results,
+    ... )
+    """
+    from .problem import Models  # local import avoids circular dependency
+    from .backends.factory import make_demand_backend
+    from .solve.demand_adjustment import compute_markup_jacobian_raw
+
+    backend = make_demand_backend(
+        product_data, demand_results=demand_results,
+        demand_params=demand_params, demand_backend=demand_backend,
+    )
+    if not hasattr(model_formulations, '__len__'):
+        model_formulations = [model_formulations]
+    models = Models(model_formulations, product_data)
+
+    market_ids = extract_matrix(product_data, 'market_ids')
+    N = int(np.asarray(market_ids).shape[0])
+    M = len(models["models_downstream"])
+    n_theta = int(backend.n_parameters)
+
+    # Markups at the estimated parameters (the analytical Jacobian uses mu_t in
+    # its implicit-differentiation RHS). Computed via the demand backend so they
+    # match what Problem.solve produces.
+    markups, _, _ = _compute_markups(
+        product_data, None,
+        models["models_downstream"], models["ownership_downstream"],
+        models["models_upstream"], models["ownership_upstream"],
+        models["vertical_integration"], models["custom_model_specification"],
+        models["user_supplied_markups"], models["mix_flag"],
+        demand_backend=backend, constant_markup=models["constant_markup"],
+    )
+
+    gradient_markups_raw = compute_markup_jacobian_raw(
+        backend, product_data, models, M, N, n_theta, markups, n_jobs=n_jobs,
+    )
+
+    if store_float32:
+        gradient_markups_raw = gradient_markups_raw.astype(np.float32)
+        dtype = 'float32'
+    else:
+        dtype = 'float64'
+
+    return MarkupDerivativeData(
+        gradient_markups_raw=gradient_markups_raw,
+        N=N, M=M, n_theta=n_theta,
+        market_ids_hash=_hash_market_ids(market_ids),
+        backend_signature=_backend_signature(backend, N),
+        dtype=dtype,
+    )

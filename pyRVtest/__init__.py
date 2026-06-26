@@ -4,6 +4,7 @@ Exports the main user API: ``Problem``, ``Formulation``,
 ``ModelFormulation``, ``ProblemResults``, the ``ConductModel`` class
 hierarchy, the in-package logit / nested-logit estimators, and the
 helper functions ``build_markups``, ``build_ownership``,
+``build_phi_matrix``, ``build_markup_derivative``,
 ``construct_passthrough_matrix``, ``evaluate_first_order_conditions``,
 and ``read_pickle``.
 """
@@ -63,8 +64,9 @@ from .exceptions import (
 )
 from .formulation import Formulation, ModelFormulation
 from .markups import (
-    build_ownership, build_markups, construct_passthrough_matrix,
-    evaluate_first_order_conditions, read_pickle
+    build_ownership, build_markups, build_phi_matrix, build_markup_derivative,
+    PhiMatrixData, MarkupDerivativeData,
+    construct_passthrough_matrix, evaluate_first_order_conditions, read_pickle
 )
 from .models import (
     Bertrand, BertrandWages, ConductModel, ConstantMarkup, Cournot, CournotEmployment,
@@ -79,7 +81,9 @@ from ._agent_guide import show_agent_guide
 from .version import __version__
 
 __all__ = [
-    'data', 'options', 'build_ownership', 'build_markups', 'construct_passthrough_matrix',
+    'data', 'options', 'build_ownership', 'build_markups', 'build_phi_matrix',
+    'build_markup_derivative', 'PhiMatrixData', 'MarkupDerivativeData',
+    'construct_passthrough_matrix',
     'evaluate_first_order_conditions', 'read_pickle', 'Formulation', 'ModelFormulation', 'Problem', 'Models',
     'Products', 'ProblemResults', 'PanelResults', '__version__',
     'backends', 'estimators', 'instruments', 'models', 'solve',

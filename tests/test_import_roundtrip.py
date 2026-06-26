@@ -89,6 +89,7 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
         'LaborSupplyBackend',
     ]),
     ('pyRVtest.backends.base', ['DemandBackend', 'SupportsDemandAdjustment']),
+    ('pyRVtest.backends.factory', ['make_demand_backend']),
     ('pyRVtest.backends.pyblp', ['PyBLPBackend']),
     ('pyRVtest.backends.logit', [
         'compute_analytical_jacobian', 'compute_analytical_hessian',
@@ -155,7 +156,11 @@ _STEP_1_SKELETON_MODULES: list[tuple[str, list[str]]] = [
     ('pyRVtest.solve.orthogonalize', ['qr_residualize', 'residualize']),
     # v0.4 step 8c: endogenous-cost stage populated.
     ('pyRVtest.solve.endogenous_cost', ['iv_correct']),
-    ('pyRVtest.solve.demand_adjustment', ['_residualize_on_xd', 'compute_demand_adjustment']),  # v0.4 4b + 4d
+    ('pyRVtest.solve.demand_adjustment', [
+        '_residualize_on_xd', 'compute_demand_adjustment',
+        'compute_demand_block', 'compute_markup_jacobian_raw',
+        'apply_demand_adjustment_transforms',
+    ]),  # v0.4 4b + 4d; precompute split adds the three helpers
     # v0.4 step 8d: test-engine stage populated.
     ('pyRVtest.solve.test_engine', [
         'compute_block_gram', 'compute_instrument_results', 'compute_mcs', 'extract_block',

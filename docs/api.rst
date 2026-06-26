@@ -329,6 +329,10 @@ Helpers for ownership matrices, markups, and reading pickled results.
 
    build_ownership
    build_markups
+   build_phi_matrix
+   build_markup_derivative
+   PhiMatrixData
+   MarkupDerivativeData
    construct_passthrough_matrix
    evaluate_first_order_conditions
    read_pickle

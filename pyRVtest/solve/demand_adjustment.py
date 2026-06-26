@@ -30,7 +30,13 @@ from numpy.typing import NDArray
 from typing_extensions import TypeAlias
 
 
-__all__ = ['_residualize_on_xd', 'compute_demand_adjustment']
+__all__ = [
+    '_residualize_on_xd',
+    'compute_demand_adjustment',
+    'compute_demand_block',
+    'compute_markup_jacobian_raw',
+    'apply_demand_adjustment_transforms',
+]
 
 
 _NDArray: TypeAlias = NDArray[Any]
@@ -164,9 +170,47 @@ def compute_demand_adjustment(
     """
     # Local imports (avoid circular: solve/demand_adjustment is imported by
     # backends/pyblp for _residualize_on_xd; backends is the other direction).
-    from ..backends.base import SupportsDemandAdjustment
     from ..markups import _compute_markups
-    from .. import options
+
+    backend = _validate_adjustment_backend(backend)
+
+    # 1. Demand-side quantities from the backend (model-/instrument-independent).
+    H, H_prime_wd, h_i, h, n_theta = compute_demand_block(backend, N)
+
+    # 2. RAW per-model markup gradient (before residualize/tax — the expensive
+    #    part, independent of cost spec / taxes / costs_type).
+    gradient_markups = compute_markup_jacobian_raw(
+        backend, problem.products, problem.models, M, N, n_theta, markups,
+        n_jobs=n_jobs,
+    )
+
+    # 3 + 3b. Cheap transforms in place: residualize on cost shifters, then
+    #    apply the per-model tax / cost-scaling factor.
+    apply_demand_adjustment_transforms(
+        gradient_markups, problem, M, n_theta, advalorem_tax_adj, cost_scaling
+    )
+
+    # 4. Gamma gradient for endogenous cost — finite-diff per demand parameter.
+    gradient_gamma_per_instrument: Optional[List[_NDArray]] = None
+    if problem.endogenous_cost_component is not None and marginal_cost_base is not None:
+        gradient_gamma_per_instrument = _compute_gamma_gradient(
+            backend, problem, M, N, n_theta,
+            advalorem_tax_adj, cost_scaling, _compute_markups,
+        )
+
+    return gradient_markups, H_prime_wd, H, h_i, h, gradient_gamma_per_instrument
+
+
+def _validate_adjustment_backend(backend: Any) -> Any:
+    """Reject backends without ``SupportsDemandAdjustment`` and cast to ``Any``.
+
+    The Protocol only declares ``demand_moments``, ``xi_gradient``, and
+    ``perturbed``; analytical-path calls (``compute_jacobian``,
+    ``jacobian_gradient``) live on the concrete backend classes and are always
+    present when the model path exercises them. Cast to ``Any`` for the
+    downstream backend calls.
+    """
+    from ..backends.base import SupportsDemandAdjustment
 
     if not isinstance(backend, SupportsDemandAdjustment):
         raise TypeError(
@@ -179,46 +223,87 @@ def compute_demand_adjustment(
             f"Fix: supply beta / x_columns / demand_instrument_columns when "
             f"constructing the backend, or call Problem.solve(demand_adjustment=False)."
         )
-    # After the isinstance check, backend is a SupportsDemandAdjustment. The
-    # Protocol only declares `demand_moments`, `xi_gradient`, and `perturbed`;
-    # analytical-path calls (`compute_jacobian`, `jacobian_gradient`) live on
-    # the concrete backend classes and are always present when the model path
-    # exercises them. Cast to Any for the downstream backend calls.
-    backend = cast(Any, backend)
+    return cast(Any, backend)
 
-    # -----------------------------------------------------------------
-    # 1. Demand-side quantities from the backend.
-    # -----------------------------------------------------------------
+
+def compute_demand_block(
+        backend: Any, N: int,
+) -> Tuple[_NDArray, _NDArray, _NDArray, _NDArray, int]:
+    """Demand-only block of the first-stage correction (DMSS eq. 77).
+
+    These quantities depend only on the estimated demand system — not on the
+    conduct model, the instrument set, the cost specification, taxes, or
+    ``costs_type`` — so they can be precomputed once and reused across every
+    test (see :func:`pyRVtest.build_phi_matrix`).
+
+    Parameters
+    ----------
+    backend
+        A backend implementing ``SupportsDemandAdjustment``.
+    N
+        Total number of observations.
+
+    Returns
+    -------
+    tuple
+        ``(H, H_prime_wd, h_i, h, n_theta)`` where ``H`` is ``(K_z, n_theta)``,
+        ``H_prime_wd`` is ``(n_theta, K_z)``, ``h_i`` is ``(N, K_z)``, ``h`` is
+        ``(K_z, 1)``, and ``n_theta`` is the number of demand parameters.
+    """
     xi, Z_D, W_D = backend.demand_moments()
     xi_col = np.asarray(xi).reshape(-1, 1)  # normalize to (N, 1) regardless of backend
     partial_xi_theta = backend.xi_gradient()
-    n_theta = partial_xi_theta.shape[1]
+    n_theta = int(partial_xi_theta.shape[1])
     H = (1.0 / N) * Z_D.T @ partial_xi_theta
     H_prime_wd = H.T @ W_D
     h_i = Z_D * xi_col
     h = (1.0 / N) * Z_D.T @ xi_col
+    return H, H_prime_wd, h_i, h, n_theta
 
-    # -----------------------------------------------------------------
-    # 2. Markup gradient per model per theta.
-    #
-    # Standard downstream-only models (bertrand / cournot / monopoly /
-    # mix_cournot_bertrand without custom spec, without upstream): use
-    # implicit differentiation of the model's FOC. This is the general
-    # form that works for ALL theta columns (alpha and sigma together)
-    # via `backend.jacobian_gradient(t)` supplying dD/d(theta).
-    #
-    # Vertical / custom models: finite-diff via `backend.perturbed(k, delta)`.
-    # -----------------------------------------------------------------
+
+def compute_markup_jacobian_raw(
+        backend: Any, products: Any, models: Any, M: int, N: int, n_theta: int,
+        markups: List[_NDArray], n_jobs: int = 1,
+) -> _NDArray:
+    """RAW per-model markup gradient ``d(markup)/d(theta)``, shape ``(M, N, n_theta)``.
+
+    This is the expensive part of the demand adjustment. It is returned BEFORE
+    residualization on cost shifters and BEFORE the tax / cost-scaling factor,
+    so it is independent of the cost specification, taxes, and ``costs_type``
+    and can be cached and reused across tests.
+
+    Problem-independent: ``products`` is any product-data container (the
+    ``Problem.products`` recarray or a raw ``product_data`` mapping — only
+    ``market_ids`` / ``shares`` are read, plus arbitrary columns for the
+    finite-diff path), and ``models`` is the ``Models`` mapping (from
+    ``Models(model_formulations, product_data)`` or ``problem.models``).
+
+    ``markups`` are the per-model raw markups at the estimated parameters (each
+    shape ``(N, 1)``); ``mu_t`` enters the implicit-differentiation right-hand
+    side for the analytical models. The caller supplies them so this matches the
+    markups used elsewhere.
+
+    Standard downstream-only models (bertrand / cournot / monopoly /
+    mix_cournot_bertrand without custom spec, without upstream) use implicit
+    differentiation of the model's FOC via ``backend.jacobian_gradient``.
+    Vertical / custom models use finite differences via ``backend.perturbed``.
+    """
+    from ..markups import _compute_markups
+    from .. import options
+    from pyblp.utilities.basics import extract_matrix
+
+    backend = _validate_adjustment_backend(backend)
+
     gradient_markups = np.zeros((M, N, n_theta), dtype=options.dtype)
-    market_ids = np.asarray(problem.products.market_ids).flatten()
+    market_ids = np.asarray(extract_matrix(products, 'market_ids')).flatten()
     markets = np.unique(market_ids)
-    shares_all = np.asarray(problem.products.shares).flatten()
+    shares_all = np.asarray(extract_matrix(products, 'shares')).flatten()
 
-    models_downstream = problem.models["models_downstream"]
-    ownership_downstream = problem.models["ownership_downstream"]
-    models_upstream = problem.models["models_upstream"]
-    custom_spec = problem.models["custom_model_specification"]
-    mix_flag_all = problem.models["mix_flag"]
+    models_downstream = models["models_downstream"]
+    ownership_downstream = models["ownership_downstream"]
+    models_upstream = models["models_upstream"]
+    custom_spec = models["custom_model_specification"]
+    mix_flag_all = models["mix_flag"]
 
     analytical_models: List[int] = []
     finite_diff_models: List[int] = []
@@ -300,24 +385,34 @@ def compute_demand_adjustment(
         eps = options.finite_differences_epsilon
         for k in range(n_theta):
             markups_up, _, _ = _perturb_and_rebuild_markups(
-                backend, problem, k, +eps / 2, _compute_markups
+                backend, products, models, k, +eps / 2, _compute_markups
             )
             markups_dn, _, _ = _perturb_and_rebuild_markups(
-                backend, problem, k, -eps / 2, _compute_markups
+                backend, products, models, k, -eps / 2, _compute_markups
             )
             for m in finite_diff_models:
                 gradient_markups[m][:, k] = (
                     markups_up[m].flatten() - markups_dn[m].flatten()
                 ) / eps
 
-    # -----------------------------------------------------------------
-    # 3. Residualize gradient_markups on cost shifters (FWL, matches both
-    #    inline paths; linear so order doesn't matter).
-    # -----------------------------------------------------------------
+    return gradient_markups
+
+
+def apply_demand_adjustment_transforms(
+        gradient_markups: _NDArray, problem: Any, M: int, n_theta: int,
+        advalorem_tax_adj: List[Any], cost_scaling: List[Any],
+) -> None:
+    """In-place cheap transforms of the raw markup gradient (residualize + tax).
+
+    Applied at solve time (so a precomputed RAW gradient is reusable across
+    cost specs / tax configs). Both operations are linear, so their order does
+    not affect the result; the order matches the original inline implementation
+    for byte-level snapshot equivalence.
+    """
+    # --- 3. Residualize gradient_markups on cost shifters (FWL). ---
     _residualize_grad_on_cost_shifters(gradient_markups, problem, M, n_theta)
 
-    # -----------------------------------------------------------------
-    # 3b. Apply tax / cost-scaling factor.
+    # --- 3b. Apply tax / cost-scaling factor. ---
     #
     # ``Problem.solve`` defines ``markups_effective[m] = (advalorem_tax_adj[m] /
     # (1 + cost_scaling[m])) * markups[m]`` and the downstream GMM moment uses
@@ -337,19 +432,6 @@ def compute_demand_adjustment(
         )
         if not np.allclose(factor_col, 1.0):
             gradient_markups[m] = gradient_markups[m] * factor_col
-
-    # -----------------------------------------------------------------
-    # 4. Gamma gradient for endogenous cost — finite-diff per demand
-    # parameter. Applies tax adjustment per PyBLP convention.
-    # -----------------------------------------------------------------
-    gradient_gamma_per_instrument: Optional[List[_NDArray]] = None
-    if problem.endogenous_cost_component is not None and marginal_cost_base is not None:
-        gradient_gamma_per_instrument = _compute_gamma_gradient(
-            backend, problem, M, N, n_theta,
-            advalorem_tax_adj, cost_scaling, _compute_markups,
-        )
-
-    return gradient_markups, H_prime_wd, H, h_i, h, gradient_gamma_per_instrument
 
 
 # =====================================================================
@@ -447,26 +529,29 @@ def _analytical_markup_derivative(
 
 
 def _perturb_and_rebuild_markups(
-        backend: Any, problem: Any, theta_index: int, delta: float,
+        backend: Any, products: Any, models: Any, theta_index: int, delta: float,
         compute_markups_fn: Callable[..., Any],
 ) -> Tuple[List[_NDArray], List[_NDArray], List[_NDArray]]:
     """Enter ``backend.perturbed(theta_index, delta)`` and call ``_compute_markups``.
 
-    Returns the full ``(markups, markups_down, markups_up)`` tuple.
+    ``products`` is the product-data container passed as the first
+    ``_compute_markups`` argument (``Problem.products`` or a raw
+    ``product_data`` mapping); ``models`` is the ``Models`` mapping. Returns the
+    full ``(markups, markups_down, markups_up)`` tuple.
     """
     with backend.perturbed(theta_index, delta) as perturbed_backend:
         result: Tuple[List[_NDArray], List[_NDArray], List[_NDArray]] = compute_markups_fn(
-            problem.products, None,  # pyblp_results unused when demand_backend supplied
-            problem.models["models_downstream"],
-            problem.models["ownership_downstream"],
-            problem.models["models_upstream"],
-            problem.models["ownership_upstream"],
-            problem.models["vertical_integration"],
-            problem.models["custom_model_specification"],
-            problem.models["user_supplied_markups"],
-            problem.models["mix_flag"],
+            products, None,  # pyblp_results unused when demand_backend supplied
+            models["models_downstream"],
+            models["ownership_downstream"],
+            models["models_upstream"],
+            models["ownership_upstream"],
+            models["vertical_integration"],
+            models["custom_model_specification"],
+            models["user_supplied_markups"],
+            models["mix_flag"],
             demand_backend=perturbed_backend,
-            constant_markup=problem.models["constant_markup"],
+            constant_markup=models["constant_markup"],
         )
         return result
 
@@ -557,10 +642,10 @@ def _compute_gamma_gradient(
 
     for k in range(n_theta):
         markups_up, _, _ = _perturb_and_rebuild_markups(
-            backend, problem, k, +eps / 2, compute_markups_fn
+            backend, problem.products, problem.models, k, +eps / 2, compute_markups_fn
         )
         markups_dn, _, _ = _perturb_and_rebuild_markups(
-            backend, problem, k, -eps / 2, compute_markups_fn
+            backend, problem.products, problem.models, k, -eps / 2, compute_markups_fn
         )
         # Tax-adjust perturbed markups before computing mc (PyBLP convention).
         markups_up_adj = [
