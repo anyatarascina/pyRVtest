@@ -304,6 +304,57 @@ analytical_results = analytical_problem.solve(
 print("\nAnalytical demand_params path (Bertrand vs. PerfectCompetition):")
 print(analytical_results)
 
+# %% Precomputed demand-adjustment path (build_phi_matrix / build_markup_derivative)
+# The first-stage demand-estimation correction can be precomputed ONCE from raw
+# product_data + a fitted demand object — no constructed Problem needed — and
+# then reused across conduct models, instrument sets, and cost specs. The two
+# pieces are:
+#   - phi_matrix:        the demand-only "Phi" block (needs the demand
+#                        first-stage state: beta / x_columns /
+#                        demand_instrument_columns).
+#   - markup_derivative: the per-model d(markup)/d(theta) Jacobian (needs only
+#                        the parameters that drive d(D)/d(theta): alpha / rho).
+# Precompute is incompatible with endogenous_cost_component, so this block omits
+# it; 'shares' therefore enters the cost formulation as an exogenous shifter.
+
+# Full demand spec used to BUILD the objects (same one the analytical path used).
+full_demand_params = {
+    'x_columns': ['const', 'x1', 'x2'],
+    'alpha': logit_alpha,
+    'beta': [logit_beta[i] for i in [0, 2, 3]],
+    'rho': [],                               # plain logit (no nesting)
+    'demand_instrument_columns': demand_iv_cols,
+}
+precompute_models = [pyRVtest.Bertrand(ownership='firm_ids'), pyRVtest.PerfectCompetition()]
+
+# Build once from the Monte Carlo data; both objects are picklable and reusable.
+phi = pyRVtest.build_phi_matrix(data, demand_params=full_demand_params)
+md = pyRVtest.build_markup_derivative(precompute_models, data, demand_params=full_demand_params)
+
+# Solve with BOTH precomputed objects. Because both are supplied, the Problem's
+# demand_params only needs the parameters that drive the markup LEVELS (alpha /
+# rho) — the first-stage state (beta / x_columns / demand_instrument_columns) is
+# no longer required (it lives inside phi_matrix). One precompute serves both
+# instrument sets.
+precompute_problem = pyRVtest.Problem(
+    cost_formulation=pyRVtest.Formulation('1+z+shares'),
+    instrument_formulation=[
+        pyRVtest.Formulation('0+x1+x2+' + instr_form0),
+        pyRVtest.Formulation('0+x1+x2+' + instr_form1),
+    ],
+    models=precompute_models,
+    product_data=data,
+    demand_params={'alpha': logit_alpha, 'rho': []},   # minimal: markup levels only
+)
+precompute_results = precompute_problem.solve(
+    demand_adjustment=True,
+    clustering_adjustment=True,
+    phi_matrix=phi,
+    markup_derivative=md,
+)
+print("\nPrecomputed demand-adjustment path (Bertrand vs. PerfectCompetition):")
+print(precompute_results)
+
 
 
 # %% Passthrough diagnostic — per-model Villas-Boas matrix

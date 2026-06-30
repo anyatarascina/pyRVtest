@@ -344,3 +344,41 @@ class TestValidation:
                 problem.solve(demand_adjustment=True, phi_matrix=phi)
         finally:
             problem.endogenous_cost_component = None
+
+    def test_both_objects_skip_demand_state_requirement(
+        self, logit_dgp_and_estimation
+    ):
+        """Fully-precomputed path: a Problem whose demand_params omits the
+        first-stage state (beta / x_columns / demand_instrument_columns) must
+        solve when BOTH phi_matrix and markup_derivative are supplied, since
+        neither inline routine that reads those keys runs."""
+        data, pyblp_results, alpha, beta_x = logit_dgp_and_estimation
+        full_dp = _demand_params(pyblp_results, alpha, beta_x)
+        # Same backend type + N as full_dp (so provenance matches), but missing
+        # the three demand-adjustment-state keys.
+        minimal_dp = {"alpha": alpha, "rho": []}
+        problem = pyRVtest.Problem(
+            **_common(data, pyRVtest.Formulation("0 + rival_x1 + rival_z1")),
+            demand_params=minimal_dp,
+        )
+        phi = pyRVtest.build_phi_matrix(data, demand_params=full_dp)
+        md = pyRVtest.build_markup_derivative(_models(), data, demand_params=full_dp)
+        # Must not raise about missing demand-adjustment state.
+        problem.solve(demand_adjustment=True, phi_matrix=phi, markup_derivative=md)
+
+    def test_markup_only_still_requires_demand_state(
+        self, logit_dgp_and_estimation
+    ):
+        """Regression: without phi_matrix the inline demand block runs, so the
+        gate must still require the first-stage state even when a precomputed
+        markup_derivative is supplied."""
+        data, pyblp_results, alpha, beta_x = logit_dgp_and_estimation
+        full_dp = _demand_params(pyblp_results, alpha, beta_x)
+        minimal_dp = {"alpha": alpha, "rho": []}
+        problem = pyRVtest.Problem(
+            **_common(data, pyRVtest.Formulation("0 + rival_x1 + rival_z1")),
+            demand_params=minimal_dp,
+        )
+        md = pyRVtest.build_markup_derivative(_models(), data, demand_params=full_dp)
+        with pytest.raises(ValueError, match="without a precomputed phi_matrix"):
+            problem.solve(demand_adjustment=True, markup_derivative=md)

@@ -2263,7 +2263,14 @@ class Problem(Container, StringRepresentation):
                 )
         # demand_adjustment + endogenous_cost_component is now supported; the gradient
         # accounts for the dependence of gamma_m on theta via per-instrument finite differences.
-        if demand_adjustment and self.demand_params is not None:
+        # The demand first-stage state (beta / x_columns /
+        # demand_instrument_columns) is consumed only by the inline demand block
+        # (compute_demand_block -> backend.demand_moments / xi_gradient), which
+        # runs only when phi_matrix is not supplied. When a precomputed
+        # phi_matrix is passed, H / h_i come straight off it and these keys are
+        # never read, so do not require them. (The markup Jacobian path never
+        # reads them; markup_derivative is irrelevant here.)
+        if demand_adjustment and self.demand_params is not None and phi_matrix is None:
             # Validate that demand adjustment extras are provided
             dp = self.demand_params
             missing = []
@@ -2277,11 +2284,12 @@ class Problem(Container, StringRepresentation):
                 raise ValueError(
                     f"Expected demand_params to carry demand-adjustment state "
                     f"(beta, x_columns, demand_instrument_columns) when "
-                    f"Problem.solve(demand_adjustment=True) is called. "
+                    f"Problem.solve(demand_adjustment=True) is called without a "
+                    f"precomputed phi_matrix. "
                     f"Received demand_params missing: {', '.join(missing)}. "
-                    f"Fix: add the missing keys to demand_params, or call "
-                    f"solve(demand_adjustment=False) (these inputs are only needed "
-                    f"for the first-stage correction)."
+                    f"Fix: add the missing keys to demand_params, pass a phi_matrix "
+                    f"built with build_phi_matrix(...), or call "
+                    f"solve(demand_adjustment=False)."
                 )
         for m in range(self.M):
             if self._models[m].user_supplied_markups is not None:
