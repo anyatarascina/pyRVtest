@@ -9,4 +9,4 @@ True
 True
 """
 
-__version__ = '0.4.0b4'
+__version__ = '0.4.0b5'
