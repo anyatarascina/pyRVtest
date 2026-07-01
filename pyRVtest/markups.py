@@ -690,18 +690,22 @@ def read_pickle(path: Union[str, Path]) -> object:
 
 
 def _hash_market_ids(market_ids: Array) -> str:
-    """Stable hash of the ``market_ids`` row ordering for precompute validation.
+    """Stable, dtype-independent hash of the ``market_ids`` row ordering.
 
     The precomputed markup Jacobian and per-observation demand moment are
-    positional (row ``i`` corresponds to product row ``i``), so a reordered
-    ``product_data`` would silently corrupt results. Hashing the raw bytes plus
-    dtype/shape lets :meth:`Problem.solve` reject a mismatched object.
+    positional (row ``i`` corresponds to product row ``i``), so this hash must
+    reject a reordered or differently-sized ``product_data``. It must NOT reject
+    one whose ids merely carry a different dtype: ``Problem`` canonicalizes
+    ``market_ids`` to an object array internally, while :func:`build_phi_matrix`
+    / :func:`build_markup_derivative` hash the caller's frame (often ``int32`` /
+    ``int64``). Hashing the ordered string values plus the row count makes
+    ``int32``, ``int64``, ``object``, and ``str`` representations of the same
+    ids agree, while still catching reordering and count/shape changes.
     """
-    arr = np.ascontiguousarray(np.asarray(market_ids).reshape(-1))
+    arr = np.asarray(market_ids).reshape(-1)
     digest = hashlib.sha1()
-    digest.update(str(arr.dtype).encode())
-    digest.update(str(arr.shape).encode())
-    digest.update(arr.tobytes())
+    digest.update(str(arr.shape[0]).encode())
+    digest.update('\x1f'.join(map(str, arr.tolist())).encode('utf-8'))
     return digest.hexdigest()
 
 

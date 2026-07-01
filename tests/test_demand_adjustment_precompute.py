@@ -326,6 +326,31 @@ class TestValidation:
                 phi_matrix=dataclasses.replace(phi, market_ids_hash="deadbeef"),
             )
 
+    def test_hash_market_ids_is_dtype_independent(self):
+        """The row-ordering hash must ignore dtype but catch reorder/resize.
+
+        ``Problem`` canonicalizes ``market_ids`` to an ``object`` array, while
+        the builders hash the caller's frame (often ``int32``/``int64``). A
+        dtype-sensitive hash would false-positive on that mismatch and block the
+        fully-precomputed path for integer ids.
+        """
+        from pyRVtest.markups import _hash_market_ids
+
+        vals = [1, 1, 2, 2, 3, 3, 10, 10]
+        i32 = np.asarray(vals, dtype=np.int32)
+        i64 = np.asarray(vals, dtype=np.int64)
+        obj = np.asarray(vals, dtype=object)
+        strs = np.asarray([str(v) for v in vals], dtype=object)
+
+        reference = _hash_market_ids(obj)
+        assert _hash_market_ids(i32) == reference
+        assert _hash_market_ids(i64) == reference
+        assert _hash_market_ids(strs) == reference
+
+        # Still rejects reordering and count changes.
+        assert _hash_market_ids(i32[::-1]) != reference
+        assert _hash_market_ids(i32[:-1]) != reference
+
     def test_wrong_backend_signature_raises(self, problem_and_objects):
         import dataclasses
         problem, phi, md = problem_and_objects
