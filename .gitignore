@@ -43,3 +43,9 @@ venv
 
 # claude-code agent worktrees (created on-demand, not tracked)
 .claude/worktrees/
+
+# claude-code local settings (machine-specific)
+.claude/settings.local.json
+
+# claude fix/spec working notes (reference private downstream projects)
+docs/notebooks/CLAUDE_*.md
