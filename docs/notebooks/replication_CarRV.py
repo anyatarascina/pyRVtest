@@ -68,23 +68,14 @@ def build_problem():
         demand_results=None,
     )
 
-# (1) With Appendix B influence-function correction (current methodology)
+# RV variance uses the scalar-score formula (2026-07 correction); the former
+# Appendix B q_tilde influence-function correction was removed after the
+# cancellation result in notes/Memo_appendixB.pdf, so there is no legacy
+# _skip_appendix_b toggle anymore.
 testing_problem = build_problem()
 testing_results = testing_problem.solve(
     costs_type='log',
     demand_adjustment=False,
     clustering_adjustment=False,
 )
-print('=== With Appendix B correction (default) ===')
 print(testing_results)
-
-# (2) Without Appendix B correction (replicates conduct_test.py legacy SEs)
-testing_problem_legacy = build_problem()
-testing_problem_legacy._skip_appendix_b = True
-testing_results_legacy = testing_problem_legacy.solve(
-    costs_type='log',
-    demand_adjustment=False,
-    clustering_adjustment=False,
-)
-print('=== Without Appendix B correction (_skip_appendix_b=True) ===')
-print(testing_results_legacy)

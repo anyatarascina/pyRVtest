@@ -245,7 +245,16 @@ def compute_instrument_results(
     """Compute all test statistics for a single instrument set.
 
     Moved from ``Problem._compute_instrument_results``.
-    Math is unchanged.
+
+    2026-07 variance correction: the RV denominator and the MCS covariances
+    are computed from the scalar score
+    ``phi_rv[m, i] = 2 v_mi omega_mi - v_mi^2 - Q_m`` with ``v_mi = z_i' W g_m``
+    (the exact delta method on ``Q_m = g_m' W g_m``), replacing the earlier
+    ``W^{1/2}`` / ``W^{3/4}`` vector influence function, which was incorrect
+    for more than one instrument, and dropping the explicit q_tilde
+    first-stage correction, whose first-order effect cancels exactly. See
+    ``notes/variance_proof_note.pdf`` and ``notes/Memo_appendixB.pdf``.
+    The RV numerator, F-statistics, rho, and critical values are unchanged.
     """
     instruments = problem.products["Z{0}".format(instrument)]
     K = np.shape(instruments)[1]
@@ -327,99 +336,43 @@ def compute_instrument_results(
         for i in range(m):
             test_statistic_numerator[i, m] = math.sqrt(N) * (Q[i] - Q[m])
 
-    # psi for each model and RV denominator
-    # Use eigendecomposition with non-negative clipping to avoid complex values that arise when
-    # floating-point errors push a zero eigenvalue (from a rank-deficient Z_orthogonal) slightly
-    # negative, which would cause fractional_matrix_power to return complex results.
-    _eigvals, _eigvecs = np.linalg.eigh((weight_matrix + weight_matrix.T) / 2)
-    _eigvals = np.maximum(_eigvals, 0)
-    W_12 = (_eigvecs * (_eigvals ** 0.50)) @ _eigvecs.T
-    W_34 = (_eigvecs * (_eigvals ** 0.75)) @ _eigvecs.T
-    psi = np.zeros((M, N, K), dtype=options.dtype)
+    # Scalar RV score for each model: exact delta method on Q_m = g_m' W g_m.
+    #   phi_rv[m, i] = 2 v_mi omega_mi - v_mi^2 - Q_m,   with v_mi = z_i' W g_m.
+    # This replaces the former K-vector influence function built from W^{1/2} and
+    # W^{3/4} fractional powers, which was incorrect for K > 1: matrix square
+    # roots do not distribute across a congruence transformation unless the
+    # factors commute. See notes/variance_proof_note.pdf and
+    # notes/Memo_appendixB.pdf (2026-07). The score has mean zero by
+    # construction (2Q - Q - Q), so no demeaning is needed.
+    phi_rv = np.zeros((M, N, 1), dtype=options.dtype)
     if demand_adjustment:
-        adjustment_value = np.zeros((M, K, H_prime_wd.shape[1]), dtype=options.dtype)
+        adjustment_base = np.zeros((M, K, H_prime_wd.shape[1]), dtype=options.dtype)
 
-    # Precompute first-stage correction ingredients when endogenous cost component is present.
-    # Per Appendix B of Duarte-Magnolfi-Quint-Solvsten-Sullivan (2026), the influence function
-    # psi includes a correction for estimation of the linear predictor q_tilde.
-    # Generalized to K_endog >= 1: q_e is (N, K_endog), Lambda_q is (K, K_endog).
-    # When K_endog == 1 the math reduces bit-identically to the prior single-column code.
-    endog_correction_data = None
+    # Raw endogenous cost column(s): still needed for the d(gamma_m)/d(theta)
+    # channel of the demand adjustment below. The former explicit q_tilde
+    # first-stage correction to the RV variance has been removed: by the exact
+    # FWL projection identity, its first-order effect through W-hat is cancelled
+    # by the omitted effect through g-hat, so no separate q_tilde term belongs
+    # in the scalar variance (notes/Memo_appendixB.pdf, Section 2).
+    endog_col_raw = None
     if endog_hat is not None:
-        K_endog_local = len(problem._endogenous_cost_columns)
         name_to_w_idx_local = {str(f): i for i, f in enumerate(problem._w_formulation)}
-        endog_col_indices_local = [
-            name_to_w_idx_local[name] for name in problem._endogenous_cost_columns
+        endog_col_raw = problem.products.w[
+            :, [name_to_w_idx_local[name] for name in problem._endogenous_cost_columns]
         ]
-        endog_col = problem.products.w[:, endog_col_indices_local]  # (N, K_endog) raw endogenous variables
-        q_e = endog_col - endog_hat                                  # (N, K_endog) first-stage residual
-
-        # z^r = z residualized on w only (not on endog_hat)
-        z_r = qr_residualize(instruments, w_for_ols) if w_for_ols.shape[1] > 0 else instruments.copy()
-        if problem._absorb_cost_ids is not None:
-            z_r, _ = problem._absorb_cost_ids(z_r)
-        z_r = z_r.reshape(N, K)
-
-        # Z_prec = (1/n sum z^r z^{r'})^{-1}
-        Z_cov = (1 / N) * z_r.T @ z_r                         # (K, K)
-        Z_prec = np.linalg.pinv(Z_cov)                        # (K, K)
-
-        # Lambda_q: coefficient matrix relating z to endog_hat in the projection
-        # z = Lambda_q @ q_tilde + Lambda_w @ w + z^e. Shape (K, K_endog); column k
-        # says "how much of the k-th endogenous q_tilde appears in z column j" via row j.
-        # For K_endog == 1 this collapses to a (K, 1) column vector; the influence-function
-        # formulas below use Lambda_q as a 2-D matrix uniformly.
-        proj_X = np.hstack([endog_hat, w_for_ols]) if w_for_ols.shape[1] > 0 else endog_hat
-        Q_proj, R_proj = np.linalg.qr(proj_X, mode='reduced')
-        lambda_coefs = np.linalg.solve(R_proj, Q_proj.T @ instruments)  # (d_proj, K)
-        Lambda_q = lambda_coefs[:K_endog_local, :].T  # (K, K_endog)
-
-        # Precompute the (K, K) matrix M_correction = W^{3/4} W^+ Z_prec, used in correction
-        W_plus = weight_matrix  # this is already the pseudo-inverse of W_inverse
-        M_corr = W_34 @ W_plus @ Z_prec  # (K, K)
-
-        endog_correction_data = (z_r, q_e, Lambda_q, M_corr, Z_prec, W_plus, endog_col)
 
     for m in range(M):
-        psi_bar = W_12 @ g[m] - .5 * W_34 @ W_inverse @ W_34 @ g[m]
-        W_34_Zg = (Z_orthogonal @ W_34 @ g[m])[:, np.newaxis]
-        mc_col = omega[m][:, np.newaxis]
-        psi_i = (mc_col * Z_orthogonal) @ W_12 - 0.5 * W_34_Zg * (Z_orthogonal @ W_34.T)
-        psi[m] = psi_i - np.transpose(psi_bar)
-
-        # First-stage correction: Appendix B of Duarte-Magnolfi-Quint-Solvsten-Sullivan (2026).
-        # Per observation i, the correction to psi[m][i,:] is:
-        #   (1/2) W^{3/4} (W^+ Z_prec (z^r_i ⊗ Lambda_q q^e_i)' + (Lambda_q q^e_i ⊗ z^r_i) Z_prec W^+) W^{3/4} g_m
-        # which collapses to two rank-1 update terms (term1 and term2 below).
-        # K_endog = 1 case is bit-identical to the prior single-column formulation.
-        if endog_correction_data is not None and not getattr(problem, '_skip_appendix_b', False):
-            z_r, q_e, Lambda_q, M_corr, Z_prec, W_plus, _endog_col_raw = endog_correction_data
-            W34_gm = W_34 @ g[m]                                       # (K,)
-            v = Z_prec @ W_plus @ W34_gm                               # (K,) right-side contraction
-
-            # term1[i] = (M_corr @ z^r_i) * (Lambda_q q^e_i . W^{3/4} g_m)
-            #         = (M_corr @ z^r_i) * (q^e_i' Lambda_q' W^{3/4} g_m)
-            z_r_M = z_r @ M_corr.T                                       # (N, K)
-            Lambda_q_T_W34_gm = Lambda_q.T @ W34_gm                      # (K_endog,)
-            scalar_term1 = q_e @ Lambda_q_T_W34_gm                       # (N,)
-            term1 = z_r_M * scalar_term1[:, np.newaxis]                  # (N, K)
-
-            # term2[i] = (W^{3/4} Lambda_q q^e_i) * (z^r_i . v)
-            z_r_v = z_r @ v                                              # (N,)
-            W34_Lambda_q = W_34 @ Lambda_q                               # (K, K_endog)
-            W34_Lambda_q_q_e = q_e @ W34_Lambda_q.T                      # (N, K)
-            term2 = W34_Lambda_q_q_e * z_r_v[:, np.newaxis]              # (N, K)
-
-            psi[m] = psi[m] + 0.5 * (term1 + term2)
+        Wg_m = weight_matrix @ g[m]                                  # (K,)
+        v_m = Z_orthogonal @ Wg_m                                    # (N,)
+        score = 2.0 * v_m * np.asarray(omega[m]).reshape(N) - v_m ** 2 - Q[m]
 
         if demand_adjustment:
             G_k = -1 / N * np.transpose(Z_orthogonal) @ gradient_markups[m]
             # When endogenous_cost_component is set, account for d(gamma_m)/d(theta) in G_k.
             # The full gradient of omega w.r.t. theta includes a term from gamma changing,
             # which contributes -(1/N) Z' @ (endog_resid @ (d_gamma/d_theta).T) to G_k.
-            if gradient_gamma is not None and endog_correction_data is not None:
+            if gradient_gamma is not None and endog_col_raw is not None:
                 # Reconstruct the endogenous columns residualized on w (N, K_endog).
-                _z_r, _q_e, _Lambda_q, _M_corr, _Z_prec, _W_plus, endog_col_raw = endog_correction_data
                 if problem._absorb_cost_ids is not None:
                     endog_col_for_grad, _ = problem._absorb_cost_ids(endog_col_raw)
                 else:
@@ -434,41 +387,34 @@ def compute_instrument_results(
                 else:
                     gg_m_T = gg_m.T               # (K_endog, n_theta)
                 G_k = G_k - 1 / N * np.transpose(Z_orthogonal) @ (endog_col_for_grad @ gg_m_T)
-            adjustment_value[m] = W_12 @ G_k @ inv(H_prime_wd @ H) @ H_prime_wd
-            psi[m] = psi[m] - (h_i - np.transpose(h)) @ np.transpose(adjustment_value[m])
+            adjustment_base[m] = G_k @ inv(H_prime_wd @ H) @ H_prime_wd
+            # Demand-estimation adjustment on the scalar score: the derivative of
+            # Q_m through omega-hat's dependence on theta-hat is 2 g_m' W dg, so the
+            # vector correction contracts against 2 W g_m.
+            score = score - 2.0 * ((h_i - np.transpose(h)) @ (adjustment_base[m].T @ Wg_m))
 
+        phi_rv[m, :, 0] = score
+
+    # Cross-model score covariances C_lk = (1/N) sum_i phi_rv[l, i] phi_rv[k, i]
+    # (cluster-summed when clustering_adjustment is on; the (M, N, 1) shape makes
+    # compute_block_gram return the (M, M) gram directly). These feed both the RV
+    # denominator and the MCS covariance below.
+    covariance_mc = compute_block_gram(problem, N, clustering_adjustment, phi_rv)
     test_statistic_denominator = np.zeros((M, M))
-    covariance_mc = np.zeros((M, M))
-    psi_gram = compute_block_gram(problem, N, clustering_adjustment, psi)
     for m in range(M):
         for i in range(m):
-            vc_ii = extract_block(psi_gram, i, i, K)
-            vc_mm = extract_block(psi_gram, m, m, K)
-            vc_im = extract_block(psi_gram, i, m, K)
-            weighted_variance = np.array([W_12 @ vc_ii @ W_12, W_12 @ vc_mm @ W_12, W_12 @ vc_im @ W_12])
-            operations = np.array([1, 1, -2])
-            moments = np.array([
-                g[i].T @ weighted_variance[0] @ g[i],
-                g[m].T @ weighted_variance[1] @ g[m],
-                g[i].T @ weighted_variance[2] @ g[m]
-            ]).flatten()
-            covariance_mc[i, m] = moments[2]
-            covariance_mc[m, i] = moments[2]
-            covariance_mc[m, m] = moments[1]
-            covariance_mc[i, i] = moments[0]
-            # operations.T @ moments = Var(g_i - g_m), which is positive-
-            # semi-definite by construction. At extreme cancellation
-            # (near-identical model moments), float-rounding can push the
-            # value slightly below zero. Treat any negative value as
-            # numerically degenerate and propagate NaN downstream rather
-            # than raising a ValueError from math.sqrt — the cell is
-            # already in the trivially-degenerate regime where the test
-            # is undefined.
-            quad_form = float(operations.T @ moments)
+            # C_ii + C_mm - 2 C_im = (1/N) sum_i (phi_i - phi_m)^2 is a variance
+            # and hence non-negative in exact arithmetic. At extreme cancellation
+            # (near-identical model moments), float-rounding can push the value
+            # slightly below zero. Treat any negative value as numerically
+            # degenerate and propagate NaN downstream rather than raising a
+            # ValueError from math.sqrt — the cell is already in the
+            # trivially-degenerate regime where the test is undefined.
+            quad_form = float(covariance_mc[i, i] + covariance_mc[m, m] - 2 * covariance_mc[i, m])
             if quad_form < 0:
                 test_statistic_denominator[i, m] = np.nan
             else:
-                test_statistic_denominator[i, m] = math.sqrt(4 * quad_form)
+                test_statistic_denominator[i, m] = math.sqrt(quad_form)
 
     # RV test statistic (upper triangle only; lower triangle and diagonal are NaN)
     rv_test_statistic = np.full((M, M), np.nan)
@@ -499,7 +445,7 @@ def compute_instrument_results(
         e = np.reshape(omega[m] - Q_Z @ (Q_Z.T @ omega[m]), [N, 1])
         phi[m] = (e * Z_orthogonal) @ weight_matrix
         if demand_adjustment:
-            phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(W_12 @ adjustment_value[m])
+            phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(weight_matrix @ adjustment_base[m])
 
     unscaled_F = np.zeros((M, M))
     F = np.full((M, M), np.nan)
@@ -830,7 +776,10 @@ def compute_instrument_results(
     model_confidence_set_variance = np.zeros([n_combinations, 1])
     sigma_mcs = np.zeros([n_combinations, n_combinations])
     for index_i, model_i in enumerate(all_model_combinations):
-        model_confidence_set_variance[index_i] = test_statistic_denominator[model_i[0], model_i[1]] / 2
+        # With the full-scale scalar-score covariances in covariance_mc, the
+        # per-pair standard deviation is test_statistic_denominator itself (the
+        # former /2 belonged to the quarter-scale psi-based covariances).
+        model_confidence_set_variance[index_i] = test_statistic_denominator[model_i[0], model_i[1]]
         for index_j, model_j in enumerate(all_model_combinations):
             term1 = covariance_mc[model_i[0], model_j[0]] - covariance_mc[model_i[1], model_j[0]]
             term2 = covariance_mc[model_i[0], model_j[1]] - covariance_mc[model_i[1], model_j[1]]

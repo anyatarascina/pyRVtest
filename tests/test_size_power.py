@@ -91,7 +91,51 @@ def _run_one_replication(seed, T=500, J=2, alpha=-1.0, beta_x=1.0):
     return product_data
 
 
-def _test_pair(product_data, markup_col_1, markup_col_2):
+# Fixed population covariance for the size-arm instruments: unequal
+# eigenvalues and generic (non-eigenvector) moment directions — exactly
+# the regime where the pre-2026-07 W^{3/4} variance formula understated
+# sigma_RV and over-rejected. See notes/Memo_appendixB.pdf, Section 6.
+_NULL_SIGMA = np.array([
+    [4.0, 0.8, 0.2],
+    [0.8, 1.0, -0.3],
+    [0.2, -0.3, 0.25],
+])
+_NULL_L = np.linalg.cholesky(_NULL_SIGMA)
+
+
+def _add_null_markup_models(product_data, seed):
+    """Add instruments and markup columns forming a nondegenerate null.
+
+    Draws instruments z ~ N(0, _NULL_SIGMA) independent of the DGP, then
+    builds two models that deviate from the true (Bertrand) markups along
+    fixed generic directions c_m scaled with the POPULATION covariance so
+    that the population GMM fits are exactly equal and nonzero:
+    Q_m = c_m' Sigma c_m = delta^2 for both models. The population moment
+    vectors g_m = -Sigma c_m are fixed and nonzero (strong instruments),
+    so TRV should be asymptotically N(0, 1) under this null. Scaling with
+    the population Sigma (not the sample A-hat) keeps the weight-matrix
+    fluctuation channel of the numerator alive — conditioning on the
+    realized A-hat would make the variance estimator over-cover.
+    """
+    N = len(product_data)
+    rng = np.random.default_rng(seed=seed + 200000)
+    z = rng.standard_normal((N, 3)) @ _NULL_L.T
+
+    delta = 0.5
+    d1 = np.array([1.0, 0.7, -0.4])
+    d2 = np.array([-0.3, 1.0, 0.8])
+    c1 = delta * d1 / np.sqrt(d1 @ _NULL_SIGMA @ d1)
+    c2 = delta * d2 / np.sqrt(d2 @ _NULL_SIGMA @ d2)
+
+    base = product_data['markups_bertrand'].to_numpy()
+    for k in range(3):
+        product_data[f'ivn{k}'] = z[:, k]
+    product_data['markups_null_1'] = base + z @ c1
+    product_data['markups_null_2'] = base + z @ c2
+    return product_data
+
+
+def _test_pair(product_data, markup_col_1, markup_col_2, iv_terms='iv0 + iv1 + iv2'):
     """Run RV test for a pair of user-supplied markup models and return TRV."""
     model_formulations = (
         pyRVtest.ModelFormulation(model_downstream='bertrand', ownership_downstream='firm_ids',
@@ -101,7 +145,7 @@ def _test_pair(product_data, markup_col_1, markup_col_2):
     )
     testing_problem = pyRVtest.Problem(
         cost_formulation=pyRVtest.Formulation('1 + cost_shifter'),
-        instrument_formulation=pyRVtest.Formulation('0 + iv0 + iv1 + iv2'),
+        instrument_formulation=pyRVtest.Formulation(f'0 + {iv_terms}'),
         model_formulations=model_formulations,
         product_data=product_data,
         demand_results=None,
@@ -122,7 +166,7 @@ class TestSizePower:
     def mc_results(self):
         """Run all replications and collect TRV values."""
         trv_power = []  # Bertrand (true) vs perfect competition (wrong)
-        trv_size = []   # Bertrand (true) vs Bertrand (true) — both models are the same
+        trv_size = []   # nondegenerate null: two wrong models with equal fit
         f_power = []
 
         for rep in range(self.N_REPLICATIONS):
@@ -133,14 +177,18 @@ class TestSizePower:
             trv_power.append(trv)
             f_power.append(f)
 
-            # Size test: Bertrand vs "nearly Bertrand" (markups + tiny noise).
-            # Under the null, both models are essentially correct; rejection should be near 5%.
-            # We add vanishingly small noise to avoid exact degeneracy (sigma_RV = 0).
-            noise_rng = np.random.default_rng(seed=rep + 100000)
-            product_data['markups_near_bertrand'] = (
-                product_data['markups_bertrand'] + noise_rng.normal(0, 1e-6, len(product_data))
+            # Size test: nondegenerate fixed-g null (Q_1 = Q_2 > 0). Both
+            # models deviate from Bertrand along different generic
+            # instrument directions with exactly equal GMM fit, so TRV
+            # should be asymptotically N(0, 1). This replaces the earlier
+            # degenerate "Bertrand vs Bertrand + 1e-6 noise" arm, which
+            # had g_1 = g_2 = 0 and could not detect a mis-scaled
+            # variance (every disputed term vanished there).
+            product_data = _add_null_markup_models(product_data, seed=rep)
+            trv_s, _ = _test_pair(
+                product_data, 'markups_null_1', 'markups_null_2',
+                iv_terms='ivn0 + ivn1 + ivn2',
             )
-            trv_s, _ = _test_pair(product_data, 'markups_bertrand', 'markups_near_bertrand')
             trv_size.append(trv_s)
 
         return {
@@ -150,14 +198,26 @@ class TestSizePower:
         }
 
     def test_size(self, mc_results):
-        """Under the null (both models identical), rejection rate should be near 5%."""
+        """Under the nondegenerate null (Q_1 = Q_2 > 0), rejection ~ 5%."""
         trv = mc_results['trv_size']
         rejection_rate = np.mean(np.abs(trv) > 1.96)
-        # With 500 replications, 95% CI for true 5% rate is roughly [3%, 7%]
-        # Allow wider band [0%, 10%] to be safe
-        assert rejection_rate < 0.10, (
-            f"Size distortion: rejection rate {rejection_rate:.3f} exceeds 10% "
-            f"(expected ~5% under the null)"
+        # With 500 replications the 95% MC band around a true 5% rate is
+        # roughly [3%, 7%]; allow [2.5%, 9%]. The lower bound guards
+        # against an over-inflated variance (under-rejection), the upper
+        # against an understated one — the pre-2026-07 W^{3/4} formula
+        # rejected ~19% in an adverse multi-instrument design.
+        assert 0.025 < rejection_rate < 0.09, (
+            f"Size distortion: rejection rate {rejection_rate:.3f} outside [0.025, 0.09] "
+            f"(expected ~5% under the nondegenerate null)"
+        )
+
+    def test_size_trv_scale(self, mc_results):
+        """Under the null, TRV should have unit standard deviation."""
+        trv = mc_results['trv_size']
+        sd = float(np.std(trv))
+        assert 0.85 < sd < 1.15, (
+            f"TRV null standard deviation {sd:.3f} outside [0.85, 1.15]; "
+            f"the RV variance appears mis-scaled"
         )
 
     def test_power(self, mc_results):

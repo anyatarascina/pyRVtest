@@ -52,24 +52,21 @@ def _analytical_scale_expected_to_drift() -> bool:
     off the stored 1e-10 atol because the LAPACK build differs from the
     one snapshots were generated under.
 
-    Empirically (2026-04-20):
-      - macOS + numpy 1.x  -> bit-identical to snapshot.
-      - macOS + numpy 2.x  -> ~3% shift on F[0][0][1] (LAPACK changed
-        between numpy 1.26 and numpy 2.0 wheels).
-      - Linux + any numpy  -> ~2.5% shift on F[0][0][1] (Ubuntu's
-        OpenBLAS wheel differs from macOS Accelerate, even within
-        numpy 1.26).
-      - Windows + numpy 2.4 (Lorenzo's box) -> ~2.5% shift.
+    The F[0][0][1] cell sits in a catastrophic-cancellation regime where
+    sub-ULP LAPACK-build differences amplify to a 2.5-3% F shift (see the
+    test's ``xfail`` ``reason`` for the 2026-04-20 root-cause analysis).
+    The snapshot's ``atol=1e-10`` is therefore a single-LAPACK-build
+    guarantee.
 
-    The snapshot's ``atol=1e-10`` was implicitly tied to the
-    macOS-numpy-1 LAPACK build. Mark drift-expected on anything else.
-    See the test's ``xfail`` ``reason`` and CHANGELOG.md "numpy 2.x
-    compatibility" section for the full root-cause.
+    Baseline provenance: regenerated 2026-07-24 on Linux + numpy 2.x
+    (OpenBLAS wheel) as part of the scalar-score RV variance correction —
+    see .claude/handovers/2026-07-24-rv-variance-scalar-score.md. Before
+    that, the baseline was macOS + numpy 1.x, so the drift set was the
+    complement of today's. Mark drift-expected on anything that is not
+    Linux + numpy 2.x.
     """
     import platform
-    if _np_major() >= 2:
-        return True
-    return platform.system() != 'Darwin'
+    return _np_major() < 2 or platform.system() != 'Linux'
 
 
 from .test_analytical import (
@@ -174,12 +171,12 @@ def scale_results():
     condition=_analytical_scale_expected_to_drift(),
     reason=(
         "v0.4.0rc1 known issue: F[0][0][1] on the "
-        "endogenous_cost_component IV-correction path shifts off the "
-        "stored snapshot value (1.03166625900672) by ~3% in any "
-        "environment whose LAPACK build differs from macOS + numpy 1.x. "
-        "Observed: macOS + numpy 2 -> 0.998 (3% shift); Linux + any "
-        "numpy -> 1.007 (2.5% shift); Windows + numpy 2.4 -> 1.007 "
-        "(Lorenzo's original finding).\n\n"
+        "endogenous_cost_component IV-correction path shifts by ~2.5-3% "
+        "in any environment whose LAPACK build differs from the one the "
+        "snapshot was generated under (since 2026-07-24: Linux + numpy "
+        "2.x; previously macOS + numpy 1.x, where the observed shifts "
+        "were macOS + numpy 2 -> 3%, Linux -> 2.5%, Windows + numpy 2.4 "
+        "-> 2.5%, Lorenzo's original finding).\n\n"
         "Root cause (instrumented 2026-04-20): the `_build_scale_dgp` "
         "fixture produces a near-degenerate conduct pair where the "
         "three sigma values entering F_denominator = sigma0*sigma1 - "

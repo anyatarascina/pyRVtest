@@ -7,6 +7,53 @@ project roughly follows [Semantic Versioning](https://semver.org/).
 
 ## [0.4.0] — unreleased
 
+### Fixed (2026-07-24) — RV variance corrected to the scalar-score formula
+
+The RV test-statistic denominator and the MCS covariance inputs are now
+computed from the per-observation scalar score of each model's GMM fit,
+
+    phi_mi = 2 v_mi omega_mi - v_mi^2 - Q_m,   v_mi = z_i' W g_m,
+
+the exact delta method on `Q_m = g_m' W g_m` (in both `g_hat` and
+`W_hat`). This replaces two components of the previous implementation
+(see `notes/variance_proof_note.pdf` and `notes/Memo_appendixB.pdf`):
+
+- **`W^{3/4}` influence function removed.** The former K-vector
+  influence function relied on the identity
+  `(ABA)^{1/2} = A^{1/2} B^{1/2} A^{1/2}`, which only holds for
+  commuting matrices. With 2+ effective instruments and unequal
+  eigenvalues of `E[z z']`, the old formula mis-scales `sigma_RV`
+  (in an adverse 3-instrument Monte Carlo design the old T_RV had
+  standard deviation ~1.49 and rejected ~19% at a nominal 5% level;
+  the corrected statistic has sd ~0.98 and ~4-5% rejection). In
+  well-conditioned designs the change is small (~1e-5 relative on the
+  shipped synthetic snapshots).
+- **Explicit q_tilde first-stage correction removed**
+  (`endogenous_cost_component` path). By the exact Frisch-Waugh-Lovell
+  projection identity, the first-order effect of estimating q_tilde
+  through `W_hat` is exactly cancelled by the omitted effect through
+  `g_hat`, so no separate first-order q_tilde term belongs in the
+  scalar variance. The internal `_skip_appendix_b` escape hatch is
+  gone with it.
+- The demand-estimation adjustment (`demand_adjustment=True`, DMSS
+  Appendix C) is preserved, re-derived on the scalar score. MCS
+  covariances are now built from the scalar scores (the pair-level
+  correlation matrix is unchanged in structure). Clustering uses the
+  same cluster-sum formula applied to the scalar scores.
+- **Unchanged:** RV numerators, `g`, `Q`, markups, marginal costs,
+  F-statistics, rho, the weak-instrument critical values, and the
+  reliability diagnostics. The weak-instrument theory is unaffected
+  because the disputed terms are `o_p(1)` under `g_m = O_p(n^{-1/2})`.
+- T_RV is now invariant to invertible linear reparameterizations of
+  the instrument set (the old formula was not).
+- Snapshots regenerated (TRV / MCS_pvalues shift; deltas ~1e-5
+  relative or below on the shipped synthetics). New unit tests in
+  `tests/test_rv_variance.py` (basis invariance, K=1 equivalence with
+  the old formula, cluster-sum equality, MCS covariance consistency);
+  `tests/test_size_power.py` size arm replaced with a nondegenerate
+  fixed-g null (`Q_1 = Q_2 > 0`, generic directions). Handover note:
+  `.claude/handovers/2026-07-24-rv-variance-scalar-score.md`.
+
 Final tag for v0.4. Supersedes the internal / coauthor-only
 `[0.4.0rc1]` snapshot below. The rc1-tagged code shipped a draft of the
 F-stat reliability diagnostic and the Dearing pass-through helpers; v0.4

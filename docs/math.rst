@@ -68,17 +68,54 @@ where :math:`\omega_{mi}` is the implied cost-side residual for model
             {\hat\sigma(m, m')},
 
 where :math:`W` is the GMM weighting matrix and :math:`\hat\sigma(m, m')`
-is the standard error of the moment-difference. Under the null of equal
+is the standard error of the fit-difference. Under the null of equal
 fit, :math:`T_{RV}` is asymptotically standard normal. Pairwise
 significance is read at :math:`|T_{RV}| > 1.64,\ 1.96,\ 2.58` for the
 10%, 5%, 1% levels.
 
-When demand parameters are estimated rather than fixed,
-:math:`\hat\sigma(m, m')` includes a first-stage correction (DMSS
-Appendix C; DMQSS Appendix B for the non-linear-cost case). The
-``Problem.solve(demand_adjustment=True)`` flag activates this
-correction. Clustering corrections multiply the variance estimate by
-the standard cluster-robust factor.
+The variance is computed from the per-observation *scalar score* of
+each model's GMM fit :math:`\hat Q_m = \bar g_m' W \bar g_m` (the exact
+delta method in both :math:`\bar g_m` and :math:`\widehat W`):
+
+.. math::
+
+   \hat\phi_{mi} = 2 v_{mi} \omega_{mi} - v_{mi}^2 - \hat Q_m,
+   \qquad v_{mi} = z_i' W \bar g_m,
+
+with cross-model score covariances
+:math:`\hat C_{\ell k} = (1/N) \sum_i \hat\phi_{\ell i} \hat\phi_{k i}`
+and
+
+.. math::
+
+   \hat\sigma^2(m, m') = \hat C_{mm} + \hat C_{m'm'} - 2 \hat C_{mm'}
+       = \frac{1}{N} \sum_i \big(\hat\phi_{mi} - \hat\phi_{m'i}\big)^2.
+
+With ``clustering_adjustment=True`` the scores are first summed within
+clusters: :math:`\hat C_{\ell k} = (1/N) \sum_c s_{c\ell} s_{ck}` with
+:math:`s_{c\ell} = \sum_{i \in c} \hat\phi_{\ell i}`.
+
+.. note::
+
+   Prior to 2026-07 the package (following the published appendix)
+   built :math:`\hat\sigma` from a vector influence function involving
+   :math:`W^{1/2}` and :math:`W^{3/4}` matrix powers. That expression
+   relied on a matrix-square-root identity that only holds for
+   commuting matrices and was incorrect with more than one effective
+   instrument; it also carried a separate first-stage
+   :math:`\tilde q`-estimation correction whose first-order effect is
+   exactly cancelled (by the Frisch-Waugh-Lovell projection identity)
+   and therefore does not belong in the scalar variance. The scalar
+   score above replaces both. The RV numerator, the F-statistic
+   diagnostic, and its critical values are unaffected.
+
+When demand parameters are estimated rather than fixed, the DMSS
+Appendix C first-stage correction is added to the scalar score:
+:math:`\hat\phi_{mi}` gains the term
+:math:`-2 (h_i - \bar h)' B_m' W \bar g_m`, where :math:`B_m` is the
+demand-adjustment contraction built from the markup gradients and the
+demand-side moments. The ``Problem.solve(demand_adjustment=True)``
+flag activates this correction.
 
 
 F-statistic diagnostic

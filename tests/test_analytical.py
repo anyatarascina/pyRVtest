@@ -142,49 +142,34 @@ def _hand_compute_base(dgp, clustering_ids=None):
     # RV numerator
     rv_num = np.sqrt(N) * (Q_m1 - Q_m2)
 
-    # W powers via eigendecomposition (matches pyRVtest approach)
-    eigvals, eigvecs = np.linalg.eigh((W + W.T) / 2)
-    eigvals = np.maximum(eigvals, 0)
-    W_12 = (eigvecs * (eigvals ** 0.5)) @ eigvecs.T
-    W_34 = (eigvecs * (eigvals ** 0.75)) @ eigvecs.T
+    # Scalar RV score (delta method on Q_m = g_m' W g_m):
+    #   phi_m,i = 2 v_mi omega_mi - v_mi^2 - Q_m,  v_mi = z_i' W g_m
+    _g1, _g2 = g_m1.flatten(), g_m2.flatten()
+    v1 = z_orth @ (W @ _g1)  # (N,)
+    v2 = z_orth @ (W @ _g2)
+    phi_rv1 = 2 * v1 * omega_m1.flatten() - v1 ** 2 - Q_m1
+    phi_rv2 = 2 * v2 * omega_m2.flatten() - v2 ** 2 - Q_m2
 
-    # Psi influence function
-    def _compute_psi(omega_m, g_m):
-        g_flat = g_m.flatten()  # (K,)
-        psi_bar = W_12 @ g_flat - 0.5 * W_34 @ W_inv @ W_34 @ g_flat  # (K,)
-        W34_Zg = (z_orth @ W_34 @ g_flat)[:, np.newaxis]  # (N, 1)
-        mc_col = omega_m if omega_m.ndim == 2 else omega_m[:, np.newaxis]  # (N, 1)
-        psi_i = (mc_col * z_orth) @ W_12 - 0.5 * W34_Zg * (z_orth @ W_34.T)  # (N, K)
-        return psi_i - psi_bar[np.newaxis, :]  # (N, K)
-
-    psi_m1 = _compute_psi(omega_m1, g_m1)
-    psi_m2 = _compute_psi(omega_m2, g_m2)
-
-    # Variance-covariance (with or without clustering)
+    # Cross-model score covariances (with or without clustering)
     M = 2
-    psi = np.stack([psi_m1, psi_m2])  # (2, N, K)
     if clustering_ids is not None:
         unique_c = np.unique(clustering_ids)
         C = len(unique_c)
         cmap = {c: j for j, c in enumerate(unique_c)}
         cidx = np.array([cmap[c] for c in clustering_ids.flatten()])
-        cs = np.zeros((M, C, K))
-        for m in range(M):
-            np.add.at(cs[m], cidx, psi[m])
-        cs_flat = cs.transpose(1, 0, 2).reshape(C, M * K)
-        gram = (1 / N) * cs_flat.T @ cs_flat
+        s1 = np.zeros(C)
+        s2 = np.zeros(C)
+        np.add.at(s1, cidx, phi_rv1)
+        np.add.at(s2, cidx, phi_rv2)
+        C11 = (1 / N) * s1 @ s1
+        C22 = (1 / N) * s2 @ s2
+        C12 = (1 / N) * s1 @ s2
     else:
-        psi_flat = psi.transpose(1, 0, 2).reshape(N, M * K)
-        gram = (1 / N) * psi_flat.T @ psi_flat
+        C11 = (1 / N) * phi_rv1 @ phi_rv1
+        C22 = (1 / N) * phi_rv2 @ phi_rv2
+        C12 = (1 / N) * phi_rv1 @ phi_rv2
 
-    V11 = gram[0:K, 0:K]
-    V22 = gram[K:2*K, K:2*K]
-    V12 = gram[0:K, K:2*K]
-    wv11 = W_12 @ V11 @ W_12
-    wv22 = W_12 @ V22 @ W_12
-    wv12 = W_12 @ V12 @ W_12
-    _g1, _g2 = g_m1.flatten(), g_m2.flatten()
-    sigma2 = float(4 * (_g1 @ wv11 @ _g1 + _g2 @ wv22 @ _g2 - 2 * _g1 @ wv12 @ _g2))
+    sigma2 = float(C11 + C22 - 2 * C12)
     sigma = np.sqrt(sigma2)
     trv = float(rv_num / sigma)
 
@@ -399,36 +384,19 @@ def _hand_compute_with_fe(dgp):
     # RV numerator
     rv_num = np.sqrt(N) * (Q_m1 - Q_m2)
 
-    # W powers
-    eigvals, eigvecs = np.linalg.eigh((W + W.T) / 2)
-    eigvals = np.maximum(eigvals, 0)
-    W_12 = (eigvecs * (eigvals ** 0.5)) @ eigvecs.T
-    W_34 = (eigvecs * (eigvals ** 0.75)) @ eigvecs.T
-
-    # Psi
-    def _compute_psi(omega_m, g_m):
-        g_flat = g_m.flatten()
-        psi_bar = W_12 @ g_flat - 0.5 * W_34 @ W_inv @ W_34 @ g_flat
-        W34_Zg = (z_orth @ W_34 @ g_flat)[:, np.newaxis]
-        mc_col = omega_m if omega_m.ndim == 2 else omega_m[:, np.newaxis]
-        psi_i = (mc_col * z_orth) @ W_12 - 0.5 * W34_Zg * (z_orth @ W_34.T)
-        return psi_i - psi_bar[np.newaxis, :]
-
-    psi_m1 = _compute_psi(omega_m1, g_m1)
-    psi_m2 = _compute_psi(omega_m2, g_m2)
+    # Scalar RV score (delta method on Q_m = g_m' W g_m)
+    _g1, _g2 = g_m1.flatten(), g_m2.flatten()
+    v1 = z_orth @ (W @ _g1)
+    v2 = z_orth @ (W @ _g2)
+    phi_rv1 = 2 * v1 * omega_m1.flatten() - v1 ** 2 - Q_m1
+    phi_rv2 = 2 * v2 * omega_m2.flatten() - v2 ** 2 - Q_m2
+    C11 = (1 / N) * phi_rv1 @ phi_rv1
+    C22 = (1 / N) * phi_rv2 @ phi_rv2
+    C12 = (1 / N) * phi_rv1 @ phi_rv2
+    sigma2 = float(C11 + C22 - 2 * C12)
+    trv = float(rv_num / np.sqrt(sigma2))
 
     M = 2
-    psi = np.stack([psi_m1, psi_m2])
-    psi_flat = psi.transpose(1, 0, 2).reshape(N, M * K)
-    gram = (1 / N) * psi_flat.T @ psi_flat
-
-    V11 = gram[0:K, 0:K]
-    V22 = gram[K:2*K, K:2*K]
-    V12 = gram[0:K, K:2*K]
-    wv11, wv22, wv12 = W_12 @ V11 @ W_12, W_12 @ V22 @ W_12, W_12 @ V12 @ W_12
-    _g1, _g2 = g_m1.flatten(), g_m2.flatten()
-    sigma2 = float(4 * (_g1 @ wv11 @ _g1 + _g2 @ wv22 @ _g2 - 2 * _g1 @ wv12 @ _g2))
-    trv = float(rv_num / np.sqrt(sigma2))
 
     # F-statistic
     Q_z, _ = np.linalg.qr(z_orth, mode='reduced')
@@ -706,53 +674,16 @@ def _hand_compute_scale(dgp):
     # TRV
     rv_num = np.sqrt(N) * (Q_val[0] - Q_val[1])
 
-    # W powers
-    eigvals, eigvecs = np.linalg.eigh((W + W.T) / 2)
-    eigvals = np.maximum(eigvals, 0)
-    W_12 = (eigvecs * (eigvals ** 0.5)) @ eigvecs.T
-    W_34 = (eigvecs * (eigvals ** 0.75)) @ eigvecs.T
-
-    # Psi with first-stage correction
-    # z^r = instruments residualized on w_exog only
-    z_r = _qr_residualize(instruments, w_exog).reshape(N, K)
-    Z_prec = np.linalg.pinv((1 / N) * z_r.T @ z_r)
-    q_e = (endog_col - endog_hat).reshape(N, 1)
-
-    # lambda_q from projection of z on [endog_hat, w_exog]
-    proj_X = np.hstack([endog_hat, w_exog])
-    Q_proj, R_proj = np.linalg.qr(proj_X, mode='reduced')
-    lambda_coefs = np.linalg.solve(R_proj, Q_proj.T @ instruments)
-    lambda_q = lambda_coefs[0, :]  # (K,)
-
-    M_corr = W_34 @ W @ Z_prec
-    W_plus = W
-
-    psi = np.zeros((M, N, K))
-    for m in range(M):
-        psi_bar = W_12 @ g[m] - 0.5 * W_34 @ W_inv @ W_34 @ g[m]
-        W34_Zg = (z_eff @ W_34 @ g[m])[:, np.newaxis]
-        mc_col = omega[m] if omega[m].ndim == 2 else omega[m][:, np.newaxis]
-        psi_i = (mc_col * z_eff) @ W_12 - 0.5 * W34_Zg * (z_eff @ W_34.T)
-        psi[m] = psi_i - psi_bar.T
-
-        # First-stage correction
-        W34_gm = W_34 @ g[m]
-        v = Z_prec @ W_plus @ W34_gm
-        u = q_e * z_r
-        term1 = (u @ M_corr.T) * (lambda_q @ W34_gm)
-        term2 = (u @ v)[:, np.newaxis] * (W_34 @ lambda_q)[np.newaxis, :]
-        psi[m] = psi[m] + 0.5 * (term1 + term2)
-
-    # Variance and TRV
-    psi_flat = psi.transpose(1, 0, 2).reshape(N, M * K)
-    gram = (1 / N) * psi_flat.T @ psi_flat
-    V11 = gram[0:K, 0:K]
-    V22 = gram[K:2*K, K:2*K]
-    V12 = gram[0:K, K:2*K]
-    wv11 = W_12 @ V11 @ W_12
-    wv22 = W_12 @ V22 @ W_12
-    wv12 = W_12 @ V12 @ W_12
-    sigma2 = float(4 * (g[0] @ wv11 @ g[0] + g[1] @ wv22 @ g[1] - 2 * g[0] @ wv12 @ g[1]))
+    # Scalar RV score (delta method on Q_m = g_m' W g_m). No q_tilde first-stage
+    # correction: its first-order effect cancels exactly (FWL projection identity).
+    v1 = z_eff @ (W @ g[0])
+    v2 = z_eff @ (W @ g[1])
+    phi_rv1 = 2 * v1 * omega[0].flatten() - v1 ** 2 - Q_val[0]
+    phi_rv2 = 2 * v2 * omega[1].flatten() - v2 ** 2 - Q_val[1]
+    C11 = (1 / N) * phi_rv1 @ phi_rv1
+    C22 = (1 / N) * phi_rv2 @ phi_rv2
+    C12 = (1 / N) * phi_rv1 @ phi_rv2
+    sigma2 = float(C11 + C22 - 2 * C12)
     trv = float(rv_num / np.sqrt(sigma2))
 
     # F-statistic with K_effective

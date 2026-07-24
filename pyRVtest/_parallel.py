@@ -61,7 +61,7 @@ def resolve_n_jobs(n_jobs: object) -> int:
             f"Received {n}. "
             f"Fix: pass n_jobs=1 (serial), a positive worker count, or -1."
         )
-    return n
+    return int(n)
 
 
 def _chunk(items: Sequence[T], n_chunks: int) -> List[List[T]]:
