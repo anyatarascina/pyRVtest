@@ -49,3 +49,6 @@ venv
 
 # claude fix/spec working notes (reference private downstream projects)
 docs/notebooks/CLAUDE_*.md
+
+# notes
+notes/
