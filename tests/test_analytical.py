@@ -686,11 +686,14 @@ def _hand_compute_scale(dgp):
     sigma2 = float(C11 + C22 - 2 * C12)
     trv = float(rv_num / np.sqrt(sigma2))
 
-    # F-statistic with K_effective
-    Q_z, _ = np.linalg.qr(z_eff, mode='reduced')
+    # F-statistic with K_effective. First-stage residual e_m = omega_m - z^e' pi_m
+    # with pi_m = W g_m (Duarte et al. (2026), Appendix B): with the pseudo-inverse
+    # W this is the exact projection on the rank-(K-1) column space of z_eff. (A
+    # plain QR of the rank-deficient z_eff is not rank-revealing and would also
+    # strip a spurious rounding-noise direction, moving F by O(1/N).)
     phi = np.zeros((M, N, K))
     for m in range(M):
-        e = omega[m] - Q_z @ (Q_z.T @ omega[m])
+        e = omega[m] - (z_eff @ (W @ g[m]))[:, np.newaxis]
         if e.ndim == 1:
             e = e[:, np.newaxis]
         phi[m] = (e * z_eff) @ W

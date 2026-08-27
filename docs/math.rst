@@ -95,19 +95,52 @@ With ``clustering_adjustment=True`` the scores are first summed within
 clusters: :math:`\hat C_{\ell k} = (1/N) \sum_c s_{c\ell} s_{ck}` with
 :math:`s_{c\ell} = \sum_{i \in c} \hat\phi_{\ell i}`.
 
+This is the delta-method variance of Duarte et al. (2026), Appendix B.
+With :math:`d_q` endogenous cost regressors (``endogenous_cost_component``,
+e.g. :math:`\log q`) instrumented by :math:`d_z` excluded instruments, that
+appendix works with the residualized instruments :math:`z^{e,0}` (the
+:math:`d_z`-vector of instruments projected on the first-stage prediction
+:math:`\tilde q` and the exogenous shifters), which has rank
+:math:`r = d_z - d_q`; it selects :math:`r` of them, :math:`z^e = S_e z^{e,0}`,
+with :math:`W = (E[z^e z^{e\prime}])^{-1}`, and writes the influence function
+of :math:`\widehat W^{1/2} \bar g_m` as the :math:`r`-vector
+
+.. math::
+
+   \hat\psi_{mi} = \widehat W^{1/2}\Big( z^e_i \hat\omega_{mi} - \bar g_m
+       - S_e \hat\Lambda_q \hat q^e_i z^{r\prime}_i \hat Z \bar g^0_m \Big)
+     + (\bar g_m' \otimes I_r)\, A_{\widehat W}\,
+       \operatorname{vec}\Big( z^e_i z^{e\prime}_i - \widehat W^{-1}
+       - S_e \hat\Sigma^0_e \hat Z z^r_i \hat q^{e\prime}_i \hat\Lambda_q' S_e'
+       - S_e \hat\Lambda_q \hat q^e_i z^{r\prime}_i \hat Z \hat\Sigma^0_e S_e' \Big),
+
+where :math:`A_W = -(I_r \otimes W^{-1/2} + W^{-1/2} \otimes I_r)^{-1}
+(W^{1/2} \otimes W^{1/2})` is the exact derivative of :math:`W^{1/2}` with
+respect to :math:`W^{-1}` and the terms in :math:`\hat q^e = q - \hat{\tilde q}`
+account for estimation of :math:`\tilde q` (through both :math:`\bar g_m`
+and :math:`\widehat W`). Contracting :math:`\hat\psi_{mi}` with
+:math:`2 (\widehat W^{1/2} \bar g_m)'` gives exactly the scalar score
+:math:`\hat\phi_{mi}` above, observation by observation: the
+:math:`A_W` term contracts to the exact derivative of :math:`Q_m` in
+:math:`W`, and the two :math:`\tilde q` terms cancel identically because
+:math:`\bar g^0_m = \hat\Sigma^0_e S_e' \widehat W \bar g_m`. The package
+therefore computes the scalar score directly, in the :math:`d_z`-dimensional
+pseudo-inverse basis (which equals the :math:`r`-dimensional full-rank form
+for any admissible :math:`S_e`); ``tests/test_appendix_b_reference.py``
+pins the equivalence.
+
 .. note::
 
-   Prior to 2026-07 the package (following the published appendix)
-   built :math:`\hat\sigma` from a vector influence function involving
-   :math:`W^{1/2}` and :math:`W^{3/4}` matrix powers. That expression
-   relied on a matrix-square-root identity that only holds for
-   commuting matrices and was incorrect with more than one effective
-   instrument; it also carried a separate first-stage
-   :math:`\tilde q`-estimation correction whose first-order effect is
-   exactly cancelled (by the Frisch-Waugh-Lovell projection identity)
-   and therefore does not belong in the scalar variance. The scalar
-   score above replaces both. The RV numerator, the F-statistic
-   diagnostic, and its critical values are unaffected.
+   Prior to 2026-07 the package built :math:`\hat\sigma` from a vector
+   influence function involving :math:`W^{1/2}` and :math:`W^{3/4}` matrix
+   powers. That expression relied on a matrix-square-root identity that
+   only holds for commuting matrices and was incorrect with more than one
+   effective instrument; it also carried the :math:`\tilde q`-estimation
+   effect through :math:`\widehat W` only, omitting the offsetting effect
+   through :math:`\bar g_m`. The revised Duarte et al. (2026), Appendix B
+   corrects both; the scalar score above is its exact contraction. The RV
+   numerator, the F-statistic diagnostic, and its critical values are
+   unaffected.
 
 When demand parameters are estimated rather than fixed, the DMSS
 Appendix C first-stage correction is added to the scalar score:
@@ -130,10 +163,13 @@ models. Per :ref:`references: Duarte, Magnolfi, Sølvsten, and Sullivan (2024)`,
    F(m, m') = \frac{2 N}{K_{\text{eff}}} \cdot
        \frac{F_{\text{num}}(m, m')}{D_{\rho}(m, m')},
 
-where :math:`K_{\text{eff}}` is the rank-adjusted instrument count
-(equal to the raw :math:`K` unless ``endogenous_cost_component`` is
-set, which residualizes one degree of freedom out of the instrument
-set), and :math:`D_\rho` is the variance-difference denominator built
+where :math:`K_{\text{eff}} = r = d_z - d_q` is the effective instrument
+count of Duarte et al. (2026), Appendix B (equal to the raw :math:`K`
+unless ``endogenous_cost_component`` is set, in which case each of the
+:math:`d_q` endogenous cost regressors absorbs one dimension of the
+instrument set; the package warns if the observed rank of the
+residualized instruments differs), and :math:`D_\rho` is the
+variance-difference denominator built
 from per-model trace contractions
 :math:`\hat\sigma_0, \hat\sigma_1, \hat\sigma_2` against the
 demand-side weight matrix.

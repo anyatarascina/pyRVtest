@@ -230,6 +230,32 @@ def _worst_case_cv_power(
     ])
 
 
+def _audit_effective_rank(W_inverse: _NDArray, K: int, K_endog: int, instrument: int) -> int:
+    """Warn when the residualized instruments' rank differs from ``K - K_endog``.
+
+    Duarte et al. (2026), Appendix B works with ``r = d_z - d_q`` effective
+    instruments; the F-statistic divisor and the critical-value row use
+    ``K_effective = K - K_endog``. If the covariance of the residualized
+    instruments has a different rank (collinear or redundant instrument
+    columns, or an endogenous column that the instruments do not predict)
+    that count is wrong. Only a warning is emitted -- the divisor is kept so
+    the reported statistics stay reproducible. Returns the observed rank.
+    """
+    observed_rank = int(np.linalg.matrix_rank(W_inverse))
+    K_effective = K - K_endog
+    if observed_rank != K_effective:
+        warnings.warn(
+            f"Instrument set {instrument}: the residualized instruments have rank "
+            f"{observed_rank} but K_effective = K - K_endog = {K} - {K_endog} = "
+            f"{K_effective}. The F-statistic divisor and critical-value row assume "
+            f"K_effective. Fix: drop collinear/redundant instrument columns or "
+            f"check that each endogenous cost component is predicted by the "
+            f"instruments.",
+            UserWarning, stacklevel=3,
+        )
+    return observed_rank
+
+
 def compute_instrument_results(
         problem: Any, instrument: int, M: int, N: int, omega: Array,
         demand_adjustment: bool, gradient_markups: Optional[Array],
@@ -246,15 +272,27 @@ def compute_instrument_results(
 
     Moved from ``Problem._compute_instrument_results``.
 
-    2026-07 variance correction: the RV denominator and the MCS covariances
-    are computed from the scalar score
+    RV denominator (2026-07 correction, confirmed by the revised Duarte et
+    al. (2026), Appendix B): the RV denominator and the MCS covariances are
+    computed from the scalar score
     ``phi_rv[m, i] = 2 v_mi omega_mi - v_mi^2 - Q_m`` with ``v_mi = z_i' W g_m``
-    (the exact delta method on ``Q_m = g_m' W g_m``), replacing the earlier
-    ``W^{1/2}`` / ``W^{3/4}`` vector influence function, which was incorrect
-    for more than one instrument, and dropping the explicit q_tilde
-    first-stage correction, whose first-order effect cancels exactly. See
-    ``notes/variance_proof_note.pdf`` and ``notes/Memo_appendixB.pdf``.
-    The RV numerator, F-statistics, rho, and critical values are unchanged.
+    (the exact delta method on ``Q_m = g_m' W g_m``). The revised Duarte et
+    al. (2026), Appendix B writes the influence function as an r-vector
+    (``r = d_z - d_q``, full-rank selection ``S_e``, exact square-root
+    derivative ``A_W``, and q_tilde-estimation terms in both the g-hat and
+    the W-hat channel); contracting that vector with ``2 (W^{1/2} g_m)'``
+    gives exactly ``phi_rv`` above, the two q_tilde terms cancelling
+    identically (``tests/test_appendix_b_reference.py`` pins this). The
+    earlier ``W^{1/2}`` / ``W^{3/4}`` vector influence function, which was
+    incorrect for more than one effective instrument, is gone.
+
+    F-statistic: ``sigma_m^2 = trace(V^AR_mm W^{-1}) / r`` with
+    ``e_m = omega_m - z^e' pi_m``, ``pi_m = W g_m``, exactly as in Duarte et
+    al. (2026), Appendix B, eq. (F). The code works in the
+    ``d_z``-dimensional pseudo-inverse basis (``Z_orthogonal`` has rank
+    ``K_effective = r`` when endogenous cost components are present); this
+    equals the r-dimensional full-rank representation for any admissible
+    selection ``S_e``.
     """
     instruments = problem.products["Z{0}".format(instrument)]
     K = np.shape(instruments)[1]
@@ -322,6 +360,8 @@ def compute_instrument_results(
             weight_matrix = np.linalg.inv(W_inverse)
         except np.linalg.LinAlgError:
             weight_matrix = np.linalg.pinv(W_inverse)
+
+    _audit_effective_rank(W_inverse, K, K_endog, instrument)
 
     # GMM moments and fit for each model
     g = np.zeros((M, K), dtype=options.dtype)
@@ -438,11 +478,17 @@ def compute_instrument_results(
             else:
                 symbols_rv[i, m] = " "
 
-    # F statistics — residualize omega on Z_orthogonal; precompute QR once for all models
+    # F statistics. First-stage residual e_m = omega_m - z^e' pi_m with
+    # pi_m = W g_m (Duarte et al. (2026), Appendix B). With the pseudo-inverse
+    # weight matrix, Z W g_m = Z (Z'Z)^+ Z' omega_m is the exact projection of
+    # omega_m on the column space of Z_orthogonal. A plain QR of the
+    # rank-deficient Z_orthogonal (endogenous-cost path) is not rank-revealing
+    # and would also remove a spurious rounding-noise direction, perturbing
+    # F by O(1/N); the pi_m form avoids that and is identical to the QR
+    # projection when Z_orthogonal has full column rank.
     phi = np.zeros([M, N, K])
-    Q_Z, _ = np.linalg.qr(Z_orthogonal, mode='reduced')
     for m in range(M):
-        e = np.reshape(omega[m] - Q_Z @ (Q_Z.T @ omega[m]), [N, 1])
+        e = np.reshape(omega[m] - Z_orthogonal @ (weight_matrix @ g[m]), [N, 1])
         phi[m] = (e * Z_orthogonal) @ weight_matrix
         if demand_adjustment:
             phi[m] = phi[m] - (h_i - np.transpose(h)) @ np.transpose(weight_matrix @ adjustment_base[m])
@@ -500,6 +546,9 @@ def compute_instrument_results(
                 extract_block(phi_gram, m, m, K),
                 extract_block(phi_gram, i, m, K)
             ])
+            # sigma_m^2 = trace(V^AR_mm W^{-1}) / r of Duarte et al. (2026),
+            # Appendix B, evaluated in the pseudo-inverse basis (W_inverse is
+            # the d_z x d_z covariance of the residualized instruments).
             sigma = 1 / K_effective * np.array([
                 np.trace(variance[0] @ W_inverse),
                 np.trace(variance[1] @ W_inverse),

@@ -7,6 +7,38 @@ project roughly follows [Semantic Versioning](https://semver.org/).
 
 ## [0.4.0] — unreleased
 
+### Fixed (2026-08-27) — F-statistic first-stage residual on the endogenous-cost path; alignment with the revised Duarte et al. (2026), Appendix B
+
+- **F-statistic first-stage residual.** With `endogenous_cost_component`
+  set, the residualized instrument matrix has rank `K - K_endog`. The
+  first-stage residual `e_m` entering the F-statistic was obtained by
+  projecting `omega_m` with a plain QR of that rank-deficient matrix,
+  which is not rank-revealing and also removed a spurious rounding-noise
+  direction, perturbing `F` by O(1/N). `e_m` is now
+  `omega_m - z^e (W g_m)` with the pseudo-inverse `W`, i.e. the exact
+  projection and literally the definition `pi_m = W g_m` of Duarte et
+  al. (2026), Appendix B. Identical to the previous computation when the
+  instruments have full column rank (no endogenous cost component).
+  Deliberate snapshot change: `analytical_scale` `F` moved by 1.07e-2
+  (N = 60); every other field of that snapshot and all other snapshots
+  are unchanged to <= 1e-13. Justification and provenance in
+  `.claude/handovers/2026-08-27-appendix-b-reference.md`.
+- **Effective-rank audit.** A `UserWarning` is emitted when the rank of
+  the residualized instrument covariance differs from
+  `K_effective = K - K_endog`, the divisor and critical-value row used
+  for the F-statistic.
+- **Revised Duarte et al. (2026), Appendix B.** The revised appendix
+  writes the RV influence function as an `r`-vector (`r = d_z - d_q`,
+  full-rank selection `S_e`, exact square-root derivative `A_W`, and
+  q_tilde-estimation terms in both the g-hat and the W-hat channel).
+  Its contraction with `2 (W^{1/2} g_m)'` is exactly the scalar score
+  the package already computes (the two q_tilde terms cancel
+  identically), so the RV denominators and MCS covariances are
+  unchanged. `tests/test_appendix_b_reference.py` hand-codes the vector
+  formula and pins the equivalence (including `d_q = 2` and absorbed
+  fixed effects); `docs/math.rst` and the `test_engine.py` comments now
+  cite the revised appendix.
+
 ### Fixed (2026-07-24) — RV variance corrected to the scalar-score formula
 
 The RV test-statistic denominator and the MCS covariance inputs are now
