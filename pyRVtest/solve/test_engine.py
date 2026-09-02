@@ -267,8 +267,18 @@ def compute_instrument_results(
         gradient_gamma: Optional[Array] = None,
         reliability_check: str = 'conditional',
         reliability_precision_dps: int = 50,
+        n_endogenous_cost: int = 0,
 ) -> Dict[str, Any]:
     """Compute all test statistics for a single instrument set.
+
+    ``n_endogenous_cost`` is the number of cost parameters the caller
+    estimated in a first step *outside* pyRVtest (the ``mc_correction``
+    path). Each such parameter absorbs one dimension of the instruments, so
+    the effective instrument count used for the critical-value row, the
+    size/power symbols and the effective-rank audit is
+    ``K_effective = K - n_endogenous_cost``. It is ignored when
+    ``endog_hat`` is supplied (the in-package ``endogenous_cost_component``
+    path counts its own columns). ``F`` and ``TRV`` do not depend on it.
 
     Moved from ``Problem._compute_instrument_results``.
 
@@ -297,7 +307,8 @@ def compute_instrument_results(
     instruments = problem.products["Z{0}".format(instrument)]
     K = np.shape(instruments)[1]
     K_endog = (
-        len(problem._endogenous_cost_columns) if endog_hat is not None else 0
+        len(problem._endogenous_cost_columns) if endog_hat is not None
+        else int(n_endogenous_cost)
     )
     K_effective = K - K_endog
 

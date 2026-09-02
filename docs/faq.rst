@@ -319,6 +319,15 @@ The most common changes:
 All four legacy forms continue to work for one or two releases with a
 ``DeprecationWarning``.
 
+If you stay on ``mc_correction`` and estimated the cost parameter(s)
+yourself, residualizing the instruments on the fitted endogenous cost
+component before passing them in, also pass
+``Problem.solve(..., n_endogenous_cost=<number of estimated parameters>)``.
+Each estimated parameter absorbs one instrument dimension, and the
+F-statistic critical-value row and size/power symbols are looked up at
+``K - n_endogenous_cost`` (the ``endogenous_cost_component`` path does
+this automatically). ``F`` and ``TRV`` themselves do not depend on it.
+
 
 Where else to look
 ------------------

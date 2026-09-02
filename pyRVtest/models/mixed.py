@@ -1,9 +1,10 @@
-"""Mixed Cournot-Bertrand: Morrow-Skerlos (2011) Schur-complement formulation.
+"""Mixed Cournot-Bertrand: Feenstra-Levinsohn (1995) Nash-in-(p_B, q_C) formulation.
 
 User code specifies which products are Bertrand vs Cournot via a
 ``mix_flag`` column (boolean: ``True`` = Bertrand, ``False`` = Cournot).
-Within a market the Bertrand products have their FOC modified by the
-Schur complement to account for feedback from Cournot quantities.
+Within a market the Bertrand products face the residual demand that
+obtains when Cournot quantities are held fixed, whose slope is the Schur
+complement ``D_BB - D_BC D_CC^{-1} D_CB`` of the demand Jacobian.
 """
 
 from __future__ import annotations
@@ -27,11 +28,31 @@ class MixCournotBertrand(ConductModel):
     r"""Mixed-strategy oligopoly: a subset of products play Bertrand, the rest Cournot.
 
     Within each market, let :math:`B` index Bertrand products and :math:`C`
-    index Cournot products. Cournot products use the standard quantity-
-    setting FOC; Bertrand products use the price-setting FOC adjusted by
-    the Schur complement ``D_BC @ D_CC^{-1} @ D_CB`` to account for the
-    Cournot players' quantity response to Bertrand price choices. Formula
-    from Morrow and Skerlos (2011).
+    index Cournot products, and partition the demand Jacobian
+    :math:`D = \partial s / \partial p` and the ownership matrix
+    :math:`\Omega` accordingly. The equilibrium is Nash in
+    :math:`(p_B, q_C)`: Bertrand firms choose prices taking rival prices and
+    Cournot quantities as given, Cournot firms choose quantities taking rival
+    quantities and Bertrand prices as given (Feenstra and Levinsohn, 1995,
+    Proposition 3). Cournot products use the standard quantity-setting FOC
+    on the Cournot block,
+
+    .. math:: \Delta_C = -(\Omega_{CC} \odot D_{CC}^{-1}) s_C .
+
+    When a Bertrand firm moves :math:`p_B`, the Cournot firms' prices adjust
+    so that their quantities stay fixed, :math:`dp_C = -D_{CC}^{-1} D_{CB}\,dp_B`,
+    so the Bertrand firm's residual-demand slope is the Schur complement
+    :math:`S = D_{BB} - D_{BC} D_{CC}^{-1} D_{CB}` and
+
+    .. math:: \Delta_B = -(\Omega_{BB} \odot S')^{-1} s_B .
+
+    This is eq. (A22) of Feenstra and Levinsohn (1995) written on the
+    Jacobian blocks. (Their Proposition 3(a) shows a *plus* sign because it
+    is written on the cross-elasticity matrix :math:`E`, where
+    :math:`D_{BC} \propto +E_{12}` but :math:`D_{CC} \propto -(I - E_{22})`;
+    the sign is carried by :math:`(I - E_{22})^{-1}`.) Versions of pyRVtest
+    before 0.4.0b9 used ``D_BB + D_BC D_CC^{-1} D_CB``, which understates the
+    Bertrand players' markups (they must exceed pure-Bertrand markups).
 
     Parameters
     ----------
@@ -113,9 +134,11 @@ class MixCournotBertrand(ConductModel):
 
         D_CC_inv = np.linalg.inv(D_CC)
         mkups_C = -(O_CC * D_CC_inv) @ shares_C
-        mkups_B = np.linalg.solve(
-            O_BB * (D_BC @ D_CC_inv @ D_CB + D_BB), -shares_B,
-        )
+        # Residual-demand slope of the Bertrand players with Cournot
+        # quantities held fixed (Schur complement of D w.r.t. the C block);
+        # transposed to match the Bertrand convention ``O * D.T``.
+        schur = D_BB - D_BC @ D_CC_inv @ D_CB
+        mkups_B = np.linalg.solve(O_BB * schur.T, -shares_B)
         mkups = np.zeros((len(b), 1))
         mkups[b, 0] = mkups_B.flatten()
         mkups[c, 0] = mkups_C.flatten()
@@ -161,16 +184,15 @@ class MixCournotBertrand(ConductModel):
         dD_CC_inv = -D_CC_inv @ dD_CC @ D_CC_inv
         d_mu_C = -(O_CC * dD_CC_inv) @ s_arr[c]
 
-        # Bertrand block via Schur complement
-        Schur = D_BC @ D_CC_inv @ D_CB + D_BB
-        dSchur = (
-            dD_BC @ D_CC_inv @ D_CB
-            + D_BC @ dD_CC_inv @ D_CB
-            + D_BC @ D_CC_inv @ dD_CB
-            + dD_BB
+        # Bertrand block via the Schur complement S = D_BB - D_BC D_CC^{-1} D_CB
+        schur = D_BB - D_BC @ D_CC_inv @ D_CB
+        d_schur = dD_BB - (
+            dD_BC @ D_CC_inv @ D_CB +
+            D_BC @ dD_CC_inv @ D_CB +
+            D_BC @ D_CC_inv @ dD_CB
         )
-        A_B = O_BB * Schur
-        dA_B = O_BB * dSchur
+        A_B = O_BB * schur.T
+        dA_B = O_BB * d_schur.T
         d_mu_B = -np.linalg.solve(A_B, dA_B @ mu_arr[b])
 
         d_mu = np.zeros(J_t)

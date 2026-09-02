@@ -506,18 +506,19 @@ def _analytical_markup_derivative(
         # Cournot block — vectorized over theta.
         dD_CC_inv = -np.einsum('ij,jln,lm->imn', D_CC_inv, dD_CC, D_CC_inv)
         d_mu_C = -np.einsum('ij,ijk,j->ik', O_CC, dD_CC_inv, s_t[c_t])
-        # Bertrand block via Schur complement — only dSchur depends on theta.
-        Schur = D_BC @ D_CC_inv @ D_CB + D_BB
+        # Bertrand block via the Schur complement S = D_BB - D_BC D_CC^{-1} D_CB
+        # (residual demand with Cournot quantities fixed); only dS depends on
+        # theta. Transposed to match the Bertrand convention ``O * D.T``.
+        Schur = D_BB - D_BC @ D_CC_inv @ D_CB
         DCC_inv_DCB = D_CC_inv @ D_CB
         D_BC_DCC_inv = D_BC @ D_CC_inv
-        dSchur = (
-            np.einsum('ijk,jl->ilk', dD_BC, DCC_inv_DCB)
-            + np.einsum('ij,jmk,ml->ilk', D_BC, dD_CC_inv, D_CB)
-            + np.einsum('ij,jlk->ilk', D_BC_DCC_inv, dD_CB)
-            + dD_BB
+        dSchur = dD_BB - (
+            np.einsum('ijk,jl->ilk', dD_BC, DCC_inv_DCB) +
+            np.einsum('ij,jmk,ml->ilk', D_BC, dD_CC_inv, D_CB) +
+            np.einsum('ij,jlk->ilk', D_BC_DCC_inv, dD_CB)
         )
-        A_B = O_BB * Schur
-        dA_B = O_BB[..., None] * dSchur
+        A_B = O_BB * Schur.T
+        dA_B = O_BB[..., None] * dSchur.transpose(1, 0, 2)
         rhs_B = np.einsum('ijk,j->ik', dA_B, mu_t[b_t])
         d_mu_B = -np.linalg.solve(A_B, rhs_B)
         d_mu = np.zeros((J_t, n_theta))

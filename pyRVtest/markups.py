@@ -634,11 +634,12 @@ def evaluate_first_order_conditions(
 
 
 def _compute_mix_cournot_bertrand_markups(ownership_matrix, response_matrix, mix_flag, shares):
-    """Compute markups for a mixed Cournot/Bertrand market.
+    """Compute markups for a mixed Cournot/Bertrand market (Nash in (p_B, q_C)).
 
-    Cournot products use the standard quantity-setting FOC. Bertrand products use the price-setting FOC
-    adjusted by the Schur complement (D_BC @ D_CC^{-1} @ D_CB) to account for the feedback from Cournot
-    quantity responses, following the derivation in Morrow and Skerlos (2011).
+    Cournot products use the standard quantity-setting FOC on the Cournot block. Bertrand products face the
+    residual demand that obtains when Cournot quantities are held fixed, whose slope is the Schur complement
+    ``D_BB - D_BC @ D_CC^{-1} @ D_CB`` of the demand Jacobian (Feenstra and Levinsohn, 1995, Proposition 3 and
+    eq. (A22)). Same algebra as :meth:`pyRVtest.MixCournotBertrand._compute_markup_with_flag`.
     """
     b, c = mix_flag, ~mix_flag
 
@@ -652,7 +653,8 @@ def _compute_mix_cournot_bertrand_markups(ownership_matrix, response_matrix, mix
 
     D_CC_inv = inv(D_CC)
     mkups_C = -(O_CC * D_CC_inv) @ shares_C
-    mkups_B = np.linalg.solve(O_BB * (D_BC @ D_CC_inv @ D_CB + D_BB), -shares_B)
+    schur = D_BB - D_BC @ D_CC_inv @ D_CB
+    mkups_B = np.linalg.solve(O_BB * schur.T, -shares_B)
 
     mkups = np.zeros((len(mix_flag), 1))
     mkups[b] = mkups_B.reshape(-1, 1)

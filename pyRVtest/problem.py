@@ -1711,6 +1711,7 @@ class Problem(Container, StringRepresentation):
             n_jobs: int = 1,
             phi_matrix: Optional[PhiMatrixData] = None,
             markup_derivative: Optional[MarkupDerivativeData] = None,
+            n_endogenous_cost: int = 0,
     ) -> ProblemResults:
         r"""Solve the problem.
 
@@ -1794,6 +1795,16 @@ class Problem(Container, StringRepresentation):
             inline. Each supplied object is validated against this Problem (dimensions, ``market_ids``
             ordering, backend identity) and rejected on mismatch. Neither is supported with
             ``endogenous_cost_component`` (raises). Both are ignored when ``demand_adjustment=False``.
+        n_endogenous_cost: int
+            (optional, default is 0) Number of marginal-cost parameters that were estimated in a first
+            step *outside* pyRVtest and folded into the implied costs through ``mc_correction`` (or by
+            pre-adjusting the markup columns), with the instruments residualized on the corresponding
+            fitted endogenous cost components before being passed in. Each such parameter absorbs one
+            dimension of the instruments (Duarte et al. (2026), Appendix B: ``r = d_z - d_q``), so the
+            effective instrument count used for the F-statistic critical-value row, the size/power
+            symbols and the effective-rank audit is ``K - n_endogenous_cost``. The values of ``F`` and
+            ``TRV`` are invariant to it. Must be 0 when ``endogenous_cost_component`` is set (that path
+            counts its own columns; raises otherwise).
 
         Returns
         -------
@@ -1825,6 +1836,23 @@ class Problem(Container, StringRepresentation):
             demand_adjustment, clustering_adjustment, costs_type,
             phi_matrix, markup_derivative,
         )
+        if not isinstance(n_endogenous_cost, (int, np.integer)) or isinstance(n_endogenous_cost, bool) \
+                or n_endogenous_cost < 0:
+            raise ValueError(
+                f"Expected n_endogenous_cost to be a non-negative integer (the number of cost "
+                f"parameters estimated outside pyRVtest). "
+                f"Received {n_endogenous_cost!r}. "
+                f"Fix: pass n_endogenous_cost=0 (default) or a positive int."
+            )
+        if n_endogenous_cost > 0 and self.endogenous_cost_component is not None:
+            raise ValueError(
+                f"Expected n_endogenous_cost=0 when endogenous_cost_component is set, because "
+                f"that path already counts its {len(self._endogenous_cost_columns)} column(s) "
+                f"toward the effective instrument count. "
+                f"Received n_endogenous_cost={n_endogenous_cost}. "
+                f"Fix: drop n_endogenous_cost, or drop endogenous_cost_component and pass "
+                f"mc_correction with n_endogenous_cost."
+            )
 
         # Opt-in threaded per-market loops. n_jobs=1 (default) is the serial
         # path. resolve_n_jobs validates and maps -1 -> all cores. The value is
@@ -2113,6 +2141,7 @@ class Problem(Container, StringRepresentation):
                 grad_gamma_l,
                 reliability_check=reliability_check,
                 reliability_precision_dps=reliability_precision_dps,
+                n_endogenous_cost=n_endogenous_cost,
             )
             g_list[instrument] = r['g']
             Q_list[instrument] = r['Q']
@@ -2701,7 +2730,8 @@ class Problem(Container, StringRepresentation):
             clustering_adjustment: bool,
             critical_values_size: Array, critical_values_power: Array,
             endog_hat: Optional[Array] = None,
-            gradient_gamma: Optional[Array] = None
+            gradient_gamma: Optional[Array] = None,
+            n_endogenous_cost: int = 0,
     ) -> dict:
         """Compute all test statistics for a single instrument set.
 
@@ -2714,6 +2744,7 @@ class Problem(Container, StringRepresentation):
             gradient_markups, H_prime_wd, H, h_i, h,
             clustering_adjustment, critical_values_size, critical_values_power,
             endog_hat, gradient_gamma,
+            n_endogenous_cost=n_endogenous_cost,
         )
 
     def _compute_mcs(

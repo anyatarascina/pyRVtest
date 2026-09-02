@@ -7,6 +7,46 @@ project roughly follows [Semantic Versioning](https://semver.org/).
 
 ## [0.4.0] — unreleased
 
+### Fixed (2026-09-02) — sign of the Bertrand block in `MixCournotBertrand` (0.4.0b9)
+
+- **Mixed Cournot–Bertrand markups.** The Bertrand players' block used
+  `D_BB + D_BC D_CC^{-1} D_CB` as the residual-demand slope. The mixed
+  equilibrium is Nash in `(p_B, q_C)`: when a Bertrand firm moves `p_B`
+  the Cournot firms' prices adjust so that their quantities stay fixed,
+  `dp_C = -D_CC^{-1} D_CB dp_B`, so the residual-demand slope is the
+  ordinary Schur complement `S = D_BB - D_BC D_CC^{-1} D_CB` and
+  `mu_B = -(O_BB * S')^{-1} s_B` (Feenstra and Levinsohn, 1995,
+  Proposition 3 and eq. (A22); their Proposition 3(a) shows a plus sign
+  because it is written on the cross-elasticity matrix `E`, where
+  `D_BC ∝ +E_12` but `D_CC ∝ -(I - E_22)`). The old formula understated
+  the Bertrand players' markups (they must exceed the pure-Bertrand
+  markups; FL95 p. 31). Fixed identically in `models/mixed.py`
+  (markup and analytical derivative), `markups.py`
+  (`_compute_mix_cournot_bertrand_markups`, the `build_markups` /
+  passthrough path) and `solve/demand_adjustment.py` (vectorized
+  derivative). The Schur complement is now transposed like the Bertrand
+  block (`O * D.T`), which matters only for asymmetric Jacobians. The
+  Cournot block is unchanged. Regression tests: numerical Nash-in-
+  `(p_B, q_C)` first-order conditions, reduction to Bertrand/Cournot
+  without cross-group effects, a single price setter among quantity
+  setters reproducing its Cournot markup, and a finite-difference check
+  of the derivative (`tests/test_models.py::TestMixCournotBertrand`).
+  Any results computed with `MixCournotBertrand` (or
+  `model_downstream='mix_cournot_bertrand'`) before 0.4.0b9 change.
+
+### Added (2026-09-02) — `Problem.solve(n_endogenous_cost=...)` (0.4.0b9)
+
+- Number of marginal-cost parameters estimated in a first step *outside*
+  pyRVtest and folded in through `mc_correction` (with the instruments
+  residualized on the fitted endogenous cost component before being
+  passed in). Each absorbs one instrument dimension (Duarte et al.
+  (2026), Appendix B: `r = d_z - d_q`), so the F-statistic critical-value
+  row, the size/power symbols and the effective-rank audit now use
+  `K_effective = K - n_endogenous_cost` on that path, as the
+  `endogenous_cost_component` path already did. `F` and `TRV` are
+  invariant to the count. Default 0 (previous behaviour); rejected when
+  `endogenous_cost_component` is set.
+
 ### Fixed (2026-08-27) — F-statistic first-stage residual on the endogenous-cost path; alignment with the revised Duarte et al. (2026), Appendix B
 
 - **F-statistic first-stage residual.** With `endogenous_cost_component`
